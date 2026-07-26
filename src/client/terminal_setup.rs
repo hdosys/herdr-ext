@@ -21,6 +21,40 @@ use crossterm::terminal::{DisableLineWrap, EnableLineWrap};
 
 use super::frame_output::clear_received_kitty_graphics;
 
+static ORIGINAL_HOST_CURSOR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static LATEST_HOST_CURSOR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub(crate) fn record_host_cursor_color(color: crate::terminal_theme::RgbColor) {
+    let value =
+        0x01000000 | (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b);
+    let _ = ORIGINAL_HOST_CURSOR.compare_exchange(0, value, Ordering::AcqRel, Ordering::Acquire);
+    LATEST_HOST_CURSOR.store(value, Ordering::Release);
+}
+
+pub(crate) fn original_host_cursor_color() -> Option<crate::terminal_theme::RgbColor> {
+    let value = ORIGINAL_HOST_CURSOR.load(Ordering::Acquire);
+    (value != 0).then_some(crate::terminal_theme::RgbColor {
+        r: (value >> 16) as u8,
+        g: (value >> 8) as u8,
+        b: value as u8,
+    })
+}
+
+pub(crate) fn latest_host_cursor_color() -> Option<crate::terminal_theme::RgbColor> {
+    let value = LATEST_HOST_CURSOR.load(Ordering::Acquire);
+    (value != 0).then_some(crate::terminal_theme::RgbColor {
+        r: (value >> 16) as u8,
+        g: (value >> 8) as u8,
+        b: value as u8,
+    })
+}
+
+#[cfg(test)]
+pub(super) fn reset_host_cursor_colors_for_test() {
+    ORIGINAL_HOST_CURSOR.store(0, Ordering::Release);
+    LATEST_HOST_CURSOR.store(0, Ordering::Release);
+}
+
 // ---------------------------------------------------------------------------
 // Terminal setup / restore
 // ---------------------------------------------------------------------------
@@ -45,6 +79,10 @@ pub(super) fn setup_terminal_with_capabilities(
     enable_client_protocols: bool,
     mouse_capture: bool,
 ) -> io::Result<TerminalGuard> {
+    ORIGINAL_HOST_CURSOR.store(0, Ordering::Release);
+    LATEST_HOST_CURSOR.store(0, Ordering::Release);
+    #[cfg(windows)]
+    let original_windows_input_mode = read_windows_input_mode();
     ratatui::init();
     let mut terminal_guard = TerminalGuard {
         host_escape_disambiguation_active: false,
@@ -55,7 +93,9 @@ pub(super) fn setup_terminal_with_capabilities(
         restore_claimed: Arc::new(AtomicBool::new(false)),
         restored: false,
         #[cfg(windows)]
-        restore_windows_input_mode: Arc::new(WindowsInputModeRestore::default()),
+        restore_windows_input_mode: Arc::new(WindowsInputModeRestore {
+            mode: Mutex::new(original_windows_input_mode),
+        }),
     };
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     let host_color_scheme_reports =
@@ -349,6 +389,20 @@ pub(super) fn write_terminal_restore_postlude(
         )?;
     }
     // Restore a visible cursor and reset DECSCUSR back to the terminal default.
+    let cursor = original_host_cursor_color()
+        .map(|color| {
+            crate::terminal_theme::osc_set_default_color_sequence(
+                crate::terminal_theme::DefaultColorKind::Cursor,
+                color,
+            )
+        })
+        .unwrap_or_else(|| {
+            crate::terminal_theme::osc_reset_default_color_sequence(
+                crate::terminal_theme::DefaultColorKind::Cursor,
+            )
+            .into()
+        });
+    writer.write_all(cursor.as_bytes())?;
     writer.write_all(b"\x1b[?25h\x1b[0 q")?;
     writer.flush()
 }
@@ -508,6 +562,14 @@ pub(super) fn windows_virtual_terminal_input_mode(mode: u32) -> u32 {
 }
 
 #[cfg(windows)]
+fn read_windows_input_mode() -> Option<u32> {
+    use windows_sys::Win32::System::Console::{GetConsoleMode, GetStdHandle, STD_INPUT_HANDLE};
+    let mut mode = 0;
+    // Read before ratatui claims raw input so cleanup restores the caller's exact mode.
+    (unsafe { GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mut mode) } != 0).then_some(mode)
+}
+
+#[cfg(windows)]
 fn restore_windows_input_mode_value(mode: u32) {
     use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Console::{GetStdHandle, SetConsoleMode, STD_INPUT_HANDLE};
@@ -653,15 +715,15 @@ fn restore_terminal_state(
     );
     let _ = set_mouse_capture(false, false);
     #[cfg(windows)]
-    if let Some(mode) = restore_windows_input_mode {
-        restore_windows_input_mode_value(mode);
-    }
-    #[cfg(windows)]
     if !is_ssh_session() {
         let _ = disable_windows_native_mouse_capture();
     }
 
     let restore_result = ratatui::try_restore();
+    #[cfg(windows)]
+    if let Some(mode) = restore_windows_input_mode {
+        restore_windows_input_mode_value(mode);
+    }
     let postlude_result =
         write_terminal_restore_postlude(&mut io::stdout(), reset_host_color_scheme_reports);
 
@@ -792,46 +854,50 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_input_mode_restore_tracks_recovery_after_cleanup_callback_creation() {
-        let restore_claimed = Arc::new(AtomicBool::new(false));
-        let restore_mode = Arc::new(WindowsInputModeRestore::default());
-        let callback_claimed = restore_claimed.clone();
-        let callback_mode = restore_mode.clone();
-        let cleanup = move || {
-            if callback_claimed.swap(true, Ordering::AcqRel) {
-                None
-            } else {
-                callback_mode.take()
-            }
-        };
+        for original_mode in [None, Some(7)] {
+            let restore_claimed = Arc::new(AtomicBool::new(false));
+            let restore_mode = Arc::new(WindowsInputModeRestore {
+                mode: Mutex::new(original_mode),
+            });
+            let callback_claimed = restore_claimed.clone();
+            let callback_mode = restore_mode.clone();
+            let cleanup = move || {
+                if callback_claimed.swap(true, Ordering::AcqRel) {
+                    None
+                } else {
+                    callback_mode.take()
+                }
+            };
 
-        let failed =
-            restore_mode.activate(&restore_claimed, WindowsVirtualTerminalInputSetup::default);
-        assert!(!failed.active);
-        let already_active =
+            let failed =
+                restore_mode.activate(&restore_claimed, WindowsVirtualTerminalInputSetup::default);
+            assert!(!failed.active);
+            let already_active =
+                restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
+                    active: true,
+                    ..WindowsVirtualTerminalInputSetup::default()
+                });
+            assert!(already_active.active);
             restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
                 active: true,
-                ..WindowsVirtualTerminalInputSetup::default()
+                restore_mode: Some(152),
+                warning: None,
             });
-        assert!(already_active.active);
-        restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
-            active: true,
-            restore_mode: Some(152),
-            warning: None,
-        });
-        restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
-            active: true,
-            restore_mode: Some(999),
-            warning: None,
-        });
+            restore_mode.activate(&restore_claimed, || WindowsVirtualTerminalInputSetup {
+                active: true,
+                restore_mode: Some(999),
+                warning: None,
+            });
 
-        assert_eq!(cleanup(), Some(152));
-        assert_eq!(cleanup(), None);
-        let called = AtomicBool::new(false);
-        restore_mode.activate(&restore_claimed, || {
-            called.store(true, Ordering::Release);
-            WindowsVirtualTerminalInputSetup::default()
-        });
-        assert!(!called.load(Ordering::Acquire));
+            assert_eq!(cleanup(), original_mode.or(Some(152)));
+            assert_eq!(cleanup(), None);
+            let called = AtomicBool::new(false);
+            restore_mode.activate(&restore_claimed, || {
+                called.store(true, Ordering::Release);
+                WindowsVirtualTerminalInputSetup::default()
+            });
+            assert!(!called.load(Ordering::Acquire));
+        }
     }
 
     #[derive(Clone, Default)]

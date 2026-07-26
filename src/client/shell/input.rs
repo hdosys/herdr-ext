@@ -39,16 +39,11 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
                     crate::terminal_theme::DefaultColorKind::Background => {
                         ClientHostDefaultColorKind::Background
                     }
+                    crate::terminal_theme::DefaultColorKind::Cursor => return None,
                 },
                 color: (*color).into(),
             })
         }
-        RawInputEvent::HostPaletteColors { colors } => Some(ClientHostThemeUpdate::PaletteColors(
-            colors
-                .iter()
-                .map(|(index, color)| (*index, (*color).into()))
-                .collect(),
-        )),
         RawInputEvent::HostColorSchemeChanged(appearance) => {
             Some(ClientHostThemeUpdate::Appearance(match appearance {
                 crate::terminal_theme::HostAppearance::Dark => ClientHostAppearance::Dark,
@@ -57,24 +52,6 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
         }
         _ => None,
     }
-}
-
-fn push_host_theme_update(
-    requests: &mut Vec<ClientMessage>,
-    update: crate::protocol::ClientHostThemeUpdate,
-) {
-    if let crate::protocol::ClientHostThemeUpdate::PaletteColors(colors) = &update {
-        if let Some(ClientMessage::ClientShellHostTheme {
-            update: crate::protocol::ClientHostThemeUpdate::PaletteColors(pending),
-        }) = requests.last_mut()
-        {
-            if pending.len() + colors.len() <= 256 {
-                pending.extend_from_slice(colors);
-                return;
-            }
-        }
-    }
-    requests.push(ClientMessage::ClientShellHostTheme { update });
 }
 
 impl ClientShellState {
@@ -167,7 +144,9 @@ impl ClientShellState {
                 continue;
             }
             if let Some(update) = host_theme_update(&event) {
-                push_host_theme_update(&mut outcome.requests, update);
+                outcome
+                    .requests
+                    .push(ClientMessage::ClientShellHostTheme { update });
             }
             match event {
                 RawInputEvent::Key(key) => self.handle_key(key, &mut outcome),
@@ -290,8 +269,14 @@ impl ClientShellState {
                         }
                     }
                 }
+                RawInputEvent::HostDefaultColor {
+                    kind: crate::terminal_theme::DefaultColorKind::Cursor,
+                    color,
+                } => {
+                    crate::client::terminal_setup::record_host_cursor_color(color);
+                    outcome.repaint = true;
+                }
                 RawInputEvent::HostDefaultColor { .. }
-                | RawInputEvent::HostPaletteColors { .. }
                 | RawInputEvent::HostCellSizeReport { .. }
                 | RawInputEvent::Unsupported => {}
             }

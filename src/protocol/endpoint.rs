@@ -27,6 +27,17 @@ pub const PRESENTATION_EFFECTS_READY_KIND: &str = "endpoint.presentation.ready.v
 pub const HEALTH_CHECK_CAPABILITY: &str = "health_check";
 pub const HEALTH_PING_KIND: &str = "endpoint.health.ping.v1";
 pub const HEALTH_PONG_KIND: &str = "endpoint.health.pong.v1";
+pub const SURFACE_CURSOR_COLOR_CAPABILITY: &str = "surface_cursor_color";
+pub const SURFACE_CURSOR_COLOR_KIND: &str = "shell.surface.cursor-color.v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceCursorColor {
+    pub boot_id: String,
+    pub projection_revision: u64,
+    pub surface_revision: u64,
+    pub color: Option<crate::terminal_theme::RgbColor>,
+}
+
 pub const AGENT_VIEW_PROJECTION_CAPABILITY: &str = "agent_view_projection";
 pub const AGENT_VIEW_PROJECTION_KIND: &str = "endpoint.agent-view.v1";
 pub const AGENT_COMPLETIONS_CAPABILITY: &str = "agent_completions";
@@ -72,6 +83,8 @@ pub struct EndpointClientHello {
     pub input_codecs: Vec<String>,
     #[serde(default)]
     pub blob_codecs: Vec<String>,
+    #[serde(default)]
+    pub surface_cursor_color: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +185,7 @@ impl EndpointServerWelcome {
                 SURFACE_INTEREST_CAPABILITY.into(),
                 PRESENTATION_EFFECTS_FENCE_CAPABILITY.into(),
                 HEALTH_CHECK_CAPABILITY.into(),
+                SURFACE_CURSOR_COLOR_CAPABILITY.into(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.into(),
                 AGENT_COMPLETIONS_CAPABILITY.into(),
             ],
@@ -203,6 +217,7 @@ mod tests {
 
     fn hello() -> EndpointClientHello {
         EndpointClientHello {
+            surface_cursor_color: false,
             generation: ENDPOINT_PROTOCOL_GENERATION,
             cell_width_px: 8,
             cell_height_px: 16,

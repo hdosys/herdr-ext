@@ -334,7 +334,6 @@ fn apply_client_terminal_input_events(
             | crate::raw_input::RawInputEvent::OuterFocusGained
             | crate::raw_input::RawInputEvent::OuterFocusLost
             | crate::raw_input::RawInputEvent::HostDefaultColor { .. }
-            | crate::raw_input::RawInputEvent::HostPaletteColors { .. }
             | crate::raw_input::RawInputEvent::HostColorSchemeChanged(_)
             | crate::raw_input::RawInputEvent::HostCellSizeReport { .. }
             | crate::raw_input::RawInputEvent::Unsupported => {

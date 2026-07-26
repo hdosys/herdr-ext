@@ -1230,6 +1230,84 @@ fn connect_matching_test_shell(
     connect_test_shell(server, client_id, 80, 23)
 }
 
+#[tokio::test]
+async fn cursor_color_extension_tracks_full_and_retained_surface_revisions() {
+    let mut server = test_headless_server();
+    let pane_id = install_shared_view_test_runtime(&mut server);
+    write_shared_test_pane(&mut server, pane_id, b"\x1b]12;#112233\x07");
+    let (_control, render) = connect_matching_test_shell(&mut server, 7);
+    server
+        .clients
+        .get_mut(&7)
+        .unwrap()
+        .writer
+        .as_mut()
+        .unwrap()
+        .surface_cursor_color = true;
+    server.render_and_stream();
+    let read = |bytes: Vec<u8>| {
+        let mut reader = std::io::Cursor::new(bytes);
+        let message: ServerMessage = protocol::read_message(&mut reader, MAX_FRAME_SIZE).unwrap();
+        let ServerMessage::EndpointControl { kind, data } = message else {
+            panic!("missing cursor extension")
+        };
+        assert_eq!(kind, protocol::endpoint::SURFACE_CURSOR_COLOR_KIND);
+        let metadata: protocol::endpoint::SurfaceCursorColor = serde_json::from_str(&data).unwrap();
+        let message: ServerMessage = protocol::read_message(&mut reader, MAX_FRAME_SIZE).unwrap();
+        assert_eq!(reader.position() as usize, reader.get_ref().len());
+        (metadata, message)
+    };
+    let (initial, message) = read(render.recv_timeout(Duration::from_secs(2)).unwrap());
+    let ServerMessage::PaneSurface(surface) = message else {
+        panic!("expected full surface")
+    };
+    assert_eq!(
+        (
+            &initial.boot_id,
+            initial.projection_revision,
+            initial.surface_revision
+        ),
+        (
+            &surface.boot_id,
+            surface.projection_revision,
+            surface.surface_revision
+        )
+    );
+    assert_eq!(
+        initial.color,
+        Some(crate::terminal_theme::RgbColor {
+            r: 0x11,
+            g: 0x22,
+            b: 0x33
+        })
+    );
+
+    write_shared_test_pane(&mut server, pane_id, b"\x1b]12;#445566\x07");
+    assert!(server.render_retained_pane_surface_and_stream(&HashSet::from([pane_id])));
+    let (updated, message) = read(render.recv_timeout(Duration::from_secs(2)).unwrap());
+    let ServerMessage::PaneSurfacePatch(patch) = message else {
+        panic!("cursor-only change must retain incremental rendering")
+    };
+    assert_eq!(updated.surface_revision, patch.surface_revision);
+    assert_eq!(patch.base_surface_revision, initial.surface_revision);
+    assert_eq!(
+        updated.color,
+        Some(crate::terminal_theme::RgbColor {
+            r: 0x44,
+            g: 0x55,
+            b: 0x66
+        })
+    );
+
+    let (_legacy_control, legacy_render) = connect_matching_test_shell(&mut server, 8);
+    server.render_and_stream();
+    assert!(matches!(
+        read_server_message(legacy_render.recv_timeout(Duration::from_secs(2)).unwrap()),
+        ServerMessage::PaneSurface(_)
+    ));
+    shutdown_test_runtimes(&mut server);
+}
+
 fn write_shared_test_pane(
     server: &mut HeadlessServer,
     pane_id: crate::layout::PaneId,
@@ -3818,7 +3896,7 @@ fn client_shell_host_theme_follows_foreground_client() {
         })
     );
     assert!(
-        server.handle_server_event(ServerEvent::ClientShellHostTheme {
+        !server.handle_server_event(ServerEvent::ClientShellHostTheme {
             client_id: 1,
             update: protocol::ClientHostThemeUpdate::PaletteColors(vec![(4, blue)]),
         })
@@ -3830,10 +3908,6 @@ fn client_shell_host_theme_follows_foreground_client() {
     assert_eq!(
         server.app.state.host_terminal_theme.background,
         Some(dark.into())
-    );
-    assert_eq!(
-        server.app.state.host_terminal_theme.palette[4],
-        Some(blue.into())
     );
     assert_eq!(
         server.app.state.host_terminal_appearance,

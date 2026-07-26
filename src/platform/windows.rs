@@ -652,6 +652,15 @@ pub(crate) fn remote_reattach_argument(value: &str) -> String {
 pub(crate) fn encode_windows_conpty_fallback(key: &crate::input::TerminalKey) -> Option<Vec<u8>> {
     use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
+    let uses_text_encoding = match key.code {
+        KeyCode::Char(_) => key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT,
+        KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab => key.modifiers.is_empty(),
+        _ => false,
+    };
+    if uses_text_encoding {
+        return None;
+    }
+
     let (virtual_key_code, virtual_scan_code, unicode, control_key_state) =
         if let Some(record) = key.windows_record() {
             (
@@ -800,10 +809,6 @@ static FOREGROUND_SELECTION_CACHE: LazyLock<Mutex<ForegroundSelectionCache>> =
 
 pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     true
-}
-
-pub(crate) fn should_query_host_terminal_palette() -> bool {
-    false
 }
 
 /// The machine's node name, as shown by tmux's `#h`.
@@ -3152,6 +3157,33 @@ mod tests {
             super::encode_windows_conpty_fallback(&release),
             Some(b"\x1b[55;8;0;0;8;1_".to_vec())
         );
+    }
+
+    #[test]
+    fn windows_conpty_native_encoder_leaves_plain_text_to_terminal_encoding() {
+        for (code, virtual_key_code, virtual_scan_code, unicode, control_key_state) in [
+            (crossterm::event::KeyCode::Char('h'), 72, 35, 104, 32),
+            (crossterm::event::KeyCode::Char('H'), 72, 35, 72, 48),
+            (crossterm::event::KeyCode::Enter, 13, 28, 13, 32),
+        ] {
+            let modifiers = if control_key_state == 48 {
+                crossterm::event::KeyModifiers::SHIFT
+            } else {
+                crossterm::event::KeyModifiers::empty()
+            };
+            let key = crate::input::TerminalKey::new(code, modifiers).with_windows_record(
+                crate::input::WindowsKeyRecord {
+                    key_down: true,
+                    repeat_count: 1,
+                    virtual_key_code,
+                    virtual_scan_code,
+                    unicode,
+                    control_key_state,
+                },
+            );
+
+            assert_eq!(super::encode_windows_conpty_fallback(&key), None);
+        }
     }
 
     #[test]

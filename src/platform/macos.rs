@@ -176,10 +176,6 @@ pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     false
 }
 
-pub(crate) fn should_query_host_terminal_palette() -> bool {
-    true
-}
-
 fn raw_command_argv(command: &str, flag: &str) -> Vec<std::ffi::OsString> {
     vec!["/bin/sh".into(), flag.into(), command.into()]
 }

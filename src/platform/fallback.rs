@@ -123,10 +123,6 @@ pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     false
 }
 
-pub(crate) fn should_query_host_terminal_palette() -> bool {
-    false
-}
-
 pub(crate) fn hostname() -> Option<String> {
     None
 }

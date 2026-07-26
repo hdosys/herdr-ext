@@ -400,10 +400,7 @@ fn write_host_terminal_theme_query_emits_osc_queries() {
     write_host_terminal_theme_query(&mut output).unwrap();
     assert_eq!(
         output,
-        crate::terminal_theme::host_terminal_theme_query_sequence(
-            crate::platform::should_query_host_terminal_palette(),
-        )
-        .as_bytes()
+        crate::terminal_theme::host_terminal_theme_query_sequence().as_bytes()
     );
     assert!(
         !output
@@ -436,6 +433,11 @@ fn color_scheme_change_event_requests_host_theme_query() {
     assert!(crate::raw_input::events_require_host_terminal_theme_query(
         &events
     ));
+}
+
+#[test]
+fn default_color_queries_are_enabled_on_windows() {
+    assert!(should_query_host_terminal_theme());
 }
 
 #[test]
@@ -489,9 +491,38 @@ fn color_scheme_reports_are_enabled_only_for_full_clients() {
 
 #[test]
 fn terminal_restore_postlude_restores_visible_default_cursor() {
+    let _guard = env_lock().lock().unwrap();
+    super::terminal_setup::reset_host_cursor_colors_for_test();
     let mut output = Vec::new();
     write_terminal_restore_postlude(&mut output, false).unwrap();
-    assert_eq!(output, b"\x1b[?25h\x1b[0 q");
+    assert_eq!(output, b"\x1b]112\x1b\\\x1b[?25h\x1b[0 q");
+}
+
+#[test]
+fn terminal_restore_postlude_restores_original_cursor_color() {
+    let _guard = env_lock().lock().unwrap();
+    super::terminal_setup::reset_host_cursor_colors_for_test();
+    super::terminal_setup::record_host_cursor_color(crate::terminal_theme::RgbColor {
+        r: 0x11,
+        g: 0x22,
+        b: 0x33,
+    });
+    super::terminal_setup::record_host_cursor_color(crate::terminal_theme::RgbColor {
+        r: 0x44,
+        g: 0x55,
+        b: 0x66,
+    });
+    assert_eq!(
+        super::terminal_setup::latest_host_cursor_color(),
+        Some(crate::terminal_theme::RgbColor {
+            r: 0x44,
+            g: 0x55,
+            b: 0x66,
+        })
+    );
+    let mut output = Vec::new();
+    write_terminal_restore_postlude(&mut output, false).unwrap();
+    assert_eq!(output, b"\x1b]12;rgb:11/22/33\x1b\\\x1b[?25h\x1b[0 q");
 }
 
 #[test]
@@ -505,6 +536,8 @@ fn direct_attach_mouse_capture_combines_local_preference_with_child_demand() {
 
 #[test]
 fn terminal_restore_postlude_disables_color_scheme_reports_when_enabled() {
+    let _guard = env_lock().lock().unwrap();
+    super::terminal_setup::reset_host_cursor_colors_for_test();
     let mut output = Vec::new();
     write_terminal_restore_postlude(&mut output, true).unwrap();
 
@@ -512,7 +545,7 @@ fn terminal_restore_postlude_disables_color_scheme_reports_when_enabled() {
     expected.extend_from_slice(
         crate::terminal_theme::HOST_COLOR_SCHEME_REPORT_DISABLE_SEQUENCE.as_bytes(),
     );
-    expected.extend_from_slice(b"\x1b[?25h\x1b[0 q");
+    expected.extend_from_slice(b"\x1b]112\x1b\\\x1b[?25h\x1b[0 q");
     assert_eq!(output, expected);
 }
 

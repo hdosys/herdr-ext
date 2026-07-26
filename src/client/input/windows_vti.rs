@@ -28,7 +28,6 @@ pub(super) fn raw_console_reader_loop(
         // Native records distinguish physical Escape from scan-code-zero host replies.
         pump.framer
             .host_default_color_query_sent(std::time::Duration::from_secs(1));
-        super::super::query_host_terminal_theme();
     }
     let mut handoff = WindowsInputHandoff::default();
 
@@ -46,6 +45,7 @@ pub(super) fn raw_console_reader_loop(
                     trace.as_mut(),
                 );
                 push_platform_input_events(pump.idle(), &mut handoff, trace.as_mut());
+                handoff.push_host(std::mem::take(&mut pump.host_observations));
             }
             WindowsInputItems::Closed => return,
         }
@@ -87,6 +87,7 @@ fn process_platform_input_items(
 ) {
     for item in items {
         push_platform_input_events(pump.process(item), handoff, trace.as_deref_mut());
+        handoff.push_host(std::mem::take(&mut pump.host_observations));
     }
 }
 
@@ -138,7 +139,7 @@ struct WindowsInputTraceBatch {
 #[cfg(windows)]
 #[derive(Default)]
 struct WindowsInputHandoff {
-    pending: VecDeque<Vec<crate::protocol::ClientInputEvent>>,
+    pending: VecDeque<ClientLoopEvent>,
     backpressured: bool,
 }
 
@@ -151,7 +152,7 @@ impl WindowsInputHandoff {
         if self.backpressured {
             self.push_backpressured(events);
         } else {
-            self.pending.push_back(events);
+            self.pending.push_back(ClientLoopEvent::StdinEvents(events));
         }
     }
 
@@ -168,14 +169,19 @@ impl WindowsInputHandoff {
                     let Some(events) = self.pending.pop_front() else {
                         continue;
                     };
-                    permit.send(ClientLoopEvent::StdinEvents(events));
+                    permit.send(events);
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     if !self.backpressured {
                         self.backpressured = true;
                         let pending = std::mem::take(&mut self.pending);
                         for events in pending {
-                            self.push_backpressured(events);
+                            match events {
+                                ClientLoopEvent::StdinEvents(events) => {
+                                    self.push_backpressured(events)
+                                }
+                                event => self.pending.push_back(event),
+                            }
                         }
                     }
                     return true;
@@ -186,7 +192,7 @@ impl WindowsInputHandoff {
     }
 
     fn push_backpressured(&mut self, events: Vec<crate::protocol::ClientInputEvent>) {
-        if let Some(previous) = self.pending.back_mut() {
+        if let Some(ClientLoopEvent::StdinEvents(previous)) = self.pending.back_mut() {
             if let ([previous_event], [next_event]) = (previous.as_slice(), events.as_slice()) {
                 if windows_mouse_motion_can_replace(previous_event, next_event) {
                     *previous = events;
@@ -194,7 +200,14 @@ impl WindowsInputHandoff {
                 }
             }
         }
-        self.pending.push_back(events);
+        self.pending.push_back(ClientLoopEvent::StdinEvents(events));
+    }
+
+    fn push_host(&mut self, events: Vec<crate::raw_input::RawInputEvent>) {
+        if !events.is_empty() {
+            self.pending
+                .push_back(ClientLoopEvent::HostThemeObservation(events));
+        }
     }
 }
 
@@ -336,6 +349,7 @@ struct WindowsInputMapper {
 }
 
 struct WindowsInputPump {
+    host_observations: Vec<crate::raw_input::RawInputEvent>,
     framer: crate::raw_input::RawInputFramer,
     pending_escape_origin: Option<EscapeOrigin>,
     paste_from_win32_key_records: bool,
@@ -356,6 +370,7 @@ impl Default for WindowsInputPump {
         Self {
             framer: crate::raw_input::RawInputFramer::for_host_input(),
             pending_escape_origin: None,
+            host_observations: Vec::new(),
             paste_from_win32_key_records: false,
             pending_physical_escape: None,
             default_mouse_candidate: DefaultMouseCandidate::default(),
@@ -572,7 +587,17 @@ impl WindowsInputPump {
             && events
                 .iter()
                 .any(|event| matches!(event, crate::raw_input::RawInputEvent::Mouse(_)));
-        let mut output = Self::raw_events_to_client_events(events);
+        let mut output = events
+            .into_iter()
+            .filter_map(|event| match event {
+                observation @ (crate::raw_input::RawInputEvent::HostDefaultColor { .. }
+                | crate::raw_input::RawInputEvent::HostColorSchemeChanged(_)) => {
+                    self.host_observations.push(observation);
+                    None
+                }
+                event => windows_client_input_event_from_raw(event),
+            })
+            .collect::<Vec<_>>();
         if self.default_mouse_candidate.active && !self.framer.has_pending_default_mouse_sequence()
         {
             self.default_mouse_candidate.active = false;
@@ -620,15 +645,6 @@ impl WindowsInputPump {
         };
         self.consumed_default_mouse_keys.remove(index);
         !record.key_down
-    }
-
-    fn raw_events_to_client_events(
-        events: Vec<crate::raw_input::RawInputEvent>,
-    ) -> Vec<crate::protocol::ClientInputEvent> {
-        events
-            .into_iter()
-            .filter_map(windows_client_input_event_from_raw)
-            .collect()
     }
 }
 
@@ -1452,10 +1468,9 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn host_default_color_replies_reach_shell_without_pane_input() {
-        use crate::protocol::{
-            ClientHostColor, ClientHostDefaultColorKind, ClientHostThemeUpdate, ClientMessage,
-        };
+    fn host_default_color_replies_stay_client_local() {
+        use crate::raw_input::RawInputEvent;
+        use crate::terminal_theme::{DefaultColorKind, RgbColor};
 
         let mut translator = WindowsInputTranslator::default();
         translator
@@ -1476,41 +1491,41 @@ mod tests {
             }]
         ));
 
-        let events = "]10;rgb:aaaa/bbbb/cccc\x1b\\\x1b]11;rgb:1111/2222/3333\x1b\\"
+        let events = "]10;rgb:aaaa/bbbb/cccc\x1b\\\x1b]11;rgb:1111/2222/3333\x1b\\\x1b]12;rgb:4444/5555/6666\x1b\\"
             .chars()
             .map(key_char)
             .flat_map(|record| translator.translate(record))
             .collect::<Vec<_>>();
-        let mut shell = crate::client::shell::ClientShellState::new(
-            crate::client::shell::ClientShellConfig::from_config(&crate::config::Config::default()),
-        );
-        let outcome = shell.handle_client_events(&events);
-        assert_eq!(
-            outcome.requests,
-            vec![
-                ClientMessage::ClientShellHostTheme {
-                    update: ClientHostThemeUpdate::DefaultColor {
-                        kind: ClientHostDefaultColorKind::Foreground,
-                        color: ClientHostColor {
-                            r: 0xaa,
-                            g: 0xbb,
-                            b: 0xcc,
-                        },
-                    },
+        assert!(events.is_empty());
+        assert!(matches!(
+            translator.pump.host_observations.as_slice(),
+            [
+                RawInputEvent::HostDefaultColor {
+                    kind: DefaultColorKind::Foreground,
+                    color: RgbColor {
+                        r: 0xaa,
+                        g: 0xbb,
+                        b: 0xcc
+                    }
                 },
-                ClientMessage::ClientShellHostTheme {
-                    update: ClientHostThemeUpdate::DefaultColor {
-                        kind: ClientHostDefaultColorKind::Background,
-                        color: ClientHostColor {
-                            r: 0x11,
-                            g: 0x22,
-                            b: 0x33,
-                        },
-                    },
+                RawInputEvent::HostDefaultColor {
+                    kind: DefaultColorKind::Background,
+                    color: RgbColor {
+                        r: 0x11,
+                        g: 0x22,
+                        b: 0x33
+                    }
+                },
+                RawInputEvent::HostDefaultColor {
+                    kind: DefaultColorKind::Cursor,
+                    color: RgbColor {
+                        r: 0x44,
+                        g: 0x55,
+                        b: 0x66
+                    }
                 },
             ]
-        );
-        assert!(outcome.actions.is_empty());
+        ));
     }
 
     #[cfg(windows)]
@@ -1565,10 +1580,11 @@ mod tests {
             .map(key_char)
             .flat_map(|record| translator.translate(record))
             .collect::<Vec<_>>();
+        assert!(events.is_empty());
         assert!(matches!(
-            events.as_slice(),
-            [crate::protocol::ClientInputEvent::HostDefaultColor {
-                kind: crate::protocol::ClientHostDefaultColorKind::Foreground,
+            translator.pump.host_observations.as_slice(),
+            [crate::raw_input::RawInputEvent::HostDefaultColor {
+                kind: crate::terminal_theme::DefaultColorKind::Foreground,
                 ..
             }]
         ));
@@ -1598,10 +1614,11 @@ mod tests {
             .map(key_char)
             .flat_map(|record| translator.translate(record))
             .collect::<Vec<_>>();
+        assert!(events.is_empty());
         assert!(matches!(
-            events.as_slice(),
-            [crate::protocol::ClientInputEvent::HostDefaultColor {
-                kind: crate::protocol::ClientHostDefaultColorKind::Foreground,
+            translator.pump.host_observations.as_slice(),
+            [crate::raw_input::RawInputEvent::HostDefaultColor {
+                kind: crate::terminal_theme::DefaultColorKind::Foreground,
                 ..
             }]
         ));
@@ -1912,7 +1929,17 @@ mod tests {
         push_platform_input_events(Vec::new(), &mut handoff, Some(&mut trace));
 
         assert_eq!(trace.mapped_event_groups, groups);
-        assert_eq!(handoff.pending, VecDeque::from(groups));
+        assert_eq!(
+            handoff
+                .pending
+                .iter()
+                .map(|event| match event {
+                    ClientLoopEvent::StdinEvents(events) => events.clone(),
+                    _ => panic!("expected semantic input batch"),
+                })
+                .collect::<VecDeque<_>>(),
+            VecDeque::from(groups)
+        );
     }
 
     #[cfg(windows)]
@@ -1977,7 +2004,14 @@ mod tests {
             text,
         ];
         assert_eq!(
-            handoff.pending,
+            handoff
+                .pending
+                .iter()
+                .map(|event| match event {
+                    ClientLoopEvent::StdinEvents(events) => events.clone(),
+                    _ => panic!("expected semantic input batch"),
+                })
+                .collect::<VecDeque<_>>(),
             expected
                 .iter()
                 .cloned()

@@ -665,9 +665,12 @@ impl HeadlessServer {
                 }
             }
             let mut surface_parts = None;
+            let mut cursor_color = None;
+            let mut direct_cursor_color = None;
             let frame = match mode {
                 ClientConnectionMode::ClientShell => {
                     let crate::server::client_shell::RenderedPaneSurface {
+                        cursor_color: rendered_cursor_color,
                         frame,
                         panes,
                         splits,
@@ -676,6 +679,7 @@ impl HeadlessServer {
                         graphics_delivery: next_graphics_delivery,
                         graphics_sources,
                     } = shell_render.expect("active shell surface");
+                    cursor_color = rendered_cursor_color;
                     surface_parts = Some((
                         panes,
                         splits,
@@ -711,6 +715,9 @@ impl HeadlessServer {
                     let render_started = crate::render_prof::timer();
                     let (buffer, cursor) =
                         crate::server::render_stream::render_terminal_virtual(runtime, area);
+                    direct_cursor_color = runtime
+                        .cursor_state(area, true)
+                        .and_then(|cursor| cursor.color);
                     crate::render_prof::duration_since(
                         "full_render.render_terminal_virtual",
                         render_started,
@@ -786,9 +793,12 @@ impl HeadlessServer {
                             graphics,
                         },
                         native_upload.is_some(),
+                        cursor_color,
                     )
                 } else {
-                    client.render_state.prepare_frame(frame)
+                    client
+                        .render_state
+                        .prepare_frame(frame, direct_cursor_color)
                 };
             let Some(mut prepared) = prepared else {
                 client.clear_deferred_render();
@@ -889,6 +899,13 @@ impl HeadlessServer {
                     continue;
                 };
                 serialized.extend_from_slice(&file_frame);
+            }
+            if let Err(err) =
+                prepared.prepend_cursor_color(&mut serialized, writer.surface_cursor_color)
+            {
+                warn!(client_id, %err, "failed to encode cursor color");
+                client.defer_full_render();
+                continue;
             }
             let send = if native_upload.is_some() || self.native_graphics.is_pending(client_id) {
                 writer.render.send_ordered(serialized)

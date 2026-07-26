@@ -198,6 +198,7 @@ struct CollectedPanePatch {
 }
 
 struct RetainedRecipientUpdate {
+    cursor_color: Option<crate::terminal_theme::RgbColor>,
     client_id: u64,
     patch: protocol::PaneSurfacePatch,
     graphics: Option<(
@@ -429,6 +430,10 @@ impl HeadlessServer {
             }
 
             let cursor = retained_cursor(&self.app, &panes);
+            let cursor_color =
+                crate::server::client_shell::surface_cursor_color(&self.app, &panes, false);
+            let color_changed =
+                self.clients[&client_id].render_state.cursor_color() != cursor_color;
             let cursor_changed = cursor != surface.frame.cursor;
             let patch = protocol::PaneSurfacePatch {
                 boot_id: self.client_shell_boot_id.clone(),
@@ -462,7 +467,12 @@ impl HeadlessServer {
             } else {
                 None
             };
-            if patch.rows.is_empty() && !cursor_changed && !metadata_changed && !graphics_changed {
+            if patch.rows.is_empty()
+                && !cursor_changed
+                && !color_changed
+                && !metadata_changed
+                && !graphics_changed
+            {
                 continue;
             }
             let graphics = graphics.map(|(graphics, delivery, sources)| {
@@ -472,6 +482,7 @@ impl HeadlessServer {
                 (next_surface, delivery, sources)
             });
             updates.push(RetainedRecipientUpdate {
+                cursor_color,
                 client_id,
                 patch,
                 graphics,
@@ -492,6 +503,7 @@ impl HeadlessServer {
         let mut disconnected = Vec::new();
         for update in updates {
             let RetainedRecipientUpdate {
+                cursor_color,
                 client_id,
                 patch,
                 mut graphics,
@@ -517,13 +529,20 @@ impl HeadlessServer {
             // in a graphics-capable surface message rather than invoking the full renderer.
             let (prepared, graphics_delivery) = if let Some((surface, delivery, _)) = graphics {
                 (
-                    client
-                        .render_state
-                        .prepare_pane_surface_with_file(surface, native_upload.is_some()),
+                    client.render_state.prepare_pane_surface_with_file(
+                        surface,
+                        native_upload.is_some(),
+                        cursor_color,
+                    ),
                     Some(delivery),
                 )
             } else {
-                (client.render_state.prepare_pane_surface_patch(patch), None)
+                (
+                    client
+                        .render_state
+                        .prepare_pane_surface_patch(patch, cursor_color),
+                    None,
+                )
             };
             let Some(prepared) = prepared else {
                 client.defer_full_render();
@@ -563,6 +582,14 @@ impl HeadlessServer {
                 serialized.extend_from_slice(&file_frame);
             }
             crate::render_prof::counter("retained_surface.bytes", serialized.len() as u64);
+            if let Err(error) =
+                prepared.prepend_cursor_color(&mut serialized, writer.surface_cursor_color)
+            {
+                warn!(client_id, %error, "failed to encode retained cursor color");
+                client.defer_full_render();
+                deferred += 1;
+                continue;
+            }
             let send = if native_upload.is_some() || self.native_graphics.is_pending(client_id) {
                 writer.render.send_ordered(serialized)
             } else {
