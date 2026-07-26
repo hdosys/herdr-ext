@@ -97,13 +97,13 @@ fn unix_stdin_reader_loop(
     framer.set_host_escape_disambiguation_active(host_escape_disambiguation_active);
     if host_color_query_sent {
         framer.host_color_query_sent();
+        #[cfg(not(windows))]
         framer.enable_host_color_scheme_change_tracking();
         framer.enable_host_appearance_query_on_focus();
     }
     if host_cell_size_query_sent {
         framer.host_cell_size_query_sent();
     }
-    let mut pending_palette = Vec::new();
     let mut pending_mode = None;
     let mut last_geometry = None;
     let mut direct_filter = super::direct_graphics::InputFilter::default();
@@ -114,16 +114,10 @@ fn unix_stdin_reader_loop(
             last_geometry = crate::input::mouse::HostGeometry::current();
         }
         let chunks = framer.push(&initial_host_input);
-        if !send_unix_input_chunks(
-            chunks,
-            &event_tx,
-            &mut pending_palette,
-            sgr_pixels,
-            last_geometry,
-        ) {
+        if !send_unix_input_chunks(chunks, &event_tx, sgr_pixels, last_geometry) {
             return;
         }
-        if (framer.has_pending_input() || !pending_palette.is_empty())
+        if framer.has_pending_input()
             && stdin_read_ready(
                 &reader,
                 framer.idle_flush_timeout_ms(host_mouse_capture_active.load(Ordering::Acquire)),
@@ -132,14 +126,7 @@ fn unix_stdin_reader_loop(
             let had_pending = framer.has_pending_input();
             let chunks = framer.flush_timeout();
             let held_escape = had_pending && chunks.is_empty();
-            if !send_unix_input_chunks(
-                chunks,
-                &event_tx,
-                &mut pending_palette,
-                sgr_pixels,
-                last_geometry,
-            ) || !flush_unix_palette_input(&event_tx, &mut pending_palette)
-            {
+            if !send_unix_input_chunks(chunks, &event_tx, sgr_pixels, last_geometry) {
                 return;
             }
             if held_escape
@@ -147,7 +134,6 @@ fn unix_stdin_reader_loop(
                 && !send_unix_input_chunks(
                     framer.flush_timeout(),
                     &event_tx,
-                    &mut pending_palette,
                     sgr_pixels,
                     last_geometry,
                 )
@@ -218,13 +204,7 @@ fn unix_stdin_reader_loop(
                 if !framer.has_pending_input() {
                     pending_mode = None;
                 }
-                if !send_unix_input_chunks(
-                    chunks,
-                    &event_tx,
-                    &mut pending_palette,
-                    sgr_pixels,
-                    last_geometry,
-                ) {
+                if !send_unix_input_chunks(chunks, &event_tx, sgr_pixels, last_geometry) {
                     return;
                 }
 
@@ -239,14 +219,7 @@ fn unix_stdin_reader_loop(
                     if !framer.has_pending_input() {
                         pending_mode = None;
                     }
-                    if !send_unix_input_chunks(
-                        chunks,
-                        &event_tx,
-                        &mut pending_palette,
-                        sgr_pixels,
-                        last_geometry,
-                    ) || !flush_unix_palette_input(&event_tx, &mut pending_palette)
-                    {
+                    if !send_unix_input_chunks(chunks, &event_tx, sgr_pixels, last_geometry) {
                         return;
                     }
                     if held_escape
@@ -257,13 +230,7 @@ fn unix_stdin_reader_loop(
                         if !framer.has_pending_input() {
                             pending_mode = None;
                         }
-                        if !send_unix_input_chunks(
-                            chunks,
-                            &event_tx,
-                            &mut pending_palette,
-                            sgr_pixels,
-                            last_geometry,
-                        ) {
+                        if !send_unix_input_chunks(chunks, &event_tx, sgr_pixels, last_geometry) {
                             return;
                         }
                     }
@@ -301,30 +268,10 @@ fn filter_direct_input(
 fn send_unix_input_chunks(
     chunks: Vec<Vec<u8>>,
     event_tx: &mpsc::Sender<ClientLoopEvent>,
-    pending_palette: &mut Vec<Vec<u8>>,
     sgr_pixels: bool,
     geometry: Option<crate::input::mouse::HostGeometry>,
 ) -> bool {
     for data in chunks {
-        let palette_response = std::str::from_utf8(&data)
-            .ok()
-            .and_then(crate::terminal_theme::parse_palette_color_response)
-            .is_some();
-        if palette_response {
-            pending_palette.push(data);
-            if pending_palette.len() == 256 && !flush_unix_palette_input(event_tx, pending_palette)
-            {
-                return false;
-            }
-            continue;
-        }
-        let default_color_response = std::str::from_utf8(&data)
-            .ok()
-            .and_then(crate::terminal_theme::parse_default_color_response)
-            .is_some();
-        if !default_color_response && !flush_unix_palette_input(event_tx, pending_palette) {
-            return false;
-        }
         let Some(event) = classify_unix_input(data, sgr_pixels, geometry) else {
             continue;
         };
@@ -353,20 +300,6 @@ fn classify_unix_input(
         return geometry.map(|geometry| ClientLoopEvent::PixelMouse(data, geometry));
     }
     Some(ClientLoopEvent::StdinInput(data))
-}
-
-#[cfg(unix)]
-fn flush_unix_palette_input(
-    event_tx: &mpsc::Sender<ClientLoopEvent>,
-    pending_palette: &mut Vec<Vec<u8>>,
-) -> bool {
-    if pending_palette.is_empty() {
-        return true;
-    }
-    let data = std::mem::take(pending_palette).concat();
-    event_tx
-        .blocking_send(ClientLoopEvent::StdinInput(data))
-        .is_ok()
 }
 
 #[cfg(windows)]
@@ -438,20 +371,7 @@ fn windows_client_input_event_from_raw(
         crate::raw_input::RawInputEvent::OuterFocusLost => {
             Some(crate::protocol::ClientInputEvent::FocusLost)
         }
-        crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
-            Some(crate::protocol::ClientInputEvent::HostDefaultColor {
-                kind: match kind {
-                    crate::terminal_theme::DefaultColorKind::Foreground => {
-                        crate::protocol::ClientHostDefaultColorKind::Foreground
-                    }
-                    crate::terminal_theme::DefaultColorKind::Background => {
-                        crate::protocol::ClientHostDefaultColorKind::Background
-                    }
-                },
-                color: color.into(),
-            })
-        }
-        crate::raw_input::RawInputEvent::HostPaletteColors { .. }
+        crate::raw_input::RawInputEvent::HostDefaultColor { .. }
         | crate::raw_input::RawInputEvent::HostColorSchemeChanged(_)
         | crate::raw_input::RawInputEvent::HostCellSizeReport { .. }
         | crate::raw_input::RawInputEvent::Unsupported => None,
@@ -539,35 +459,6 @@ mod tests {
     fn transient_geometry_failure_keeps_last_real_value() {
         let geometry = crate::input::mouse::HostGeometry::new(80, 24, 800, 480).unwrap();
         assert_eq!(retain_geometry(Some(geometry), None), Some(geometry));
-    }
-
-    #[test]
-    fn palette_replies_are_forwarded_as_one_input_batch() {
-        let (tx, mut rx) = mpsc::channel(4);
-        let mut pending = Vec::new();
-        assert!(send_unix_input_chunks(
-            vec![
-                b"\x1b]4;0;rgb:1111/2222/3333\x1b\\".to_vec(),
-                b"\x1b]4;1;rgb:4444/5555/6666\x1b\\".to_vec(),
-            ],
-            &tx,
-            &mut pending,
-            false,
-            None,
-        ));
-        assert!(rx.try_recv().is_err());
-
-        assert!(flush_unix_palette_input(&tx, &mut pending));
-        let ClientLoopEvent::StdinInput(data) = rx.try_recv().unwrap() else {
-            panic!("expected palette input batch");
-        };
-        assert_eq!(
-            data.windows(4)
-                .filter(|window| *window == b"\x1b]4;")
-                .count(),
-            2
-        );
-        assert!(pending.is_empty());
     }
 
     #[test]

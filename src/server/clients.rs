@@ -399,11 +399,8 @@ impl ClientConnection {
                     changed |= self.set_host_appearance(Some(color.inferred_appearance()), false);
                 }
             }
-            crate::protocol::ClientHostThemeUpdate::PaletteColors(colors) => {
-                for &(index, color) in colors {
-                    next_theme = next_theme.with_palette_color(index, color.into());
-                }
-            }
+            // Generation 1 retains this variant, but indexed pane colors use the built-in palette.
+            crate::protocol::ClientHostThemeUpdate::PaletteColors(_) => {}
             crate::protocol::ClientHostThemeUpdate::Appearance(appearance) => {
                 let appearance = match appearance {
                     crate::protocol::ClientHostAppearance::Dark => {

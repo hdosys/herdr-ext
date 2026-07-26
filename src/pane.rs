@@ -3507,6 +3507,7 @@ impl PaneRuntime {
             y: area.y + cursor.y,
             visible: cursor.visible,
             shape: cursor.shape,
+            color: cursor.color,
         })
     }
 

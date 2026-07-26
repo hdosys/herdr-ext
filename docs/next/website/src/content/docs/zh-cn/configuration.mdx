@@ -265,7 +265,7 @@ light_name = "catppuccin-latte"
 dark_name = "catppuccin"
 ```
 
-`auto_switch` 默认为 `false`，因此现有主题配置会保持手动行为。如果省略 `light_name` 或 `dark_name`，且配置的 `name` 存在对应的内置姊妹主题，Herdr 会使用该主题，例如 `tokyo-night`/`tokyo-night-day` 或 `gruvbox`/`gruvbox-light`。在设置中手动选择主题会禁用 `auto_switch`。
+未配置任何主题字段时，Herdr 默认跟随宿主终端的外观。设置 `auto_switch = false` 可退出自动切换；若要在显式主题配置中启用切换，请设置为 `true`。如果省略 `light_name` 或 `dark_name`，且配置的 `name` 存在对应的内置姊妹主题，Herdr 会使用该主题，例如 `tokyo-night`/`tokyo-night-day` 或 `gruvbox`/`gruvbox-light`。在设置中手动选择主题会禁用 `auto_switch`。
 
 你可以覆盖单个颜色：
 

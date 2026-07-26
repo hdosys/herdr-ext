@@ -207,6 +207,7 @@ impl CursorPositionSettleState {
             return Some(TerminalCursorState {
                 visible: current.visible && candidate.visible,
                 shape: current.shape,
+                color: current.color,
                 ..candidate
             });
         }
@@ -216,11 +217,13 @@ impl CursorPositionSettleState {
                     && (current.visible
                         || (!candidate.visible && same_cursor_position(candidate, current))),
                 shape: current.shape,
+                color: current.color,
                 ..settled
             })
             .or(Some(TerminalCursorState {
                 visible: false,
                 shape: current.shape,
+                color: current.color,
                 ..candidate
             }))
     }
@@ -335,6 +338,7 @@ mod tests {
             y,
             visible,
             shape,
+            color: None,
         }
     }
 
@@ -564,17 +568,23 @@ mod tests {
     }
 
     #[test]
-    fn cursor_settle_passes_shape_through_while_position_is_held() {
+    fn cursor_settle_passes_appearance_through_while_position_is_held() {
         let now = Instant::now();
         let mut settle = CursorPositionSettleState::default();
         settle.observe(Some(cursor(1, 0, true, 2)), now);
         settle.observe(Some(cursor(2, 0, true, 6)), now + Duration::from_millis(1));
 
+        let color = Some(crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 });
+        let current = TerminalCursorState {
+            color,
+            ..cursor(2, 0, true, 6)
+        };
         let reported = settle
-            .reported_cursor(Some(cursor(2, 0, true, 6)), now + Duration::from_millis(2))
+            .reported_cursor(Some(current), now + Duration::from_millis(2))
             .unwrap();
 
         assert_eq!((reported.x, reported.y, reported.shape), (1, 0, 6));
+        assert_eq!(reported.color, color);
     }
 
     #[test]
