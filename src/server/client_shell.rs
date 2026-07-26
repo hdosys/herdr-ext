@@ -268,6 +268,7 @@ pub(super) fn snapshot_with_completions(
 }
 
 pub(super) struct RenderedPaneSurface {
+    pub(super) cursor_color: Option<crate::terminal_theme::RgbColor>,
     pub(super) frame: FrameData,
     pub(super) panes: Vec<protocol::PaneSurfacePane>,
     pub(super) splits: Vec<protocol::PaneSurfaceSplit>,
@@ -281,6 +282,32 @@ pub(super) struct RenderedPaneSurface {
 pub(super) enum SurfaceRenderDeferred {
     Synchronized,
     Changed,
+}
+
+pub(super) fn surface_cursor_color(
+    app: &app::App,
+    panes: &[protocol::PaneSurfacePane],
+    popup: bool,
+) -> Option<crate::terminal_theme::RgbColor> {
+    let runtime = if popup {
+        app.terminal_runtimes
+            .get(&app.state.popup_pane.as_ref()?.terminal_id)?
+    } else {
+        let pane = panes.iter().find(|pane| pane.focused)?;
+        let (workspace_index, pane_id) = app.parse_pane_id(&pane.pane_id)?;
+        if !app.state.pane_exposes_host_cursor(workspace_index, pane_id) {
+            return None;
+        }
+        app.state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, workspace_index, pane_id)?
+    };
+    if runtime.synchronized_output_active() {
+        return None;
+    }
+    let (rows, cols) = runtime.current_size();
+    runtime
+        .cursor_state(Rect::new(0, 0, cols, rows), true)?
+        .color
 }
 
 pub(super) fn render_pane_surface(
@@ -341,7 +368,7 @@ pub(super) fn render_pane_surface(
             layout,
             area,
         );
-    let panes = target
+    let panes: Vec<_> = target
         .map(|target| {
             let workspace_index = target.workspace_index;
             layout
@@ -450,6 +477,7 @@ pub(super) fn render_pane_surface(
             graphics_delivery,
             client_id,
         );
+    let cursor_color = surface_cursor_color(app, &panes, popup.is_some());
     if let Some(target) = target {
         for (&pane_id, &(epoch, _)) in &content_revisions_before {
             if let Some(runtime) = app.state.runtime_for_pane_in_workspace(
@@ -484,6 +512,7 @@ pub(super) fn render_pane_surface(
         }
     }
     Ok(RenderedPaneSurface {
+        cursor_color,
         frame: FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, cursor, &hyperlinks),
         panes,
         splits,

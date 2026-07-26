@@ -33,8 +33,7 @@ pub(crate) fn parse_framed_input(data: &[u8]) -> Vec<RawInputEvent> {
 
 use crate::input::{parse_terminal_key_sequence, TerminalKey, TextCommit};
 use crate::terminal_theme::{
-    parse_default_color_response, parse_palette_color_response, DefaultColorKind, HostAppearance,
-    RgbColor,
+    parse_default_color_response, DefaultColorKind, HostAppearance, RgbColor,
 };
 
 const ESC: u8 = 0x1b;
@@ -86,9 +85,6 @@ pub enum RawInputEvent {
     HostDefaultColor {
         kind: DefaultColorKind,
         color: RgbColor,
-    },
-    HostPaletteColors {
-        colors: Vec<(u8, RgbColor)>,
     },
     HostColorSchemeChanged(HostAppearance),
     // The dimensions are only read by the Unix client.
@@ -162,9 +158,7 @@ impl RawInputFramer {
 
     /// Semantic input ends mouse recovery, unlike another idle interval.
     pub(crate) fn flush_interrupted(&mut self) -> Vec<RawInputEvent> {
-        #[cfg(windows)]
-        self.byte_framer.flush_lone_escape_on_interruption();
-        let mut chunks = self.byte_framer.flush_timeout();
+        let mut chunks = self.byte_framer.flush_before_semantic_event();
         self.byte_framer.timed_out_mouse_prefix = None;
         chunks.extend(self.byte_framer.drain_available_chunks());
         events_from_framed_chunks(chunks)
@@ -218,7 +212,7 @@ pub(crate) struct RawInputByteFramer {
     /// Last query sent or reply received. Hosts may answer only part of a
     /// query (or none of it), so the reply counters alone never expire.
     host_reply_activity_at: Option<Instant>,
-    /// Last read that left an unfinished OSC 10/11 reply buffered.
+    /// Last read that left an unfinished OSC 10/11/12 reply buffered.
     partial_host_color_reply_read_at: Option<Instant>,
     held_pending_host_reply_esc: bool,
     host_color_scheme_change_tracking: bool,
@@ -230,11 +224,11 @@ pub(crate) struct RawInputByteFramer {
     awaiting_mouse_tail_after: Option<usize>,
 }
 
-const HOST_COLOR_QUERY_REPLIES: u16 = 258;
+const HOST_COLOR_QUERY_REPLIES: u16 = 3;
 /// How long after the last query or reply Herdr still treats `ESC[` / `ESC]`
 /// as a possible host reply instead of a key.
 const HOST_REPLY_QUIET_WINDOW: Duration = Duration::from_secs(1);
-/// How long an unfinished OSC 10/11 reply may wait for its next read before
+/// How long an unfinished OSC 10/11/12 reply may wait for its next read before
 /// it is dropped (#5052). Twice the split-read wait for any incomplete
 /// sequence, and far above the tens of milliseconds seen between fragments
 /// over SSH and tmux, yet short enough that a reply the link cut off cannot
@@ -284,7 +278,7 @@ impl RawInputByteFramer {
         self.drain_available_chunks()
     }
 
-    /// Hold a lone trailing ESC for one idle flush so an OSC 10/11 reply split
+    /// Hold a lone trailing ESC for one idle flush so an OSC 10/11/12 reply split
     /// at its ESC introducer stitches back together instead of leaking (#549).
     /// Overlapping queries each add their own replies to the window.
     pub(crate) fn host_color_query_sent(&mut self) {
@@ -293,7 +287,7 @@ impl RawInputByteFramer {
 
     #[cfg(windows)]
     pub(crate) fn host_default_color_query_sent(&mut self, reply_window: Duration) {
-        self.host_color_query_sent_with_replies(2);
+        self.host_color_query_sent_with_replies(HOST_COLOR_QUERY_REPLIES);
         self.host_default_color_query_issued = true;
         self.host_default_color_query_deadline = Some(Instant::now() + reply_window);
     }
@@ -304,7 +298,7 @@ impl RawInputByteFramer {
         self.host_reply_activity_at = Some(Instant::now());
     }
 
-    /// Whether a buffered unfinished OSC 10/11 reply has waited past its idle
+    /// Whether a buffered unfinished OSC 10/11/12 reply has waited past its idle
     /// limit or grown past any real reply, so it can no longer hold input.
     fn host_color_reply_abandoned(&self) -> bool {
         // The Windows default color query keeps its own reply deadline.
@@ -331,14 +325,6 @@ impl RawInputByteFramer {
         );
         self.buffer.clear();
         self.partial_host_color_reply_read_at = None;
-    }
-
-    #[cfg(windows)]
-    fn flush_lone_escape_on_interruption(&mut self) {
-        if self.buffer.as_slice() == [ESC] {
-            self.held_pending_host_reply_esc = true;
-            self.host_default_color_query_deadline = None;
-        }
     }
 
     fn host_appearance_query_sent(&mut self) {
@@ -741,7 +727,35 @@ impl RawInputByteFramer {
         tracing::debug!(bytes = ?self.buffer, "dropping incomplete raw input buffer after timeout");
         self.lone_escape_recently_flushed = false;
         self.buffer.clear();
+        self.partial_host_color_reply_read_at = None;
         chunks
+    }
+
+    #[cfg(any(windows, test))]
+    fn flush_before_semantic_event(&mut self) -> Vec<Vec<u8>> {
+        if self.buffer.as_slice() == [ESC] {
+            self.host_color_replies_awaited = 0;
+            self.held_pending_host_reply_esc = false;
+            #[cfg(windows)]
+            {
+                self.host_default_color_query_deadline = None;
+            }
+        } else if starts_with_incomplete_default_color_response(&self.buffer) {
+            tracing::warn!(
+                len = self.buffer.len(),
+                "discarding host color response interrupted by semantic input"
+            );
+            self.buffer.clear();
+            self.host_color_replies_awaited = 0;
+            self.held_pending_host_reply_esc = false;
+            self.partial_host_color_reply_read_at = None;
+            #[cfg(windows)]
+            {
+                self.host_default_color_query_deadline = None;
+            }
+            return Vec::new();
+        }
+        self.flush_timeout()
     }
 
     fn retain_timed_out_mouse_prefix(&mut self, prefix: Vec<u8>) {
@@ -863,10 +877,7 @@ impl RawInputByteFramer {
             let Some((event, consumed)) = extract_one_event(&self.buffer) else {
                 break;
             };
-            if matches!(
-                event,
-                RawInputEvent::HostDefaultColor { .. } | RawInputEvent::HostPaletteColors { .. }
-            ) {
+            if matches!(event, RawInputEvent::HostDefaultColor { .. }) {
                 self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(1);
             } else if matches!(event, RawInputEvent::HostCellSizeReport { .. }) {
                 self.host_cell_size_replies_awaited =
@@ -882,7 +893,7 @@ impl RawInputByteFramer {
                 }
             }
             if is_host_reply_event(&event) && self.host_reply_activity_at.is_some() {
-                // Long reply bursts (256 palette entries) stay protected.
+                // A reply refreshes the bounded window for the remaining defaults.
                 self.host_reply_activity_at = Some(Instant::now());
             }
             self.held_pending_host_reply_esc = false;
@@ -1032,15 +1043,6 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
         if let Some((kind, color)) = parse_default_color_response(seq) {
             return Some((RawInputEvent::HostDefaultColor { kind, color }, seq_len));
         }
-        if let Some((index, color)) = parse_palette_color_response(seq) {
-            return Some((
-                RawInputEvent::HostPaletteColors {
-                    colors: vec![(index, color)],
-                },
-                seq_len,
-            ));
-        }
-
         match seq {
             "\x1b[I" => return Some((RawInputEvent::OuterFocusGained, seq_len)),
             "\x1b[O" => return Some((RawInputEvent::OuterFocusLost, seq_len)),
@@ -1129,13 +1131,15 @@ fn parse_host_cell_size_report(buffer: &[u8]) -> Option<(u32, u32)> {
 
 fn starts_with_incomplete_default_color_response(buffer: &[u8]) -> bool {
     // The prefix check keeps this constant-cost for ordinary input.
-    matches!(buffer.get(..5), Some(b"\x1b]10;" | b"\x1b]11;"))
-        && matches!(
-            control_string(buffer),
-            Some(ControlString::Incomplete {
-                family: ControlStringFamily::Osc
-            })
-        )
+    matches!(
+        buffer.get(..5),
+        Some(b"\x1b]10;" | b"\x1b]11;" | b"\x1b]12;")
+    ) && matches!(
+        control_string(buffer),
+        Some(ControlString::Incomplete {
+            family: ControlStringFamily::Osc
+        })
+    )
 }
 
 #[cfg(windows)]
@@ -1147,9 +1151,13 @@ fn is_incomplete_host_default_color_prefix(buffer: &[u8]) -> bool {
                 family: ControlStringFamily::Osc
             })
         )
-        && [b"\x1b]10;".as_slice(), b"\x1b]11;".as_slice()]
-            .iter()
-            .any(|prefix| prefix.starts_with(buffer) || buffer.starts_with(prefix))
+        && [
+            b"\x1b]10;".as_slice(),
+            b"\x1b]11;".as_slice(),
+            b"\x1b]12;".as_slice(),
+        ]
+        .iter()
+        .any(|prefix| prefix.starts_with(buffer) || buffer.starts_with(prefix))
 }
 
 fn starts_with_incomplete_host_color_scheme_report(buffer: &[u8]) -> bool {
@@ -1183,7 +1191,6 @@ fn is_host_reply_event(event: &RawInputEvent) -> bool {
     matches!(
         event,
         RawInputEvent::HostDefaultColor { .. }
-            | RawInputEvent::HostPaletteColors { .. }
             | RawInputEvent::HostCellSizeReport { .. }
             | RawInputEvent::HostColorSchemeChanged(_)
     )
@@ -1866,23 +1873,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_host_palette_color_response() {
-        let (RawInputEvent::HostPaletteColors { colors }, consumed) =
-            extract_one_event(b"\x1b]4;7;rgb:1111/2222/3333\x1b\\").unwrap()
+    fn parses_host_cursor_color_response() {
+        let (RawInputEvent::HostDefaultColor { kind, color }, consumed) =
+            extract_one_event(b"\x1b]12;rgb:1212/3434/5656\x1b\\").unwrap()
         else {
-            panic!("expected host palette response");
+            panic!("expected host cursor color response");
         };
-        assert_eq!(consumed, 26);
+        assert_eq!(consumed, 25);
+        assert_eq!(kind, DefaultColorKind::Cursor);
         assert_eq!(
-            colors,
-            vec![(
-                7,
-                RgbColor {
-                    r: 0x11,
-                    g: 0x22,
-                    b: 0x33,
-                }
-            )]
+            color,
+            RgbColor {
+                r: 0x12,
+                g: 0x34,
+                b: 0x56
+            }
         );
     }
 
@@ -3726,7 +3731,36 @@ mod tests {
 
         assert!(framer.push(b"\x1b").is_empty());
         assert!(framer.flush_timeout().is_empty());
+        let chunks = framer.push(b"]12;#654321\x07");
+        assert_eq!(chunks.len(), 1);
+        let (event, _) = extract_one_event(&chunks[0]).unwrap();
+        assert!(matches!(
+            event,
+            RawInputEvent::HostDefaultColor {
+                kind: DefaultColorKind::Cursor,
+                color: RgbColor {
+                    r: 0x65,
+                    g: 0x43,
+                    b: 0x21
+                }
+            }
+        ));
+
+        assert!(framer.push(b"\x1b").is_empty());
         assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
+    }
+
+    #[test]
+    fn unterminated_default_color_response_is_bounded() {
+        let mut framer = RawInputByteFramer::default();
+        framer.host_color_query_sent();
+
+        assert!(framer.push(b"\x1b]12;rgb:12").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+        assert!(framer.push(b"user-input").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+
+        assert_eq!(framer.push(b"x"), vec![b"x".to_vec()]);
     }
 
     #[test]
@@ -3751,18 +3785,12 @@ mod tests {
 
     #[test]
     fn stops_holding_lone_escape_after_host_color_reply_completes() {
-        use std::fmt::Write as _;
-
         let mut framer = RawInputByteFramer::default();
         framer.host_color_query_sent();
-        let mut replies =
-            String::from("\x1b]10;rgb:6565/7b7b/8383\x1b\\\x1b]11;rgb:2424/2727/3a3a\x1b\\");
-        for index in 0..=u8::MAX {
-            let _ = write!(replies, "\x1b]4;{index};rgb:1111/2222/3333\x1b\\");
-        }
+        let replies = "\x1b]10;rgb:6565/7b7b/8383\x1b\\\x1b]11;rgb:2424/2727/3a3a\x1b\\\x1b]12;rgb:aaaa/bbbb/cccc\x1b\\";
 
         let chunks = framer.push(replies.as_bytes());
-        assert_eq!(chunks.len(), 258);
+        assert_eq!(chunks.len(), 3);
 
         // Window closed: a later lone Escape flushes immediately.
         assert!(framer.push(b"\x1b").is_empty());
@@ -3771,17 +3799,11 @@ mod tests {
 
     #[test]
     fn overlapping_host_color_queries_keep_holding_split_reply_escape() {
-        use std::fmt::Write as _;
-
         let mut framer = RawInputByteFramer::default();
         framer.host_color_query_sent();
         framer.host_color_query_sent();
-        let mut first_batch =
-            String::from("\x1b]10;rgb:6565/7b7b/8383\x1b\\\x1b]11;rgb:2424/2727/3a3a\x1b\\");
-        for index in 0..=u8::MAX {
-            let _ = write!(first_batch, "\x1b]4;{index};rgb:1111/2222/3333\x1b\\");
-        }
-        assert_eq!(framer.push(first_batch.as_bytes()).len(), 258);
+        let first_batch = "\x1b]10;rgb:6565/7b7b/8383\x1b\\\x1b]11;rgb:2424/2727/3a3a\x1b\\\x1b]12;rgb:aaaa/bbbb/cccc\x1b\\";
+        assert_eq!(framer.push(first_batch.as_bytes()).len(), 3);
 
         // The second batch is still outstanding, so its first reply split at ESC
         // must not leak into the pane as an Escape key.

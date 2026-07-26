@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn cursor_metadata_applies_only_to_its_accepted_surface_revision() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    let current = surface();
+    state.set_pane_surface(current.clone());
+    let color = Some(crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 });
+    let metadata = crate::protocol::endpoint::SurfaceCursorColor {
+        boot_id: current.boot_id.clone(),
+        projection_revision: current.projection_revision,
+        surface_revision: current.surface_revision,
+        color,
+    };
+    assert_eq!(state.surface_cursor_color(&metadata), color);
+    let next_metadata = crate::protocol::endpoint::SurfaceCursorColor {
+        surface_revision: metadata.surface_revision + 1,
+        ..metadata.clone()
+    };
+    assert_eq!(state.surface_cursor_color(&next_metadata), None);
+    assert_eq!(
+        state.surface_cursor_color(&crate::protocol::endpoint::SurfaceCursorColor {
+            boot_id: "other-boot".into(),
+            ..metadata.clone()
+        }),
+        None
+    );
+    assert_eq!(
+        state.surface_cursor_color(&crate::protocol::endpoint::SurfaceCursorColor {
+            projection_revision: metadata.projection_revision + 1,
+            ..metadata.clone()
+        }),
+        None
+    );
+    state.set_pane_surface(crate::protocol::PaneSurfaceFrame {
+        surface_revision: next_metadata.surface_revision,
+        ..current
+    });
+    assert_eq!(state.surface_cursor_color(&metadata), None);
+    assert_eq!(state.surface_cursor_color(&next_metadata), color);
+}
+
+#[test]
 fn host_appearance_prefers_explicit_reports_over_background_inference() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.config.theme_runtime.auto_switch = true;
@@ -77,7 +118,7 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
 }
 
 #[test]
-fn full_host_palette_response_is_sent_as_one_theme_update() {
+fn indexed_host_palette_is_not_discovered_or_forwarded() {
     use std::fmt::Write as _;
 
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
@@ -88,20 +129,7 @@ fn full_host_palette_response_is_sent_as_one_theme_update() {
 
     let outcome = state.handle_input_bytes(responses.as_bytes());
 
-    let [ClientMessage::ClientShellHostTheme {
-        update: crate::protocol::ClientHostThemeUpdate::PaletteColors(colors),
-    }] = outcome.requests.as_slice()
-    else {
-        panic!(
-            "expected one batched palette update, got {} requests",
-            outcome.requests.len()
-        );
-    };
-    assert_eq!(colors.len(), 256);
-    assert_eq!(
-        colors.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
-        (0..=u8::MAX).collect::<Vec<_>>()
-    );
+    assert!(outcome.requests.is_empty());
 }
 
 #[test]

@@ -62,7 +62,7 @@ pub struct ThemeConfig {
     /// Built-in theme name. Default: "catppuccin".
     pub name: Option<String>,
     /// Follow host terminal light/dark appearance and switch between theme names.
-    pub auto_switch: bool,
+    pub auto_switch: Option<bool>,
     /// Theme name used when `auto_switch` selects a dark appearance.
     pub dark_name: Option<String>,
     /// Theme name used when `auto_switch` selects a light appearance.
@@ -281,7 +281,7 @@ light_name = "catppuccin-latte"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.theme.name.as_deref(), Some("catppuccin"));
-        assert!(config.theme.auto_switch);
+        assert_eq!(config.theme.auto_switch, Some(true));
         assert_eq!(config.theme.dark_name.as_deref(), Some("tokyo-night"));
         assert_eq!(config.theme.light_name.as_deref(), Some("catppuccin-latte"));
     }
@@ -345,7 +345,7 @@ active_row_bg = "#131415"
     fn theme_defaults_when_missing() {
         let config: Config = toml::from_str("").unwrap();
         assert!(config.theme.name.is_none());
-        assert!(!config.theme.auto_switch);
+        assert!(config.theme.auto_switch.is_none());
         assert!(config.theme.dark_name.is_none());
         assert!(config.theme.light_name.is_none());
         assert!(config.theme.custom.is_none());
