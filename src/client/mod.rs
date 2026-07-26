@@ -70,7 +70,7 @@ use terminal_geometry::{
 };
 use terminal_geometry::{
     host_cell_size_query_required, initial_terminal_geometry, query_host_cell_size,
-    query_host_terminal_theme, resize_poll_loop,
+    query_host_terminal_theme, resize_poll_loop, should_query_host_terminal_theme,
 };
 #[cfg(unix)]
 use terminal_geometry::{reported_cell_size_from_events, store_reported_cell_size};
@@ -467,6 +467,7 @@ async fn run_client_loop(
         presentation_frozen: false,
         deferred_local_activation: None,
         draw_host_cursor,
+        surface_cursor_colors: std::collections::HashMap::new(),
         detached_process_children: Vec::new(),
         shell: config.shell_config.map(shell::ClientShellState::new),
     };
@@ -517,7 +518,8 @@ async fn run_client_loop(
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
 
     // Spawn the stdin reader thread.
-    let will_query_host_terminal_theme = state.attach_escape.is_none();
+    let will_query_host_terminal_theme =
+        state.attach_escape.is_none() && should_query_host_terminal_theme();
     let host_theme_query_pending = Arc::new(AtomicU32::new(0));
     let stdin_host_theme_query_pending = host_theme_query_pending.clone();
     // Terminals behind ConPTY report no pixel size through the ioctl, so ask the
@@ -554,9 +556,9 @@ async fn run_client_loop(
         );
     });
 
-    #[cfg(unix)]
     if will_query_host_terminal_theme {
         query_host_terminal_theme();
+        #[cfg(not(windows))]
         if state.shell.is_some() {
             query_host_terminal_appearance();
         }
@@ -1100,6 +1102,29 @@ async fn run_client_loop(
                             return Err(ClientError::ConnectionLost(err));
                         }
                     }
+                }
+            }
+            #[cfg(windows)]
+            ClientLoopEvent::HostThemeObservation(events) => {
+                let Some(shell) = state.shell.as_mut() else {
+                    continue;
+                };
+                let outcome = shell.handle_raw_events(events);
+                let frame = outcome
+                    .repaint
+                    .then(|| shell.compose(state.reported_size.0, state.reported_size.1))
+                    .flatten();
+                if finish_client_shell_input(
+                    &mut state,
+                    outcome,
+                    frame,
+                    &mut write_stream,
+                    &mut pending_activation,
+                    &mut endpoint_commands,
+                    &mut prefix_input_source,
+                    &mut scheduled_activation,
+                )? {
+                    return Ok(());
                 }
             }
             #[cfg(windows)]
@@ -1993,6 +2018,26 @@ async fn run_client_loop(
                         }
                     }
                     ServerMessage::EndpointControl { kind, data } => {
+                        if kind == protocol::endpoint::SURFACE_CURSOR_COLOR_KIND {
+                            if (endpoint_active || activation_message)
+                                && write_stream
+                                    .connection(&endpoint_id)
+                                    .is_some_and(|connection| {
+                                        connection.negotiation.supports_capability(
+                                            protocol::endpoint::SURFACE_CURSOR_COLOR_CAPABILITY,
+                                        )
+                                    })
+                            {
+                                let metadata: protocol::endpoint::SurfaceCursorColor =
+                                    serde_json::from_str(&data).map_err(|err| {
+                                        ClientError::Protocol(protocol::FramingError::Io(
+                                            io::Error::other(err),
+                                        ))
+                                    })?;
+                                state.record_surface_cursor_color(endpoint_id.clone(), metadata);
+                            }
+                            continue;
+                        }
                         if kind == crate::protocol::endpoint::PRESENTATION_EFFECTS_READY_KIND {
                             let progress = pending_activation.as_mut().map(|activation| {
                                 activation.receive_presentation_effects_ready(

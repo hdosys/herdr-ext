@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
+
 ## [0.9.2] - 2026-09-29
 
 ### Breaking Changes
@@ -361,6 +364,7 @@
 
 ### Changed
 - Agent commands now accept only a unique live agent name or the pane ID currently hosting that agent. Names are cleared when the occupant exits, is released, or is replaced. The old top-level `wait` commands were replaced by `agent wait` and `pane wait-output`, and `agent send` was replaced by `agent send-keys`.
+- When no `[theme]` fields are configured, Herdr now follows host light/dark appearance by default. Set `auto_switch = false` to opt out, or enable it explicitly alongside configured theme names.
 - The session navigator now uses connected tree glyphs, groups matches by workspace, and automatically selects the first result when a search begins. (#1611)
 
 ### Fixed

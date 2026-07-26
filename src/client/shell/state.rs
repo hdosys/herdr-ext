@@ -1211,6 +1211,33 @@ impl ClientShellState {
         }
     }
 
+    pub(crate) fn surface_cursor_color(
+        &self,
+        metadata: &crate::protocol::endpoint::SurfaceCursorColor,
+    ) -> Option<crate::terminal_theme::RgbColor> {
+        if self.overlay.is_some() {
+            return None;
+        }
+        self.matches_surface_cursor_color(metadata)
+            .then_some(metadata.color)
+            .flatten()
+    }
+
+    pub(crate) fn matches_surface_cursor_color(
+        &self,
+        metadata: &crate::protocol::endpoint::SurfaceCursorColor,
+    ) -> bool {
+        self.pane_surface.as_ref().is_some_and(|surface| {
+            surface.boot_id == metadata.boot_id
+                && surface.projection_revision == metadata.projection_revision
+                && surface.surface_revision == metadata.surface_revision
+        })
+    }
+
+    pub(crate) fn active_endpoint_id(&self) -> &ClientEndpointId {
+        &self.active_endpoint_id
+    }
+
     pub(super) fn reset_endpoint_projection(&mut self) {
         self.hits = ShellHitMap::default();
         self.pane_surface = None;

@@ -265,7 +265,7 @@ light_name = "catppuccin-latte"
 dark_name = "catppuccin"
 ```
 
-`auto_switch` のデフォルトは `false` なので、既存のテーマ設定は手動の挙動を保ちます。`light_name` または `dark_name` を省略すると、設定された `name` に対応する組み込みの姉妹テーマが存在する場合はそれを使います。たとえば `tokyo-night`/`tokyo-night-day` や `gruvbox`/`gruvbox-light` です。設定画面でテーマを手動選択すると `auto_switch` は無効になります。
+テーマ項目が未設定の場合、Herdr は既定でホストの外観に追従します。無効にするには `auto_switch = false`、明示的なテーマ設定とともに有効にするには `true` を指定します。`light_name` または `dark_name` を省略すると、設定された `name` に対応する組み込みの姉妹テーマが存在する場合はそれを使います。たとえば `tokyo-night`/`tokyo-night-day` や `gruvbox`/`gruvbox-light` です。設定画面でテーマを手動選択すると `auto_switch` は無効になります。
 
 個々の色を上書きできます:
 

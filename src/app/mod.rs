@@ -246,17 +246,25 @@ fn theme_runtime_config(
     config: &crate::config::Config,
     use_legacy_ui_accent: bool,
 ) -> state::ThemeRuntimeConfig {
+    let has_explicit_theme = config.theme.name.is_some()
+        || config.theme.dark_name.is_some()
+        || config.theme.light_name.is_some()
+        || config.theme.custom.is_some();
     let manual_name = config
         .theme
         .name
         .clone()
         .unwrap_or_else(|| "catppuccin".to_string());
-    let (default_dark, default_light) = sibling_theme_names(&manual_name);
+    let (default_dark, default_light) = if has_explicit_theme {
+        sibling_theme_names(&manual_name)
+    } else {
+        ("catppuccin".to_string(), "one-light".to_string())
+    };
     state::ThemeRuntimeConfig {
         manual_name,
         dark_name: config.theme.dark_name.clone().unwrap_or(default_dark),
         light_name: config.theme.light_name.clone().unwrap_or(default_light),
-        auto_switch: config.theme.auto_switch,
+        auto_switch: config.theme.auto_switch.unwrap_or(!has_explicit_theme),
         custom: config.theme.custom.clone(),
         legacy_accent: (use_legacy_ui_accent
             && config.ui.accent != "cyan"
@@ -1389,7 +1397,7 @@ mod tests {
     fn theme_auto_switch_uses_sibling_map_and_explicit_appearance() {
         let mut config = Config::default();
         config.theme.name = Some("tokyo-night".to_string());
-        config.theme.auto_switch = true;
+        config.theme.auto_switch = Some(true);
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &config,
@@ -1413,7 +1421,7 @@ mod tests {
     fn theme_auto_switch_applies_custom_overrides_after_active_base() {
         let mut config = Config::default();
         config.theme.name = Some("gruvbox".to_string());
-        config.theme.auto_switch = true;
+        config.theme.auto_switch = Some(true);
         config.theme.custom = Some(crate::config::CustomThemeColors {
             accent: Some("#010203".to_string()),
             ..Default::default()
@@ -1443,7 +1451,7 @@ mod tests {
     fn theme_auto_switch_layers_active_mode_overrides_last() {
         let mut config = Config::default();
         config.theme.name = Some("gruvbox".to_string());
-        config.theme.auto_switch = true;
+        config.theme.auto_switch = Some(true);
         config.theme.custom = Some(crate::config::CustomThemeColors {
             accent: Some("#010203".to_string()),
             text: Some("#040506".to_string()),
