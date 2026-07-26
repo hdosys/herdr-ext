@@ -120,6 +120,7 @@ const MAX_INPUT_EVENT_BATCH: usize = 4096;
 /// Channels owned by the server side of a client writer thread.
 #[derive(Clone, Debug)]
 pub(crate) struct ClientWriter {
+    pub(crate) surface_cursor_color: bool,
     /// Reliable control messages such as shutdown, notifications, and clipboard writes.
     pub(crate) control: ClientControlWriter,
     /// Droppable render messages. Capacity is one so slow clients cannot build lag.
@@ -171,6 +172,7 @@ impl ClientWriter {
         let mut render_writer = ClientRenderWriter::queue(queue);
         render_writer.test_render = Some(render.clone());
         let writer = Self {
+            surface_cursor_color: false,
             control: control_writer,
             render: render_writer,
         };
@@ -784,6 +786,7 @@ pub(crate) fn handle_client_handshake(
                     hello.endpoint_keybindings,
                     hello.mouse_capture,
                     hello.surface_active,
+                    hello.surface_cursor_color,
                     hello.surface_reuse,
                     hello.surface_delta,
                     hello.surface_scroll,
@@ -857,6 +860,7 @@ pub(crate) fn handle_client_handshake(
     // Create separate channels for reliable control messages and droppable renders.
     let writer_queue = ClientWriterQueue::new();
     let writer = ClientWriter {
+        surface_cursor_color: shell_options.as_ref().is_some_and(|options| options.5),
         control: ClientControlWriter::queue(writer_queue.clone()),
         render: ClientRenderWriter::queue(writer_queue.clone()),
     };
@@ -881,6 +885,7 @@ pub(crate) fn handle_client_handshake(
         endpoint_keybindings,
         mouse_capture,
         surface_active,
+        _surface_cursor_color,
         surface_reuse,
         surface_delta,
         surface_scroll,
@@ -1462,6 +1467,7 @@ mod tests {
 
     fn endpoint_hello(surface_cols: u16, surface_rows: u16) -> ClientMessage {
         let hello = EndpointClientHello {
+            surface_cursor_color: false,
             generation: ENDPOINT_PROTOCOL_GENERATION,
             cell_width_px: 8,
             cell_height_px: 16,
@@ -1523,6 +1529,7 @@ mod tests {
         let queue = ClientWriterQueue::new();
         (
             ClientWriter {
+                surface_cursor_color: false,
                 control: ClientControlWriter::queue(queue.clone()),
                 render: ClientRenderWriter::queue(queue.clone()),
             },

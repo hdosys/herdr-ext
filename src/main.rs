@@ -76,7 +76,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # name = "catppuccin"
 
 # Follow host terminal light/dark appearance and switch Herdr UI themes.
-# Existing manual behavior is unchanged unless this is true.
+# Unconfigured themes follow the host by default; set false to opt out.
 # auto_switch = false
 # dark_name = "catppuccin"
 # light_name = "catppuccin-latte"

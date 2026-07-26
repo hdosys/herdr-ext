@@ -43,8 +43,8 @@
         {
           "key": "theme.auto_switch",
           "type": "boolean",
-          "default": "false",
-          "description": "Follow host terminal light/dark appearance and switch between theme names."
+          "default": "automatic when no theme is configured",
+          "description": "Follow host terminal light/dark appearance and switch between theme names. Set false to opt out of the automatic default."
         },
         {
           "key": "theme.dark_name",

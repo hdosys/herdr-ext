@@ -192,10 +192,12 @@ pub(super) fn query_host_terminal_theme() {
     let _ = write_host_terminal_theme_query(io::stdout());
 }
 
+pub(super) fn should_query_host_terminal_theme() -> bool {
+    true
+}
+
 pub(super) fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()> {
-    let query = crate::terminal_theme::host_terminal_theme_query_sequence(
-        crate::platform::should_query_host_terminal_palette(),
-    );
+    let query = crate::terminal_theme::host_terminal_theme_query_sequence();
     writer.write_all(query.as_bytes())?;
     writer.flush()
 }

@@ -21,6 +21,7 @@ pub(crate) enum ClientRenderState {
         surface_delta: bool,
         surface_scroll: bool,
         recompute_pending: bool,
+        cursor_color: Option<crate::terminal_theme::RgbColor>,
     },
     /// Terminal-ANSI clients keep a terminal diff encoder and sequence number.
     TerminalAnsi {
@@ -40,6 +41,7 @@ impl ClientRenderState {
                 surface_delta: false,
                 surface_scroll: false,
                 recompute_pending: false,
+                cursor_color: None,
             },
             RenderEncoding::TerminalAnsi => Self::TerminalAnsi {
                 blit_encoder: BlitEncoder::new(),
@@ -113,7 +115,11 @@ impl ClientRenderState {
         }
     }
 
-    pub(crate) fn prepare_frame(&mut self, frame: FrameData) -> Option<PreparedRender> {
+    pub(crate) fn prepare_frame(
+        &mut self,
+        frame: FrameData,
+        cursor_color: Option<crate::terminal_theme::RgbColor>,
+    ) -> Option<PreparedRender> {
         match self {
             Self::Semantic { .. } => None,
             Self::TerminalAnsi {
@@ -121,6 +127,7 @@ impl ClientRenderState {
                 seq,
                 repaint_pending,
             } => {
+                blit_encoder.set_cursor_color(cursor_color);
                 if !*repaint_pending && blit_encoder.is_current(&frame) {
                     crate::render_prof::event("prepare_frame.ansi.skip_current");
                     return None;
@@ -165,13 +172,14 @@ impl ClientRenderState {
         &mut self,
         surface: PaneSurfaceFrame,
     ) -> Option<PreparedRender> {
-        self.prepare_pane_surface_with_file(surface, false)
+        self.prepare_pane_surface_with_file(surface, false, None)
     }
 
     pub(crate) fn prepare_pane_surface_with_file(
         &mut self,
         mut surface: PaneSurfaceFrame,
         has_file_upload: bool,
+        next_cursor_color: Option<crate::terminal_theme::RgbColor>,
     ) -> Option<PreparedRender> {
         let Self::Semantic {
             last_surface,
@@ -179,6 +187,7 @@ impl ClientRenderState {
             surface_reuse,
             surface_delta,
             recompute_pending,
+            cursor_color,
             ..
         } = self
         else {
@@ -186,6 +195,7 @@ impl ClientRenderState {
         };
         if !has_file_upload
             && !*recompute_pending
+            && *cursor_color == next_cursor_color
             && surface.graphics.assets.is_empty()
             && last_surface.as_deref().is_some_and(|last| {
                 last.projection_revision == surface.projection_revision
@@ -238,12 +248,14 @@ impl ClientRenderState {
             message: delta.or(reused).unwrap_or(message),
             committed_surface: Box::new(committed_surface),
             queued_graphics_assets,
+            cursor_color: next_cursor_color,
         })
     }
 
     pub(crate) fn prepare_pane_surface_patch(
         &self,
         mut patch: PaneSurfacePatch,
+        next_cursor_color: Option<crate::terminal_theme::RgbColor>,
     ) -> Option<PreparedRender> {
         let Self::Semantic {
             last_surface,
@@ -273,10 +285,12 @@ impl ClientRenderState {
             Some(message) => PreparedRender::SemanticPatch {
                 message,
                 encoded: Some(Box::new(patch)),
+                cursor_color: next_cursor_color,
             },
             None => PreparedRender::SemanticPatch {
                 message: ServerMessage::PaneSurfacePatch(patch),
                 encoded: None,
+                cursor_color: next_cursor_color,
             },
         })
     }
@@ -288,13 +302,17 @@ impl ClientRenderState {
                     last_surface,
                     surface_revision,
                     recompute_pending,
+                    cursor_color,
                     ..
                 },
                 PreparedRender::Semantic {
-                    committed_surface, ..
+                    committed_surface,
+                    cursor_color: next_cursor_color,
+                    ..
                 },
             ) => {
                 *surface_revision = committed_surface.surface_revision;
+                *cursor_color = next_cursor_color;
                 *last_surface = Some(committed_surface);
                 *recompute_pending = false;
             }
@@ -302,9 +320,14 @@ impl ClientRenderState {
                 Self::Semantic {
                     last_surface,
                     surface_revision,
+                    cursor_color,
                     ..
                 },
-                PreparedRender::SemanticPatch { message, encoded },
+                PreparedRender::SemanticPatch {
+                    message,
+                    encoded,
+                    cursor_color: next_cursor_color,
+                },
             ) => {
                 let patch = match (encoded, message) {
                     (Some(patch), _) => *patch,
@@ -316,6 +339,7 @@ impl ClientRenderState {
                     .expect("prepared patch baseline");
                 apply_pane_surface_patch(surface, &patch);
                 *surface_revision = patch.surface_revision;
+                *cursor_color = next_cursor_color;
             }
             (
                 Self::TerminalAnsi {
@@ -334,6 +358,13 @@ impl ClientRenderState {
                 *repaint_pending = false;
             }
             _ => {}
+        }
+    }
+
+    pub(crate) fn cursor_color(&self) -> Option<crate::terminal_theme::RgbColor> {
+        match self {
+            Self::Semantic { cursor_color, .. } => *cursor_color,
+            Self::TerminalAnsi { .. } => None,
         }
     }
 }
@@ -378,11 +409,13 @@ pub(crate) enum PreparedRender {
         message: ServerMessage,
         committed_surface: Box<PaneSurfaceFrame>,
         queued_graphics_assets: Vec<SurfaceGraphicsAssetKey>,
+        cursor_color: Option<crate::terminal_theme::RgbColor>,
     },
     SemanticPatch {
         message: ServerMessage,
         /// The pane patch a compact `message` encodes; `None` when `message` is that patch.
         encoded: Option<Box<PaneSurfacePatch>>,
+        cursor_color: Option<crate::terminal_theme::RgbColor>,
     },
     TerminalAnsi {
         message: ServerMessage,
@@ -392,6 +425,64 @@ pub(crate) enum PreparedRender {
 }
 
 impl PreparedRender {
+    pub(crate) fn prepend_cursor_color(
+        &self,
+        bytes: &mut Vec<u8>,
+        enabled: bool,
+    ) -> Result<(), crate::protocol::FramingError> {
+        if !enabled {
+            return Ok(());
+        }
+        let (boot_id, projection_revision, surface_revision, color) = match self {
+            Self::Semantic {
+                committed_surface,
+                cursor_color,
+                ..
+            } => (
+                committed_surface.boot_id.as_str(),
+                committed_surface.projection_revision,
+                committed_surface.surface_revision,
+                *cursor_color,
+            ),
+            Self::SemanticPatch {
+                message,
+                encoded,
+                cursor_color,
+            } => {
+                let patch = match (encoded.as_deref(), message) {
+                    (Some(patch), _) => patch,
+                    (None, ServerMessage::PaneSurfacePatch(patch)) => patch,
+                    (None, _) => unreachable!("a plain semantic patch carries its pane patch"),
+                };
+                (
+                    patch.boot_id.as_str(),
+                    patch.projection_revision,
+                    patch.surface_revision,
+                    *cursor_color,
+                )
+            }
+            Self::TerminalAnsi { .. } => return Ok(()),
+        };
+        let metadata = crate::protocol::endpoint::SurfaceCursorColor {
+            boot_id: boot_id.to_owned(),
+            projection_revision,
+            surface_revision,
+            color,
+        };
+        let data = serde_json::to_string(&metadata)
+            .map_err(|err| crate::protocol::FramingError::Io(std::io::Error::other(err)))?;
+        let mut framed = Vec::new();
+        crate::protocol::write_message(
+            &mut framed,
+            &ServerMessage::EndpointControl {
+                kind: crate::protocol::endpoint::SURFACE_CURSOR_COLOR_KIND.into(),
+                data,
+            },
+        )?;
+        framed.append(bytes);
+        *bytes = framed;
+        Ok(())
+    }
     pub(crate) fn message(&self) -> &ServerMessage {
         match self {
             Self::Semantic { message, .. }
@@ -723,19 +814,22 @@ mod tests {
             let mut changed_cell = surface.frame.cells[0].clone();
             changed_cell.symbol = "x".into();
             let patch = state
-                .prepare_pane_surface_patch(PaneSurfacePatch {
-                    boot_id: surface.boot_id.clone(),
-                    projection_revision: surface.projection_revision,
-                    base_surface_revision: 2,
-                    surface_revision: 0,
-                    rows: vec![crate::protocol::PaneSurfacePatchRow {
-                        x: 0,
-                        y: 0,
-                        cells: vec![changed_cell.clone()],
-                    }],
-                    panes: Vec::new(),
-                    cursor: None,
-                })
+                .prepare_pane_surface_patch(
+                    PaneSurfacePatch {
+                        boot_id: surface.boot_id.clone(),
+                        projection_revision: surface.projection_revision,
+                        base_surface_revision: 2,
+                        surface_revision: 0,
+                        rows: vec![crate::protocol::PaneSurfacePatchRow {
+                            x: 0,
+                            y: 0,
+                            cells: vec![changed_cell.clone()],
+                        }],
+                        panes: Vec::new(),
+                        cursor: None,
+                    },
+                    None,
+                )
                 .unwrap();
             decoder.decode(patch.message().clone()).unwrap();
             state.commit_sent_frame(patch);
@@ -815,10 +909,10 @@ mod tests {
             state.commit_sent_frame(first);
             assert!(state.prepare_pane_surface(surface.clone()).is_none());
             let file = state
-                .prepare_pane_surface_with_file(surface.clone(), true)
+                .prepare_pane_surface_with_file(surface.clone(), true, None)
                 .unwrap();
             let retry = state
-                .prepare_pane_surface_with_file(surface.clone(), true)
+                .prepare_pane_surface_with_file(surface.clone(), true, None)
                 .unwrap();
             let config = bincode::config::standard();
             assert_eq!(
