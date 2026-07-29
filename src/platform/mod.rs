@@ -365,6 +365,8 @@ pub(crate) mod unix_image_files;
 pub(crate) use unix_common::{begin_cli_output, forward_remote_bridge_stdio, RemoteBridgeWake};
 
 mod client_state;
+#[cfg(windows)]
+pub(crate) use client_state::copy_file_dacl;
 pub(crate) use client_state::{create_private_state_file, replace_file, sync_parent_directory};
 
 #[cfg(not(unix))]

@@ -23,14 +23,13 @@ use super::config_file::{check_config_targets, write_config};
 use super::env::{
     antigravity_cli_dir, claude_dir, codex_dir, copilot_dir, cursor_dir, devin_dir, droid_dir,
     grok_dir, hermes_dir, hermes_plugin_dir, kilo_dir, kimi_dir, letta_dir, mastracode_dir,
-    omp_extension_dir, opencode_dir, opencode_state_dir, pi_extension_dir, qodercli_dir, qwen_dir,
+    omp_extension_dir, opencode_dir, pi_extension_dir, qodercli_dir, qwen_dir,
 };
 use super::file_ops::{
     make_executable, remove_dir_all_if_exists, remove_file_if_exists, remove_legacy_bash_hook_file,
 };
 use super::opencode_config::{
-    add_cli_plugin, add_tui_plugin, remove_cli_plugin, remove_tui_plugin,
-    validate_tui_plugin_config,
+    add_tui_plugin, remove_tui_plugin, tui_config_path, validate_tui_plugin_config,
 };
 use super::types::{
     AntigravityCliInstallPaths, AntigravityCliUninstallResult, ClaudeInstallPaths,
@@ -461,7 +460,6 @@ pub(crate) fn install_droid() -> io::Result<DroidInstallPaths> {
 
 pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     let dir = opencode_dir()?;
-    check_config_targets(&dir, &["tui.jsonc", "tui.json", "cli.json"])?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
             "opencode config directory not found at {}. install opencode first",
@@ -478,20 +476,11 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     let tui_plugin_path = dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
     fs::write(&tui_plugin_path, OPENCODE_TUI_PLUGIN_ASSET)?;
     let tui_config_path = add_tui_plugin(&dir, OPENCODE_TUI_PLUGIN_SPEC)?;
-    let v2_dir = dir.join(super::OPENCODE_V2_TUI_PLUGIN_DIR);
-    fs::create_dir_all(&v2_dir)?;
-    fs::write(v2_dir.join("tui.js"), super::OPENCODE_V2_TUI_PLUGIN_ASSET)?;
-    let cli_config_path = add_cli_plugin(
-        &dir,
-        &opencode_state_dir()?,
-        super::OPENCODE_V2_TUI_PLUGIN_SPEC,
-    )?;
 
     Ok(OpenCodeInstallPaths {
         plugin_path,
         tui_plugin_path,
         tui_config_path,
-        cli_config_path,
     })
 }
 
@@ -844,23 +833,14 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
 
 pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
     let dir = opencode_dir()?;
-    check_config_targets(&dir, &["tui.jsonc", "tui.json", "cli.json"])?;
+    let tui_config_path = tui_config_path(&dir);
     let plugin_path = dir.join("plugins").join(OPENCODE_PLUGIN_INSTALL_NAME);
     let tui_plugin_path = dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
     let mut errors = Vec::new();
-    remove_cli_plugin(&dir, super::OPENCODE_V2_TUI_PLUGIN_SPEC).unwrap_or_else(|err| {
-        errors.push(err.to_string());
-        false
-    });
-    let v2_dir = dir.join(super::OPENCODE_V2_TUI_PLUGIN_DIR);
-    remove_dir_all_if_exists(&v2_dir).unwrap_or_else(|err| {
-        errors.push(format!("failed to remove {}: {err}", v2_dir.display()));
-        false
-    });
-    let updated_tui_configs =
+    let updated_tui_config =
         remove_tui_plugin(&dir, OPENCODE_TUI_PLUGIN_SPEC).unwrap_or_else(|err| {
             errors.push(err.to_string());
-            Vec::new()
+            false
         });
     let removed_plugin = remove_file_if_exists(&plugin_path).unwrap_or_else(|err| {
         errors.push(format!("failed to remove {}: {err}", plugin_path.display()));
@@ -880,9 +860,10 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
     Ok(OpenCodeUninstallResult {
         plugin_path,
         tui_plugin_path,
+        tui_config_path,
         removed_plugin,
         removed_tui_plugin,
-        updated_tui_configs,
+        updated_tui_config,
     })
 }
 
