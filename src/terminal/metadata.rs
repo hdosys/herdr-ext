@@ -416,10 +416,23 @@ impl TerminalState {
     }
 
     fn newest_metadata_title(&self, now: Instant, enforce_ttl: bool) -> Option<String> {
+        // Integration-owned session titles are defaults, not explicit user
+        // presentation overrides. Keep pane rename and custom metadata intact.
         self.valid_agent_metadata(now, enforce_ttl)
             .filter(|metadata| metadata.title.is_some())
-            .max_by_key(|metadata| metadata.title_reported_at)
-            .and_then(|metadata| metadata.title.clone())
+            .max_by_key(|metadata| {
+                (
+                    metadata.source != "herdr:opencode:title",
+                    metadata.title_reported_at,
+                )
+            })
+            .and_then(|metadata| {
+                if metadata.source == "herdr:opencode:title" {
+                    self.manual_label.clone().or_else(|| metadata.title.clone())
+                } else {
+                    metadata.title.clone()
+                }
+            })
     }
 
     fn newest_metadata_display_agent(&self, now: Instant, enforce_ttl: bool) -> Option<String> {

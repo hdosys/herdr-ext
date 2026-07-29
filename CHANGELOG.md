@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Direct OpenCode subagents from Herdr-managed roots now open in adaptive unfocused splits that evenly tile the complete tab across both axes, then close when the child session becomes idle or is deleted.
 - Local herdr-win binaries and Windows setup now lead with one sortable UTC `YYYY.MM.DD.HHMMZ` build label while retaining the exact build ID as secondary provenance.
 
 ### Fixed
