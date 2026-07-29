@@ -275,6 +275,11 @@ pub(super) fn agent_row(
     let agent_label = agent
         .display_agent
         .as_deref()
+        .or_else(|| {
+            (agent.agent.as_deref() == Some("opencode"))
+                .then_some(agent.title.as_deref())
+                .flatten()
+        })
         .or(agent.name.as_deref())
         .or(agent.agent.as_deref())
         .or(agent.title.as_deref());
