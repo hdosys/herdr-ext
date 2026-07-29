@@ -19,6 +19,16 @@ fn valid_agent_name(name: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '-' | '_'))
 }
 
+fn agent_launch_argv(kind: crate::detect::Agent, args: Vec<String>) -> Vec<String> {
+    let mut argv = if kind == crate::detect::Agent::OpenCode && args.is_empty() {
+        crate::agent_resume::opencode_local_server_argv()
+    } else {
+        vec![crate::detect::interactive_agent_executable(kind).to_string()]
+    };
+    argv.extend(args);
+    argv
+}
+
 impl App {
     pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
         self.state
@@ -194,8 +204,7 @@ impl App {
         let shell_name = available_shell_name(runtime)
             .ok_or_else(|| AgentStartError::TargetBusy(params.pane_id.clone()))?;
 
-        let mut argv = vec![crate::detect::interactive_agent_executable(kind).to_string()];
-        argv.extend(params.args);
+        let argv = agent_launch_argv(kind, params.args);
         let command = crate::platform::interactive_shell_command(&argv, &shell_name)
             .ok_or(AgentStartError::InvalidArgument)?;
         let bytes = crate::app::api_helpers::encode_api_submission(runtime, &command);

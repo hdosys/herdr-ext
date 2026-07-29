@@ -95,7 +95,7 @@ impl App {
                         self.state
                             .workspaces
                             .get(workspace_index)?
-                            .tab_display_name(tab_index)
+                            .tab_display_name_from_terminals(tab_index, &self.state.terminals)
                     }) {
                         title.push_str(&name);
                     }
