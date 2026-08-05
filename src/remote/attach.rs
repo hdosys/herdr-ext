@@ -3473,9 +3473,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
 
     let dir = private_download_dir(&asset_key)?;
     let path = dir.join("herdr.tmp");
-    let status = crate::noninteractive_process::curl_command()
-        .arg("-sfL")
-        .arg(&asset.url)
+    let status = crate::noninteractive_process::curl_command(&asset.url)
         .args(["--max-time", "120", "-o"])
         .arg(&path)
         .status()
@@ -3524,9 +3522,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
 }
 
 fn fetch_remote_manifest(url: &str) -> io::Result<Vec<u8>> {
-    let output = crate::noninteractive_process::curl_command()
-        .arg("-sfL")
-        .arg(url)
+    let output = crate::noninteractive_process::curl_command(url)
         .args([
             "-H",
             "Cache-Control: no-cache",
