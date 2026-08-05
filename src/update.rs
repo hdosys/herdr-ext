@@ -292,9 +292,7 @@ fn fetch_json_manifest<T>(url: &str) -> Result<T, String>
 where
     T: serde::de::DeserializeOwned,
 {
-    let output = crate::noninteractive_process::curl_command()
-        .arg("-sfL")
-        .arg(url)
+    let output = crate::noninteractive_process::curl_command(url)
         .args([
             "-H",
             "Cache-Control: no-cache",
@@ -630,9 +628,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     let tmp_path = parent.join(format!(".herdr-update-{}.tmp", std::process::id()));
 
     // Download the exact asset URL (pinned to the release we checked)
-    let status = crate::noninteractive_process::curl_command()
-        .arg("-sfL")
-        .arg(&release.download_url)
+    let status = crate::noninteractive_process::curl_command(&release.download_url)
         .args(["--max-time", "120", "-o"])
         .arg(&tmp_path)
         .status()
@@ -746,9 +742,7 @@ fn download_windows_installer(release: &ReleaseInfo) -> Result<DownloadedWindows
     let path = root.join(asset_name);
     let download = DownloadedWindowsInstaller { root, path };
 
-    let status = crate::noninteractive_process::curl_command()
-        .arg("-sfL")
-        .arg(&release.download_url)
+    let status = crate::noninteractive_process::curl_command(&release.download_url)
         .args(["--max-time", "120", "-o"])
         .arg(&download.path)
         .status()

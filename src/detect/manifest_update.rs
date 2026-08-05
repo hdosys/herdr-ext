@@ -508,9 +508,16 @@ fn catalog_url() -> String {
 
 fn fetch_text(url: &str) -> Result<String, String> {
     let max_fetch_bytes = MAX_FETCH_BYTES.to_string();
-    let mut child = crate::noninteractive_process::curl_command()
+    #[cfg(test)]
+    let mut command = if url.starts_with("file://") {
+        crate::noninteractive_process::curl_command_for_test_file(url)
+    } else {
+        crate::noninteractive_process::curl_command(url)
+    };
+    #[cfg(not(test))]
+    let mut command = crate::noninteractive_process::curl_command(url);
+    let mut child = command
         .args([
-            "-sfL",
             "--retry",
             "2",
             "--connect-timeout",
@@ -519,7 +526,6 @@ fn fetch_text(url: &str) -> Result<String, String> {
             "15",
             "--max-filesize",
             &max_fetch_bytes,
-            url,
         ])
         .stdout(Stdio::piped())
         .spawn()
