@@ -448,20 +448,10 @@
       "title": "Updates",
       "keys": [
         {
-          "key": "update.channel",
-          "type": "enum",
-          "default": "\"stable\" (\"preview\" for Windows preview builds)",
-          "description": "Update channel used by background version checks and herdr update. Stable Windows builds default to stable; existing Windows preview installs stay on preview until explicitly switched. Homebrew, mise, and Nix installs ignore the preview channel.",
-          "values": [
-            "stable",
-            "preview"
-          ]
-        },
-        {
           "key": "update.version_check",
           "type": "boolean",
           "default": "true",
-          "description": "Check herdr.dev for new Herdr versions in the background."
+          "description": "Check the distribution-owned update feed for new releases in the background."
         },
         {
           "key": "update.manifest_check",

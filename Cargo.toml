@@ -3,6 +3,7 @@ name = "herdr"
 version = "0.9.2"
 edition = "2021"
 build = "build.rs"
+default-run = "herdr"
 description = "terminal workspace manager for AI coding agents"
 license = "Apache-2.0"
 repository = "https://github.com/herdrdev/herdr"
@@ -14,7 +15,6 @@ include = [
     "assets/sounds/*",
     "docs/next/api/herdr-api.schema.json",
     "skills/herdr/SKILL.md",
-    "distribution/install.ps1",
     "README.md",
     "LICENSE",
     "Cargo.toml",
@@ -23,6 +23,14 @@ include = [
 [workspace]
 members = ["crates/ghostty-vt"]
 default-members = [".", "crates/ghostty-vt"]
+
+[[bin]]
+name = "herdr-launcher"
+path = "src/bin/herdr-launcher.rs"
+
+[[bin]]
+name = "herdr-installer-helper"
+path = "src/bin/herdr-installer-helper.rs"
 
 [dependencies]
 ghostty-vt = { path = "crates/ghostty-vt" }

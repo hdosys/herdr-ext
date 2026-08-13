@@ -433,6 +433,32 @@ fn hermes_layout_makes_target_available() {
 }
 
 #[test]
+#[cfg(windows)]
+fn windows_devin_dir_uses_roaming_app_data() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let roaming_app_data = base.join("roaming-app-data");
+    let original_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+    let original_app_data = std::env::var_os("APPDATA");
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::set_var("APPDATA", &roaming_app_data);
+
+    assert_eq!(devin_dir().unwrap(), roaming_app_data.join("devin"));
+
+    if let Some(xdg_config_home) = original_xdg_config_home {
+        std::env::set_var("XDG_CONFIG_HOME", xdg_config_home);
+    } else {
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    if let Some(app_data) = original_app_data {
+        std::env::set_var("APPDATA", app_data);
+    } else {
+        std::env::remove_var("APPDATA");
+    }
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn codex_availability_finds_standalone_binary_under_codex_home() {
     let _lock = integration_env_lock();
     let base = unique_base();

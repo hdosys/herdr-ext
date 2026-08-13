@@ -257,10 +257,6 @@ pub(crate) fn begin_cli_output() {
     set_sigpipe_disposition(libc::SIG_DFL);
 }
 
-pub(crate) fn end_cli_output() {
-    set_sigpipe_disposition(libc::SIG_IGN);
-}
-
 pub(crate) fn remote_ssh_config_paths() -> super::RemoteSshConfigPaths {
     super::RemoteSshConfigPaths {
         user_config: std::env::var_os("HOME")
@@ -397,7 +393,7 @@ pub(crate) fn hostname() -> Option<String> {
 }
 
 pub(crate) fn local_datetime() -> Option<time::PrimitiveDateTime> {
-    let mut timestamp: libc::time_t = 0;
+    let mut timestamp = 0;
     if unsafe { libc::time(&mut timestamp) } == -1 {
         return None;
     }

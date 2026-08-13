@@ -71,7 +71,7 @@ fn load_stored_from_path(path: &Path) -> Option<StoredReleaseNotes> {
 }
 
 pub fn load_latest() -> Option<ReleaseNotes> {
-    load_latest_from_path(&pending_path(), &crate::build_info::version())
+    load_latest_from_path(&pending_path(), crate::build_info::release_identity())
 }
 
 fn load_latest_from_path(path: &Path, current_version: &str) -> Option<ReleaseNotes> {
@@ -88,12 +88,19 @@ fn release_notes_from_stored(
         return None;
     }
 
-    let preview = match (
-        crate::update::Version::parse(&stored.version),
-        crate::update::Version::parse(current_version),
-    ) {
-        (Some(stored_version), Some(current_version)) => stored_version > current_version,
-        _ => false,
+    let preview = match crate::update::ReleaseVersion::parse(&stored.version) {
+        Some(stored_version) => {
+            crate::update::ReleaseVersion::parse(current_version)
+                .is_some_and(|current_version| stored_version > current_version)
+                || current_version == "local"
+        }
+        None => match (
+            crate::update::Version::parse(&stored.version),
+            crate::update::Version::parse(current_version),
+        ) {
+            (Some(stored_version), Some(current_version)) => stored_version > current_version,
+            _ => false,
+        },
     };
 
     Some(ReleaseNotes {
@@ -104,7 +111,7 @@ fn release_notes_from_stored(
 }
 
 pub fn mark_current_version_seen() -> std::io::Result<()> {
-    mark_current_version_seen_at(&pending_path(), &crate::build_info::version())
+    mark_current_version_seen_at(&pending_path(), crate::build_info::release_identity())
 }
 
 fn mark_current_version_seen_at(path: &Path, current_version: &str) -> std::io::Result<()> {
@@ -225,6 +232,42 @@ mod tests {
         assert!(!notes.preview);
 
         clear_pending_at(&path).unwrap();
+    }
+
+    #[test]
+    fn release_calver_controls_update_ready_state() {
+        let newer = StoredReleaseNotes {
+            version: "2026.08.12.2".to_string(),
+            body: "### Changed\n- One".to_string(),
+            show_on_startup: true,
+        };
+        assert!(
+            release_notes_from_stored(newer, "2026.08.12.1")
+                .expect("notes")
+                .preview
+        );
+
+        let same = StoredReleaseNotes {
+            version: "2026.08.12.2".to_string(),
+            body: "### Changed\n- One".to_string(),
+            show_on_startup: true,
+        };
+        assert!(
+            !release_notes_from_stored(same, "2026.08.12.2")
+                .expect("notes")
+                .preview
+        );
+
+        let local = StoredReleaseNotes {
+            version: "2026.08.12.2".to_string(),
+            body: "### Changed\n- One".to_string(),
+            show_on_startup: true,
+        };
+        assert!(
+            release_notes_from_stored(local, "local")
+                .expect("notes")
+                .preview
+        );
     }
 
     #[test]

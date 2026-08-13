@@ -7,23 +7,9 @@ Windows 原生支持已正式发布。
 
 Windows 上的 Herdr 使用 ConPTY 和 Windows 的进程/运行时行为,而不是 Herdr 最初围绕构建的 Unix PTY 模型。大多数核心工作流已受支持,但部分能力与 Linux/macOS 不同或取决于平台。随着这些剩余差距逐步缩小,Windows 可能会收到更多平台专用修复。
 
-使用 PowerShell 在 Windows 上原生安装 Herdr:
+安装 Windows 原生构建时,从 [herdr-win 发布页](https://github.com/hdosys/herdr-win/releases) 下载最新的 `herdr-win_v<version>_windows_amd64_setup.exe`。按用户安装的 NSIS 安装程序无需管理员权限,在已安装的应用中注册 **Herdr Win**,并将 `%LOCALAPPDATA%\Programs\Herdr\bin` 添加到用户 `PATH`。一个稳定启动器会选择 `%LOCALAPPDATA%\Programs\Herdr\runtime` 下的不可变运行时,因此活动会话可以在启用新运行时之前正常结束。
 
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
-```
-
-如果端点安全软件阻止该无文件 PowerShell 命令，请打开命令提示符并运行：
-
-```cmd
-curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd
-```
-
-Windows 构建同时通过稳定版和预览版更新通道提供。新安装默认使用稳定版,常规使用也建议选择稳定版。现有预览安装会继续留在预览通道,直到你运行 `herdr channel set stable`。如果旧预览构建拒绝该命令,请先在预览通道运行一次 `herdr update`,再重试。预览版会提供来自 `master` 的更新、测试较少的修复,也可能出现回归;只有在接受这一取舍时,才应通过 `herdr channel set preview` 主动启用。
-
-安装器将发布版本保存在 `%USERPROFILE%\.herdr\packages\standalone\releases` 下,把当前带版本号的发布目录加入 PATH,将 `%LOCALAPPDATA%\Programs\Herdr\bin` 保留为稳定的兼容别名,并保留少量旧版本,以免运行中的进程阻塞更新。
-
-对于内部测试,`HERDR_MANIFEST_URL` 可以让安装器指向自定义清单,而不是 Herdr 的稳定或预览清单。使用自定义预览清单时还应设置 `HERDR_CHANNEL=preview`。
+已安装的 Windows 发行版拥有该分支的 CalVer 更新源,不能通过配置切换到官方 Herdr 或其他通道。
 
 ## Windows 支持
 
@@ -128,11 +114,16 @@ Herdr 的窗格文本复制在 Windows 上可用。在窗格内拖选文本即�
 
 ```powershell
 herdr --remote workbox
+herdr --remote workbox --provision --yes --json
 ```
 
-目标主机可以运行 Linux、macOS 或 Windows。Windows 主机会复用 `PATH` 或当前有效的托管版本中的兼容软件包。交互式连接和保存机器设置会在安装或更新完整软件包前询问；后台重连只查找已安装的软件包，不会提示安装或更新。Herdr 使用已安装的 Windows OpenSSH 客户端和你的 SSH 配置。Windows OpenSSH 不使用 Herdr 的 Unix control socket 连接复用,因此建议通过 Windows `ssh-agent` 使用密钥认证,避免远程设置期间重复提示。
+所有受支持的客户端都可以连接 x86_64 和 ARM64 Windows 主机。普通连接和已保存的机器会复用 `PATH` 或 `%USERPROFILE%\.herdr\remote\herdr.exe` 中端点兼容的二进制,不会仅因版本不同而替换。显式配置则要求所选运行时身份完全匹配,并在任何已批准的服务器停止之前验证完整的便携 ZIP。它不会运行受管理安装程序或更改远程 `PATH`。已保存连接的重连不会安装、停止、替换、重启或启动未运行的服务器,并保持明确选择的会话。为逐字节保持二进制流，Windows OpenSSH 的默认 shell 必须是 `cmd.exe` 或 PowerShell 7（`pwsh.exe`）。服务器在 SSH 用户现有的活动桌面会话中启动,因此 SSH 断开后仍可继续运行。Windows PowerShell 5.1、未知 shell、缺少活动桌面会话或桌面会话不明确都会被拒绝。Windows 目标主机不支持实时交接。
 
-Windows 更新通过 Windows 安装器进行,并更新当前带版本号的发布路径。新终端和重新连接的 SSH 会话会获得该路径;在其中启动 Herdr 即可使用更新后的客户端。兼容的运行中服务器会让窗格继续运行。只有需要新版本的服务器端改动时,才稍后重启服务器。实时交接仅限 Unix。
+Herdr 使用已安装的 Windows OpenSSH 客户端和你的 SSH 配置。Windows OpenSSH 不使用 Herdr 的 Unix control socket 连接复用，因此建议通过 Windows `ssh-agent` 使用密钥认证，避免远程设置期间重复提示。
+
+Windows 目标还必须声明 `windows_remote_host` 支持。仅提供客户端功能的 Windows 二进制不足以托管 SSH 桥接。
+
+Windows 更新使用受管理的安装程序资产。现有会话继续使用当前的不可变运行时,活动租约结束后,后续启动会切换到新运行时。实时交接仅限 Unix。
 
 ## 报告 Windows 问题
 

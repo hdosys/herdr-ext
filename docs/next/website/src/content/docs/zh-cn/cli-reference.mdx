@@ -16,11 +16,9 @@ herdr --remote workbox --provision --yes --json
 herdr --remote workbox --remote-keybindings server
 herdr --remote workbox --handoff
 herdr --default-config        # 打印默认配置
-herdr update                  # 从配置的通道下载并安装
+herdr update                  # 下载并安装当前发行版的最新版本
+herdr update --handoff        # 对受支持的运行中服务器启用实时交接
 herdr completion zsh          # 生成 zsh 补全脚本
-herdr channel show            # 打印 stable 或 preview
-herdr channel set preview     # 启用预览构建
-herdr channel set stable      # 把直接安装切回稳定版
 herdr --version               # 打印版本
 ```
 

@@ -11,13 +11,6 @@ const FAKE_ANNOUNCEMENT_BODY_FILE_ENV: &str = "HERDR_FAKE_PRODUCT_ANNOUNCEMENT_B
 const FAKE_ANNOUNCEMENT_ID_ENV: &str = "HERDR_FAKE_PRODUCT_ANNOUNCEMENT_ID";
 const FAKE_ANNOUNCEMENT_TITLE_ENV: &str = "HERDR_FAKE_PRODUCT_ANNOUNCEMENT_TITLE";
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ManifestAnnouncement {
-    pub id: String,
-    pub title: Option<String>,
-    pub body: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductAnnouncement {
     pub version: String,
@@ -78,59 +71,13 @@ pub fn store_path() -> PathBuf {
     crate::config::state_dir().join(PRODUCT_ANNOUNCEMENTS_PATH)
 }
 
-pub fn save_manifest_announcement(
-    manifest_version: &str,
-    announcement: Option<&ManifestAnnouncement>,
-) -> io::Result<Option<ProductAnnouncement>> {
-    let Some(announcement) = announcement else {
-        clear_latest_for_version(&store_path(), manifest_version)?;
-        return Ok(None);
-    };
-
-    let Some(product_announcement) = announcement_from_manifest(manifest_version, announcement)
-    else {
-        clear_latest_for_version(&store_path(), manifest_version)?;
-        return Ok(None);
-    };
-
-    save_latest_to_path(&store_path(), product_announcement.clone())?;
-    Ok(Some(product_announcement))
-}
-
 pub fn load_unseen_for_current_version() -> Option<ProductAnnouncement> {
     load_fake_for_current_version()
-        .or_else(|| load_unseen_from_path(&store_path(), &crate::build_info::version()))
+        .or_else(|| load_unseen_from_path(&store_path(), crate::build_info::release_identity()))
 }
 
 pub fn mark_seen(version: &str, id: &str) -> io::Result<()> {
     mark_seen_at(&store_path(), version, id)
-}
-
-fn announcement_from_manifest(
-    manifest_version: &str,
-    announcement: &ManifestAnnouncement,
-) -> Option<ProductAnnouncement> {
-    let id = announcement.id.trim();
-    let body = normalize_body(&announcement.body);
-    if id.is_empty() || body.is_empty() {
-        return None;
-    }
-
-    let title = announcement
-        .title
-        .as_deref()
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or("announcement")
-        .to_string();
-
-    Some(ProductAnnouncement {
-        version: manifest_version.trim().to_string(),
-        id: id.to_string(),
-        title,
-        body,
-        preview: false,
-    })
 }
 
 fn load_fake_for_current_version() -> Option<ProductAnnouncement> {
@@ -155,7 +102,7 @@ fn load_fake_for_current_version() -> Option<ProductAnnouncement> {
         .unwrap_or_else(|| "product announcement preview".to_string());
 
     Some(ProductAnnouncement {
-        version: crate::build_info::version(),
+        version: crate::build_info::release_identity().to_string(),
         id,
         title,
         body,
@@ -163,23 +110,11 @@ fn load_fake_for_current_version() -> Option<ProductAnnouncement> {
     })
 }
 
+#[cfg(test)]
 fn save_latest_to_path(path: &Path, announcement: ProductAnnouncement) -> io::Result<()> {
     let mut store = load_store_from_path(path).unwrap_or_default();
     store.latest = Some(StoredProductAnnouncement::from(&announcement));
     write_store_to_path(path, &store)
-}
-
-fn clear_latest_for_version(path: &Path, version: &str) -> io::Result<()> {
-    let mut store = load_store_from_path(path).unwrap_or_default();
-    if store
-        .latest
-        .as_ref()
-        .is_some_and(|announcement| announcement.version == version)
-    {
-        store.latest = None;
-        write_store_to_path(path, &store)?;
-    }
-    Ok(())
 }
 
 fn mark_seen_at(path: &Path, version: &str, id: &str) -> io::Result<()> {
@@ -287,26 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn clearing_manifest_announcement_removes_matching_latest() {
-        let path = temp_path("clear");
-        save_latest_to_path(
-            &path,
-            ProductAnnouncement {
-                version: "1.2.3".into(),
-                id: "keymap-v2".into(),
-                title: "Keymap changed".into(),
-                body: "### Changed\n- One".into(),
-                preview: false,
-            },
-        )
-        .unwrap();
-        clear_latest_for_version(&path, "1.2.3").unwrap();
-
-        assert_eq!(load_unseen_from_path(&path, "1.2.3"), None);
-        let _ = fs::remove_file(path);
-    }
-
-    #[test]
     fn fake_announcement_body_env_creates_preview() {
         let _guard = env_lock().lock().unwrap();
         unsafe {
@@ -326,27 +241,5 @@ mod tests {
             std::env::remove_var(FAKE_ANNOUNCEMENT_TITLE_ENV);
             std::env::remove_var(FAKE_ANNOUNCEMENT_ID_ENV);
         }
-    }
-
-    #[test]
-    fn manifest_announcement_requires_id_and_body() {
-        assert!(announcement_from_manifest(
-            "1.2.3",
-            &ManifestAnnouncement {
-                id: " ".into(),
-                title: None,
-                body: "hello".into(),
-            },
-        )
-        .is_none());
-        assert!(announcement_from_manifest(
-            "1.2.3",
-            &ManifestAnnouncement {
-                id: "notice".into(),
-                title: None,
-                body: " ".into(),
-            },
-        )
-        .is_none());
     }
 }

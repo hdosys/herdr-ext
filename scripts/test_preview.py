@@ -9,6 +9,13 @@ from pathlib import Path
 import scripts.conventional_commits as conventional_commits
 import scripts.preview as preview
 
+VALID_SHAS = {
+    target: f"{index:x}" * 64
+    for index, target in enumerate(preview.ASSET_TARGETS, start=1)
+}
+VALID_RELEASE_VERSION = "2026.06.02.1"
+VALID_RELEASE_TAG = f"v{VALID_RELEASE_VERSION}"
+
 
 class PreviewNotesTests(unittest.TestCase):
     def test_notes_contain_only_build_and_comparison_link(self):
@@ -25,62 +32,311 @@ class PreviewNotesTests(unittest.TestCase):
             content = preview.build_manifest(
                 output=output,
                 repo="herdrdev/herdr",
-                tag="preview-2026-06-02-abcdef123456",
-                build_id="2026-06-02-abcdef123456",
+                tag=VALID_RELEASE_TAG,
+                build_id="abcdef123456.7890abcdef12",
                 commit="abcdef1234567890",
                 built_at="2026-06-02T03:00:00Z",
                 base_version="0.6.6",
                 protocol=12,
+                endpoint_generation=7,
                 notes=notes,
-                shas={
-                    "linux-x86_64": "deadbeef",
-                    "windows-x86_64": "a" * 64,
-                },
+                shas=VALID_SHAS,
                 retain=30,
-                endpoint_generation=77,
+                release_version=VALID_RELEASE_VERSION,
             )
             data = json.loads(content)
             self.assertEqual(data["channel"], "preview")
-            self.assertEqual(data["build_id"], "2026-06-02-abcdef123456")
+            self.assertIs(data["prerelease"], False)
+            self.assertEqual(data["release_version"], "2026.06.02.1")
+            self.assertEqual(data["build_id"], "abcdef123456.7890abcdef12")
+            self.assertEqual(data["endpoint_generation"], 7)
             self.assertEqual(
-                data["endpoint_generation"],
-                77,
+                data["builds"][data["build_id"]]["endpoint_generation"], 7
+            )
+            self.assertEqual(
+                set(data["assets"]), set(preview.ASSET_TARGETS),
+            )
+            self.assertEqual(
+                data["assets"]["linux-x86_64"]["url"],
+                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_linux_amd64",
             )
             self.assertEqual(
                 data["assets"]["linux-x86_64"]["sha256"],
-                "deadbeef",
+                VALID_SHAS["linux-x86_64"],
             )
             self.assertEqual(
                 data["assets"]["windows-x86_64"]["url"],
-                "https://github.com/herdrdev/herdr/releases/download/preview-2026-06-02-abcdef123456/herdr-windows-x86_64.zip",
+                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64.zip",
             )
             self.assertEqual(
                 data["assets"]["windows-x86_64"]["sha256"],
-                "a" * 64,
+                VALID_SHAS["windows-x86_64"],
             )
             self.assertEqual(data["assets"]["windows-x86_64"]["format"], "zip")
-            self.assertIn("2026-06-02-abcdef123456", data["builds"])
             self.assertEqual(
-                data["builds"]["2026-06-02-abcdef123456"]["endpoint_generation"],
-                77,
+                data["assets"]["windows-x86_64-installer"]["url"],
+                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64_setup.exe",
+            )
+            self.assertEqual(
+                data["assets"]["windows-x86_64-installer"]["format"], "nsis"
+            )
+            self.assertNotEqual(
+                data["assets"]["windows-x86_64"]["sha256"],
+                data["assets"]["windows-x86_64-installer"]["sha256"],
+            )
+            self.assertIn("abcdef123456.7890abcdef12", data["builds"])
+            self.assertEqual(
+                data["builds"]["abcdef123456.7890abcdef12"]["release_version"],
+                "2026.06.02.1",
+            )
+            self.assertIs(
+                data["builds"]["abcdef123456.7890abcdef12"]["prerelease"],
+                False,
             )
 
-    def test_windows_preview_asset_requires_sha256(self):
+    def test_herdr_win_asset_names_require_real_calver(self):
+        self.assertEqual(
+            preview.herdr_win_asset_names("2026.07.31.1"),
+            {
+                "linux-x86_64": "herdr-win_v2026.07.31.1_linux_amd64",
+                "linux-aarch64": "herdr-win_v2026.07.31.1_linux_arm64",
+                "macos-x86_64": "herdr-win_v2026.07.31.1_macos_amd64",
+                "macos-aarch64": "herdr-win_v2026.07.31.1_macos_arm64",
+                "windows-x86_64": "herdr-win_v2026.07.31.1_windows_amd64.zip",
+                "windows-x86_64-installer": (
+                    "herdr-win_v2026.07.31.1_windows_amd64_setup.exe"
+                ),
+            },
+        )
+        self.assertIn(
+            "65535",
+            preview.herdr_win_asset_names("2026.07.31.65535")[
+                "windows-x86_64-installer"
+            ],
+        )
+        for invalid in (
+            "v2026.07.31.1",
+            "2026.02.30.1",
+            "2026.07.31.0",
+            "2026.07.31.+1",
+            "2026.07.31.65536",
+        ):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ValueError, "release_version"
+            ):
+                preview.herdr_win_asset_names(invalid)
+
+    def test_endpoint_generation_reads_source_and_rejects_invalid_u32(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(ValueError, "windows-x86_64 requires"):
+            source = Path(tmp) / "endpoint.rs"
+            for value in (1, 7, 0xFFFFFFFF):
+                with self.subTest(value=value):
+                    source.write_text(
+                        f"pub const ENDPOINT_PROTOCOL_GENERATION: u32 = {value};\n",
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(preview.read_endpoint_protocol_generation(source), value)
+            for value in ("0", "4294967296", "-1", "1.5", "true", "missing"):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    source.write_text(
+                        f"pub const ENDPOINT_PROTOCOL_GENERATION: u32 = {value};\n",
+                        encoding="utf-8",
+                    )
+                    preview.read_endpoint_protocol_generation(source)
+
+    def test_manifest_rejects_invalid_endpoint_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for value in (None, True, "1", 0, -1, 1.5, 0x100000000):
+                with self.subTest(value=value), self.assertRaisesRegex(
+                    ValueError, "endpoint_generation must be a positive u32 integer"
+                ):
+                    preview.build_manifest(
+                        output=Path(tmp) / "preview.json",
+                        repo="hdosys/herdr-win",
+                        tag=VALID_RELEASE_TAG,
+                        build_id="abcdef123456.7890abcdef12",
+                        commit="abcdef",
+                        built_at="2026-06-02T03:00:00Z",
+                        base_version="0.9.0",
+                        protocol=12,
+                        endpoint_generation=value,
+                        notes="test",
+                        shas=VALID_SHAS,
+                        retain=1,
+                        release_version=VALID_RELEASE_VERSION,
+                    )
+
+    def test_release_gate_requires_newer_calver(self):
+        current = {"release_version": "2026.08.05.5"}
+        for stale in ("2026.08.05.5", "2026.08.05.4", "2026.08.04.99"):
+            with self.subTest(stale=stale), self.assertRaisesRegex(
+                ValueError, "must be newer"
+            ):
+                preview.require_newer_herdr_win_release(stale, current)
+        preview.require_newer_herdr_win_release("2026.08.05.6", current)
+        preview.require_newer_herdr_win_release("2026.08.05.6", {})
+        for invalid in (20260805, "bad"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ValueError, "current manifest has an invalid release_version"
+            ):
+                preview.require_newer_herdr_win_release(
+                    "2026.08.05.6", {"release_version": invalid}
+                )
+
+    def test_preview_assets_require_sha256(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for target in preview.ASSET_TARGETS:
+                shas = dict(VALID_SHAS)
+                shas.pop(target)
+                with self.subTest(target=target), self.assertRaisesRegex(
+                    ValueError, f"{target} requires"
+                ):
+                    preview.build_manifest(
+                        output=Path(tmp) / "preview.json",
+                        repo="herdrdev/herdr",
+                        tag=VALID_RELEASE_TAG,
+                        build_id="abcdef123456.7890abcdef12",
+                        commit="abcdef",
+                        built_at="2026-06-02T03:00:00Z",
+                        base_version="0.6.6",
+                        protocol=12,
+                        endpoint_generation=1,
+                        notes="test",
+                        shas=shas,
+                        retain=1,
+                        release_version=VALID_RELEASE_VERSION,
+                    )
+
+            invalid = dict(VALID_SHAS)
+            invalid["windows-x86_64-installer"] = "B" * 64
+            with self.assertRaisesRegex(
+                ValueError, "windows-x86_64-installer requires"
+            ):
                 preview.build_manifest(
                     output=Path(tmp) / "preview.json",
                     repo="herdrdev/herdr",
-                    tag="preview-test",
-                    build_id="test",
+                    tag=VALID_RELEASE_TAG,
+                    build_id="abcdef123456.7890abcdef12",
                     commit="abcdef",
                     built_at="2026-06-02T03:00:00Z",
                     base_version="0.6.6",
                     protocol=12,
+                    endpoint_generation=1,
                     notes="test",
-                    shas={},
+                    shas=invalid,
                     retain=1,
+                    release_version=VALID_RELEASE_VERSION,
                 )
+
+    def test_manifest_binds_tag_to_release_version(self):
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(
+            ValueError, "tag must be v2026.06.02.1"
+        ):
+            preview.build_manifest(
+                output=Path(tmp) / "preview.json",
+                repo="herdrdev/herdr",
+                tag="v2026.06.02.2",
+                build_id="abcdef123456.7890abcdef12",
+                commit="abcdef",
+                built_at="2026-06-02T03:00:00Z",
+                base_version="0.6.6",
+                protocol=12,
+                endpoint_generation=1,
+                notes="test",
+                shas=VALID_SHAS,
+                retain=1,
+                release_version=VALID_RELEASE_VERSION,
+            )
+
+    def test_manifest_preserves_legacy_zip_only_archived_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "preview.json"
+            legacy_id = "111111111111.aaaaaaaaaaaa"
+            output.write_text(
+                json.dumps(
+                    {
+                        "builds": {
+                            legacy_id: {
+                                "built_at": "2026-06-01T03:00:00Z",
+                                "assets": {
+                                    "windows-x86_64": {
+                                        "url": "https://example.test/legacy.zip",
+                                        "sha256": "c" * 64,
+                                        "format": "zip",
+                                    }
+                                },
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            content = preview.build_manifest(
+                output=output,
+                repo="herdrdev/herdr",
+                tag=VALID_RELEASE_TAG,
+                build_id="abcdef123456.7890abcdef12",
+                commit="abcdef",
+                built_at="2026-06-02T03:00:00Z",
+                base_version="0.6.6",
+                protocol=12,
+                endpoint_generation=1,
+                notes="test",
+                shas=VALID_SHAS,
+                retain=2,
+                release_version=VALID_RELEASE_VERSION,
+            )
+            data = json.loads(content)
+            self.assertNotIn("endpoint_generation", data["builds"][legacy_id])
+            self.assertEqual(
+                set(data["builds"][legacy_id]["assets"]), {"windows-x86_64"}
+            )
+            self.assertEqual(
+                set(data["builds"]["abcdef123456.7890abcdef12"]["assets"]),
+                set(preview.ASSET_TARGETS),
+            )
+
+    def test_manifest_build_id_uses_two_hex_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "two lowercase 12-hex"):
+                preview.build_manifest(
+                    output=Path(tmp) / "preview.json",
+                    repo="herdrdev/herdr",
+                    tag=VALID_RELEASE_TAG,
+                    build_id="2026-06-02-abcdef123456",
+                    commit="abcdef",
+                    built_at="2026-06-02T03:00:00Z",
+                    base_version="0.6.6",
+                    protocol=12,
+                    endpoint_generation=1,
+                    notes="test",
+                    shas=VALID_SHAS,
+                    retain=1,
+                    release_version=VALID_RELEASE_VERSION,
+                )
+
+    def test_candidate_build_id_is_stable_and_attempt_scoped(self):
+        upstream = "a" * 40
+        control = "b" * 40
+
+        first = preview.candidate_build_id(upstream, control, "123456789", 1)
+        repeated = preview.candidate_build_id(upstream, control, "123456789", 1)
+        retry = preview.candidate_build_id(upstream, control, "123456789", 2)
+
+        self.assertEqual(first, "aaaaaaaaaaaa.cd2554cf7a34")
+        self.assertEqual(repeated, first)
+        self.assertEqual(retry, "aaaaaaaaaaaa.86029009c362")
+        self.assertNotEqual(retry, first)
+
+    def test_candidate_build_id_rejects_invalid_identity(self):
+        with self.assertRaisesRegex(ValueError, "upstream_sha"):
+            preview.candidate_build_id("bad", "b" * 40, "1", 1)
+        with self.assertRaisesRegex(ValueError, "control_sha"):
+            preview.candidate_build_id("a" * 40, "bad", "1", 1)
+        with self.assertRaisesRegex(ValueError, "run_id"):
+            preview.candidate_build_id("a" * 40, "b" * 40, "0", 1)
+        with self.assertRaisesRegex(ValueError, "run_attempt"):
+            preview.candidate_build_id("a" * 40, "b" * 40, "1", 0)
 
     def test_preview_range_base_advances_to_stable_tag(self):
         with (
