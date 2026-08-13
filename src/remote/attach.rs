@@ -4515,7 +4515,7 @@ fn run_client_process(
     reattach_command: &str,
     keybindings: RemoteKeybindings,
 ) -> io::Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = crate::managed_install::command_executable()?;
     let status = Command::new(exe)
         .arg("client")
         .env(

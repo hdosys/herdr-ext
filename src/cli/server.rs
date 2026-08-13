@@ -32,7 +32,7 @@ fn server_start(args: &[String]) -> std::io::Result<i32> {
         eprintln!("usage: herdr server start");
         return Ok(2);
     }
-    let exe = std::env::current_exe()?;
+    let exe = crate::managed_install::command_executable()?;
     match crate::server::autodetect::start_server_daemon_with_exe(exe) {
         Ok(()) => Ok(0),
         Err(err) => {

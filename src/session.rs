@@ -14,6 +14,8 @@ const MAX_SESSION_NAME_LEN: usize = 64;
 const STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 const STOP_WAIT_POLL: Duration = Duration::from_millis(25);
 const MIN_SOCKET_TIMEOUT: Duration = Duration::from_millis(1);
+#[cfg(windows)]
+const INSTALLER_STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 static EXPLICIT_SESSION_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -231,6 +233,43 @@ pub fn parse_target_name(name: &str) -> Result<Option<String>, String> {
 
 pub fn stop_session(name: Option<&str>) -> Result<SessionInfo, String> {
     stop_session_with_timeout(name, STOP_WAIT_TIMEOUT)
+}
+
+#[cfg(windows)]
+pub(crate) fn stop_all_sessions_for_uninstall() -> Result<usize, String> {
+    let deadline = Instant::now() + INSTALLER_STOP_WAIT_TIMEOUT;
+    let mut stopped = 0;
+
+    loop {
+        let running = list_sessions()
+            .map_err(|err| format!("failed to enumerate Herdr sessions before uninstall: {err}"))?
+            .into_iter()
+            .filter(|session| session.running)
+            .collect::<Vec<_>>();
+        if running.is_empty() {
+            return Ok(stopped);
+        }
+
+        for session in running {
+            let remaining = time_until(deadline);
+            if remaining.is_zero() {
+                return Err(format!(
+                    "running Herdr sessions did not stop within {}ms",
+                    INSTALLER_STOP_WAIT_TIMEOUT.as_millis()
+                ));
+            }
+            let name = (!session.default).then_some(session.name.as_str());
+            if let Err(err) = stop_session_with_timeout(name, remaining.min(STOP_WAIT_TIMEOUT)) {
+                if session_info(name).running {
+                    return Err(format!(
+                        "failed to stop session {} before uninstall: {err}",
+                        session.name
+                    ));
+                }
+            }
+            stopped += 1;
+        }
+    }
 }
 
 pub(crate) fn stop_active_server() -> Result<(), String> {
@@ -524,6 +563,24 @@ mod tests {
     #[test]
     fn stop_wait_timeout_allows_slow_graceful_shutdown() {
         assert_eq!(STOP_WAIT_TIMEOUT, Duration::from_secs(15));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installer_session_shutdown_is_bounded_and_accepts_an_idle_profile() {
+        let _guard = env_lock().lock().unwrap();
+        let config_home =
+            std::env::temp_dir().join(format!("herdr-installer-stop-idle-{}", std::process::id()));
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+        std::env::remove_var(SESSION_ENV_VAR);
+        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        clear_explicit_session_for_test();
+
+        assert_eq!(INSTALLER_STOP_WAIT_TIMEOUT, Duration::from_secs(30));
+        assert_eq!(stop_all_sessions_for_uninstall().unwrap(), 0);
+
+        let _ = std::fs::remove_dir_all(&config_home);
+        std::env::remove_var("XDG_CONFIG_HOME");
     }
 
     #[test]

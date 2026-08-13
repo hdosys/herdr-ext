@@ -71,7 +71,7 @@ pub(crate) fn spawn_handoff_import(
     let exe = if let Some(import_exe) = import_exe {
         import_exe
     } else {
-        fallback_exe = std::env::current_exe().map_err(|err| {
+        fallback_exe = crate::managed_install::command_executable().map_err(|err| {
             io::Error::new(
                 err.kind(),
                 format!("failed to determine herdr executable path: {err}"),

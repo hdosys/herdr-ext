@@ -13,6 +13,20 @@ static INIT: Once = Once::new();
 static CLEANUP_GUARD: OnceLock<CleanupGuard> = OnceLock::new();
 const WATCHDOG_SCAN_INTERVAL: Duration = Duration::from_secs(1);
 const RUNTIME_OWNER_MARKER: &str = ".herdr-test-owner-pid";
+pub fn expected_runtime_version() -> String {
+    match (
+        option_env!("HERDR_RELEASE_VERSION"),
+        option_env!("HERDR_BUILD_FRESHNESS"),
+        option_env!("HERDR_BUILD_ID"),
+    ) {
+        (Some(release), _, Some(build)) => format!("{release}+{build}"),
+        (Some(release), _, None) => release.to_string(),
+        (None, Some(freshness), Some(build)) => format!("{freshness}+{build}"),
+        (None, Some(freshness), None) => freshness.to_string(),
+        (None, None, Some(build)) => format!("local+{build}"),
+        (None, None, None) => "local".to_string(),
+    }
+}
 pub const CURRENT_PROTOCOL: u32 = 22;
 pub const CURRENT_ENDPOINT_PROTOCOL_GENERATION: u32 = 1;
 pub const SERVER_MESSAGE_SERVER_SHUTDOWN: u32 = 3;

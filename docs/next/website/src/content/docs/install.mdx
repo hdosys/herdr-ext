@@ -13,19 +13,7 @@ On Linux or macOS, run:
 curl -fsSL https://herdr.dev/install.sh | sh
 ```
 
-On Windows, run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
-```
-
-If endpoint security blocks that fileless PowerShell command, open Command Prompt and run:
-
-```cmd
-curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd
-```
-
-The installer downloads the release binary for your platform and places it on your PATH. New direct installs use the stable update channel. Existing Windows preview installs stay on preview until you switch them with `herdr channel set stable`. On Windows, PATH points to the active versioned release directory; the installer also updates the `current` and stable `bin` compatibility aliases, so updates do not need to overwrite a running `herdr.exe`.
+On Windows, download the newest `herdr-win_v<version>_windows_amd64_setup.exe` from the [herdr-win releases](https://github.com/hdosys/herdr-win/releases) and run it. Setup installs for the current user without administrator access, adds `herdr` to the user `PATH`, and registers **Herdr Win** in Installed Apps. It keeps one stable launcher at `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` and immutable runtime directories for safe updates while sessions are active.
 
 ## Install with Homebrew
 
@@ -99,7 +87,13 @@ mv herdr-linux-x86_64 ~/.local/bin/herdr
 
 ### Windows archive
 
-Stable releases and preview prereleases both include `herdr-windows-x86_64.zip`. The archive contains `herdr.exe` and its app-local ConPTY runtime. Keep the extracted directory together; do not copy only `herdr.exe`.
+Use the herdr-win setup above for normal testing, or download the matching portable ZIP from the same herdr-win release:
+
+| System | Asset |
+| --- | --- |
+| Windows x86_64 beta | `herdr-win_v<version>_windows_amd64.zip` |
+
+The archive contains `herdr.exe` and its app-local ConPTY runtime. Keep the extracted directory together; do not copy only `herdr.exe`.
 
 ## Verify
 
@@ -121,23 +115,7 @@ herdr update
 
 Use `herdr update` only for installs managed by Herdr's own installer. Update Homebrew, mise, and Nix installs through those package managers instead.
 
-Direct installs on Linux, macOS, and Windows use the stable update channel by default. To opt into preview builds from `master`, set the channel:
-
-```bash
-herdr channel set preview
-```
-
-Switch a direct install back to stable the same way:
-
-```bash
-herdr channel set stable
-```
-
-For direct installs, changing channels checks the selected channel and installs its latest binary. If that update fails, run `herdr update` to retry from the configured channel.
-
-Preview builds are regularly published GitHub prereleases from the current development branch. They are useful when you want fixes before the next stable release, but they can regress. Homebrew, mise, and Nix installs do not use the preview channel.
-
-Stable is the recommended channel for normal Windows use. Preview receives fixes sooner but can regress, so opt in only when you want that tradeoff. Existing Windows preview installs remain on preview until you switch them explicitly. If an older preview build rejects `herdr channel set stable`, run `herdr update` once on preview, then retry the channel switch.
+The installed distribution owns its update feed. Official Herdr direct installs use official Herdr releases. A herdr-win build uses only the fork's CalVer release feed and cannot be redirected to official Herdr or another channel through config. Homebrew, mise, Nix, and WinGet installs update through their package manager.
 
 By default, `herdr update` installs the new binary and leaves endpoint-generation-1 servers and their pane processes running. Start Herdr again to reconnect with the updated client. Client-only changes work immediately. A new server-side action stays unavailable until that server is updated and restarted; the client shows a notice instead of disconnecting. Servers from before endpoint generation 1 need one final stop during update.
 

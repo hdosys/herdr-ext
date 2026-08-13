@@ -16,11 +16,9 @@ herdr --remote workbox --provision --yes --json
 herdr --remote workbox --remote-keybindings server
 herdr --remote workbox --handoff
 herdr --default-config        # デフォルト設定を表示
-herdr update                  # 設定済みチャンネルからダウンロードしてインストール
+herdr update                  # ディストリビューションの最新リリースをダウンロードしてインストール
+herdr update --handoff        # 対応する実行中サーバーでライブハンドオフにオプトイン
 herdr completion zsh          # zsh 補完スクリプトを生成
-herdr channel show            # stable または preview を表示
-herdr channel set preview     # プレビュービルドにオプトイン
-herdr channel set stable      # 直接インストールを安定版に戻す
 herdr --version               # バージョンを表示
 ```
 

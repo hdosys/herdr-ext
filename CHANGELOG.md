@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- Local herdr-win binaries and Windows setup now lead with one sortable UTC `YYYY.MM.DD.HHMMZ` build label while retaining the exact build ID as secondary provenance.
+
+### Fixed
+- Windows setup now recognizes the managed `local.<build-id>` identity written by earlier local candidates, so a current candidate can upgrade them in place.
+
 ### Changed
 - `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.
 

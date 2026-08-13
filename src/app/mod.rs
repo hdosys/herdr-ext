@@ -1050,14 +1050,6 @@ mod tests {
         std::env::temp_dir().join(unique).join("config.toml")
     }
 
-    fn restore_xdg_state_home(original: Option<std::ffi::OsString>) {
-        if let Some(value) = original {
-            std::env::set_var("XDG_STATE_HOME", value);
-        } else {
-            std::env::remove_var("XDG_STATE_HOME");
-        }
-    }
-
     #[test]
     fn git_refresh_deadline_is_suppressed_while_in_flight() {
         let mut app = test_app();
@@ -1648,55 +1640,6 @@ mod tests {
         assert!(app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
-    fn startup_loads_unseen_product_announcement_for_clients() {
-        let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("startup-product-announcement-auto-open");
-        let state_home = path.parent().unwrap().join("state");
-        let original_xdg_state_home = std::env::var_os("XDG_STATE_HOME");
-        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
-        std::env::set_var("XDG_STATE_HOME", &state_home);
-
-        crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- One")
-            .unwrap();
-        crate::product_announcements::save_manifest_announcement(
-            env!("CARGO_PKG_VERSION"),
-            Some(&crate::product_announcements::ManifestAnnouncement {
-                id: "startup-announcement".into(),
-                title: Some("Startup announcement".into()),
-                body: "### Announcement\n- One".into(),
-            }),
-        )
-        .unwrap();
-
-        let config = Config {
-            onboarding: Some(false),
-            ..Default::default()
-        };
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let app = App::new(
-            &config,
-            crate::app::AppPolicy::TEST,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-
-        assert_eq!(app.state.mode, Mode::Navigate);
-        assert_eq!(
-            app.state
-                .product_announcement
-                .as_ref()
-                .map(|announcement| announcement.id.as_str()),
-            Some("startup-announcement")
-        );
-
-        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
-        restore_xdg_state_home(original_xdg_state_home);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
