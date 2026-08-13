@@ -7,7 +7,7 @@ pub(super) use std::thread;
 pub(super) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub(super) use crate::support::{
-    cleanup_test_base, isolate_herdr_test_process, register_runtime_dir,
+    cleanup_test_base, expected_runtime_version, isolate_herdr_test_process, register_runtime_dir,
     register_spawned_herdr_pid, unregister_spawned_herdr_pid, CURRENT_PROTOCOL,
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};

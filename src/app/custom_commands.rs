@@ -246,7 +246,7 @@ impl App {
             crate::api::SOCKET_PATH_ENV_VAR.to_string(),
             crate::api::socket_path().display().to_string(),
         )];
-        if let Ok(current_exe) = std::env::current_exe() {
+        if let Ok(current_exe) = crate::platform::launch_executable() {
             env.push((
                 "HERDR_BIN_PATH".to_string(),
                 current_exe.display().to_string(),

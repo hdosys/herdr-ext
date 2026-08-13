@@ -4535,7 +4535,7 @@ fn run_client_process(
     target: &str,
     session: &str,
 ) -> io::Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = crate::managed_install::command_executable()?;
     let mut command = Command::new(exe);
     command.arg("client");
     configure_remote_client_environment(
