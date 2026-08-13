@@ -1,2 +1,6 @@
 * text=auto eol=lf
 packaging/windows/licenses/* binary
+# Unified diffs use a single space for blank context lines.
+vendor/patches/**/*.patch whitespace=-blank-at-eol,-blank-at-eof
+# Preserve the imported Ghostty source bytes, including upstream whitespace.
+vendor/libghostty-vt/** whitespace=-blank-at-eol,-blank-at-eof

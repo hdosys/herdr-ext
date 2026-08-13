@@ -94,10 +94,8 @@ fn print_full_status(json: bool) -> std::io::Result<i32> {
 
     println!("client:");
     println!("  version: {}", crate::build_info::version());
-    println!(
-        "  channel: {}",
-        crate::config::Config::load().config.update.channel.as_str()
-    );
+    println!("  herdr: {}", crate::build_info::BASE_VERSION);
+    println!("  build: {}", build_id_label());
     println!("  protocol: {}", crate::protocol::PROTOCOL_VERSION);
     println!(
         "  endpoint_protocol_generation: {}",
@@ -134,10 +132,8 @@ fn print_client_status(json: bool) -> std::io::Result<()> {
     }
 
     println!("version: {}", crate::build_info::version());
-    println!(
-        "channel: {}",
-        crate::config::Config::load().config.update.channel.as_str()
-    );
+    println!("herdr: {}", crate::build_info::BASE_VERSION);
+    println!("build: {}", build_id_label());
     println!("protocol: {}", crate::protocol::PROTOCOL_VERSION);
     println!(
         "endpoint_protocol_generation: {}",
@@ -252,7 +248,8 @@ struct FullStatusJson {
 #[derive(Serialize)]
 struct ClientStatusJson {
     version: String,
-    channel: &'static str,
+    herdr_version: &'static str,
+    build_id: Option<&'static str>,
     protocol: u32,
     endpoint_protocol_generation: u32,
     endpoint_capabilities: Vec<&'static str>,
@@ -306,7 +303,8 @@ fn client_status_json() -> ClientStatusJson {
     }
     ClientStatusJson {
         version: crate::build_info::version(),
-        channel: crate::config::Config::load().config.update.channel.as_str(),
+        herdr_version: crate::build_info::BASE_VERSION,
+        build_id: crate::build_info::build_id(),
         protocol: crate::protocol::PROTOCOL_VERSION,
         endpoint_protocol_generation: crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
         endpoint_capabilities,
@@ -411,6 +409,10 @@ fn current_exe_label() -> String {
     std::env::current_exe()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|err| format!("unknown ({err})"))
+}
+
+fn build_id_label() -> &'static str {
+    crate::build_info::build_id().unwrap_or("none")
 }
 
 fn print_status_help() {

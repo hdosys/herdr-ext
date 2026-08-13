@@ -180,7 +180,8 @@ pub(crate) fn classify_child_exit(_status: &portable_pty::ExitStatus) -> ChildEx
 
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn launch_executable() -> std::io::Result<std::path::PathBuf> {
-    std::env::current_exe()
+    // Managed Windows payloads cannot be invoked without a launcher-owned lease.
+    crate::managed_install::command_executable()
 }
 
 pub(crate) fn detached_custom_command_process(command: &str) -> std::process::Command {
@@ -234,6 +235,31 @@ fn apply_pane_runtime_marker_platform(_command: &mut portable_pty::CommandBuilde
 
 pub(crate) fn configure_background_command(command: &mut std::process::Command) {
     configure_background_command_platform(command);
+}
+
+pub(crate) fn managed_install_command_executable(
+    current: std::path::PathBuf,
+) -> std::io::Result<std::path::PathBuf> {
+    managed_install_command_executable_platform(current)
+}
+
+pub(crate) fn adopt_managed_runtime_lease() -> std::io::Result<ManagedRuntimeLease> {
+    adopt_managed_runtime_lease_platform()
+}
+
+#[cfg(not(windows))]
+pub(crate) struct ManagedRuntimeLease;
+
+#[cfg(not(windows))]
+fn adopt_managed_runtime_lease_platform() -> std::io::Result<ManagedRuntimeLease> {
+    Ok(ManagedRuntimeLease)
+}
+
+#[cfg(not(windows))]
+fn managed_install_command_executable_platform(
+    current: std::path::PathBuf,
+) -> std::io::Result<std::path::PathBuf> {
+    Ok(current)
 }
 
 #[cfg(not(windows))]
@@ -451,7 +477,7 @@ impl PtyInputGuard {
 pub(crate) mod unix_image_files;
 #[cfg(unix)]
 pub(crate) use unix_common::{
-    begin_cli_output, end_cli_output, forward_remote_bridge_stdio, ignore_server_hangup,
+    begin_cli_output, forward_remote_bridge_stdio, ignore_server_hangup,
     local_stream_peer_description, spawn_server_signal_monitor, RemoteBridgeWake,
 };
 
@@ -460,9 +486,6 @@ pub(crate) use client_state::{create_private_state_file, replace_file, sync_pare
 
 #[cfg(not(unix))]
 pub(crate) fn begin_cli_output() {}
-
-#[cfg(not(unix))]
-pub(crate) fn end_cli_output() {}
 
 #[cfg(target_os = "linux")]
 mod linux;
