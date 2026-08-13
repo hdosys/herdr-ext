@@ -7,23 +7,9 @@ description: ネイティブ Windows 対応、サポートされるワークフ�
 
 Windows 上の Herdr は、Herdr が本来前提としていた Unix の PTY モデルではなく、ConPTY と Windows のプロセス/ランタイム挙動を使います。主要なワークフローの多くはサポートされていますが、一部の機能は Linux/macOS と異なるか、プラットフォームに依存します。残っている差を埋める間、Windows 固有の修正がより多く提供されることがあります。
 
-Windows に Herdr をネイティブインストールするには PowerShell を使います:
+Windows ネイティブビルドは、[herdr-win のリリース](https://github.com/hdosys/herdr-win/releases) から最新の `herdr-win_v<version>_windows_amd64_setup.exe` をダウンロードしてインストールします。ユーザー単位の NSIS セットアップは管理者権限を必要とせず、インストールされているアプリに **Herdr Win** を登録し、`%LOCALAPPDATA%\Programs\Herdr\bin` をユーザーの `PATH` に追加します。1 つの安定したランチャーが `%LOCALAPPDATA%\Programs\Herdr\runtime` の不変ランタイムを選択するため、実行中のセッションは新しいランタイムが有効になる前に終了できます。
 
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
-```
-
-エンドポイントセキュリティによってこのファイルレス PowerShell コマンドがブロックされる場合は、コマンドプロンプトを開いて次を実行します：
-
-```cmd
-curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd
-```
-
-Windows ビルドは安定版とプレビューの両方のアップデートチャンネルで提供されます。新規インストールはデフォルトで安定版を使い、通常の利用には安定版を推奨します。既存のプレビューインストールは、`herdr channel set stable` を実行するまでプレビューに残ります。古いプレビュービルドでこのコマンドが拒否される場合は、プレビューのまま一度 `herdr update` を実行してから再試行してください。プレビューでは `master` からの新しく検証の少ない修正を受け取れますが、リグレッションが起きる可能性があります。そのトレードオフを望む場合に限り、`herdr channel set preview` でオプトインしてください。
-
-インストーラーはリリースを `%USERPROFILE%\.herdr\packages\standalone\releases` に保存し、有効なバージョン付きリリースディレクトリを PATH に追加し、`%LOCALAPPDATA%\Programs\Herdr\bin` を安定した互換エイリアスとして維持します。また、実行中のプロセスがアップデートを妨げないよう少数の古いリリースを保持します。
-
-内部テスト向けに、`HERDR_MANIFEST_URL` でインストーラーを Herdr の安定版/プレビューマニフェストではなくカスタムマニフェストに向けられます。カスタムプレビューマニフェストでは `HERDR_CHANNEL=preview` も設定してください。
+インストール済みの Windows ディストリビューションはフォークの CalVer 更新フィードを所有し、設定で公式 Herdr や別のチャンネルへ切り替えることはできません。
 
 ## Windows でサポート
 
@@ -128,11 +114,14 @@ Windows Terminal からは、Linux や macOS と同じリモートコマンド�
 
 ```powershell
 herdr --remote workbox
+herdr --remote workbox --provision --yes --json
 ```
 
-接続先ホストは Linux、macOS、Windows に対応します。Windows ホストでは `PATH` または現在有効な管理対象リリースから互換パッケージを再利用します。対話的なアタッチと保存済みマシンのセットアップは、必要に応じて完全なパッケージをインストール・更新する前に確認します。バックグラウンド再接続ではインストール済みパッケージだけを探し、インストールや更新の確認は行いません。Herdr はインストール済みの Windows OpenSSH クライアントと SSH 設定を使います。Windows OpenSSH では Herdr の Unix コントロールソケットによる接続再利用を使わないため、セットアップ中の繰り返しプロンプトを避けるには Windows の `ssh-agent` による鍵認証を推奨します。
+対応するすべてのクライアントから x86_64 および ARM64 Windows ホストへ接続できます。通常の接続と保存済みマシンは、`PATH` または `%USERPROFILE%\.herdr\remote\herdr.exe` のエンドポイント互換バイナリを再利用します。バージョン差だけでは置換しません。明示的なプロビジョニングでは選択したランタイムの完全一致を要求し、承認されたサーバー停止より前に完全なポータブル ZIP を検証します。管理対象インストーラーやリモート `PATH` は変更しません。保存済み接続の再接続はインストールや再起動を行わず、明示されたセッションを保持します。Windows OpenSSH のデフォルトシェルは `cmd.exe` または PowerShell 7 が必要です。サーバーは SSH ユーザーの既存のアクティブなデスクトップセッションで起動し、SSH 切断後も存続します。Windows PowerShell 5.1、未知のシェル、曖昧なデスクトップセッションは拒否します。Windows 接続先ではライブハンドオフをサポートしません。
 
-Windows のアップデートは Windows インストーラー経由で行われ、有効なバージョン付きリリースパスを更新します。新しいターミナルまたは再接続した SSH セッションはそのパスを受け取るため、そこで Herdr を起動すると更新済みクライアントを使えます。互換性のある実行中サーバーはペインを動かしたままにします。新しいリリースのサーバー側変更が必要になったときだけ、後からサーバーを再起動してください。ライブハンドオフは Unix 専用です。
+Windows 接続先には `windows_remote_host` のサポートも必要です。クライアント専用の Windows バイナリでは SSH ブリッジを提供できません。
+
+Windows のアップデートは管理対象のセットアップ資産を使います。既存のセッションは現在の不変ランタイムを使い続け、アクティブなリースが終了した後に今後の起動が切り替わります。ライブハンドオフは Unix 専用です。
 
 ## Windows の問題を報告する
 

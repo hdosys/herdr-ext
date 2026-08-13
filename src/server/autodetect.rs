@@ -242,9 +242,11 @@ fn validate_running_server_compatibility(saved_federation: bool) -> io::Result<(
 ///   socket overrides, etc.), except inherited socket overrides are cleared when
 ///   this CLI invocation explicitly selected a session.
 ///
-/// Returns the PID of the spawned server process.
+/// Returns the PID of the detached launch process for diagnostic logging.
+/// Managed Windows installs interpose a bootstrap and runtime dispatcher, so
+/// callers must not treat this as the final server PID.
 pub fn spawn_server_daemon() -> io::Result<u32> {
-    let exe = std::env::current_exe().map_err(|err| {
+    let exe = crate::managed_install::command_executable().map_err(|err| {
         io::Error::new(
             err.kind(),
             format!("failed to determine herdr executable path: {err}"),

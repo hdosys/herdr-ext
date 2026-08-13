@@ -13,19 +13,7 @@ Herdr 为 Linux、macOS 和 Windows 提供稳定通道二进制文件。Windows 
 curl -fsSL https://herdr.dev/install.sh | sh
 ```
 
-在 Windows 上运行:
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
-```
-
-如果端点安全软件阻止该无文件 PowerShell 命令，请打开命令提示符并运行：
-
-```cmd
-curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd
-```
-
-安装器会下载适合你平台的发布二进制文件并放到 PATH 上。新的直接安装默认使用稳定更新通道。现有的 Windows 预览安装会继续留在预览通道,直到你运行 `herdr channel set stable`。在 Windows 上,PATH 指向当前带版本号的发布目录;安装器还会更新 `current` 和稳定的 `bin` 兼容别名,因此更新时不需要覆盖正在运行的 `herdr.exe`。
+在 Windows 上,从 [herdr-win 发布页](https://github.com/hdosys/herdr-win/releases) 下载最新的 `herdr-win_v<version>_windows_amd64_setup.exe` 并运行。安装程序无需管理员权限,为当前用户安装,将 `herdr` 添加到用户 `PATH`,并在已安装的应用中注册 **Herdr Win**。为了安全更新,它在 `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` 保留一个稳定启动器,并在会话运行期间使用不可变运行时目录。
 
 ## 用 Homebrew 安装
 
@@ -121,23 +109,7 @@ herdr update
 
 `herdr update` 适用于由 Herdr 自带安装器管理的安装。Homebrew、mise 和 Nix 安装请改用那些包管理器更新。
 
-Linux、macOS 和 Windows 的直接安装默认使用稳定更新通道。要启用来自 `master` 的预览构建,设置通道:
-
-```bash
-herdr channel set preview
-```
-
-用同样的方式把直接安装切回稳定版:
-
-```bash
-herdr channel set stable
-```
-
-对于直接安装,切换通道时也会检查该通道并安装其最新二进制文件。如果该更新失败,运行 `herdr update` 从配置的通道重试。
-
-预览构建是从当前开发分支定期发布的 GitHub 预发布。当你想在下一个稳定版之前拿到修复时很有用,但它们可能出现回归。Homebrew、mise 和 Nix 安装不使用预览通道。
-
-Windows 的常规使用建议选择稳定版。预览版能更早获得修复,但可能出现回归,因此只有在接受这一取舍时才应主动启用。现有的 Windows 预览安装会继续留在预览通道,直到你明确切换。如果旧预览构建拒绝 `herdr channel set stable`,请先在预览通道运行一次 `herdr update`,再重试切换通道。
+已安装的发行版拥有自己的更新源。官方 Herdr 直接安装使用官方 Herdr 发布。herdr-win 构建只使用该分支的 CalVer 发布源,不能通过配置切换到官方 Herdr 或其他通道。Homebrew、mise、Nix 和 WinGet 安装通过各自的包管理器更新。
 
 默认情况下,`herdr update` 会安装新二进制文件,并让端点第 1 代服务器及其窗格进程继续运行。再次启动 Herdr 即可用更新后的客户端重新连接。纯客户端改动会立即生效。新的服务器端操作会保持不可用,直到对应服务器更新并重启;客户端会显示通知,而不会断开连接。只有早于端点第 1 代的服务器需要在更新时再停止最后一次。
 

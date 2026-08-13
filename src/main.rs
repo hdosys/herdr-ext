@@ -32,6 +32,7 @@ mod ipc;
 mod kitty_graphics;
 mod layout;
 mod logging;
+mod managed_install;
 mod metadata_tokens;
 mod noninteractive_process;
 mod pane;
@@ -120,12 +121,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # kitty_graphics = true
 
 [update]
-# Update channel used by background version checks and `herdr update`.
-# Stable builds default to "stable". Windows preview builds default to "preview"
-# so existing preview installs stay there until explicitly switched.
-# channel = "stable"
+# The herdr-win update source is fixed by src/distribution.rs.
+# User configuration cannot redirect the updater away from the fork release feed.
 
-# Check herdr.dev for new Herdr versions in the background.
+# Check the configured herdr-win feed for new versions in the background.
 # version_check = true
 
 # Check herdr.dev for remote agent-detection manifest updates in the background.
@@ -504,7 +503,21 @@ fn finish_cli(outcome: io::Result<cli::CommandOutcome>) -> io::Result<()> {
     }
 }
 
+#[cfg(windows)]
+fn installer_stop_sessions_requested(args: &[String]) -> Result<bool, String> {
+    if args.get(1).map(String::as_str)
+        != Some(crate::managed_install::INSTALLER_STOP_SESSIONS_COMMAND)
+    {
+        return Ok(false);
+    }
+    if args.len() != 2 {
+        return Err("the installer-only session shutdown command accepts no arguments".to_string());
+    }
+    Ok(true)
+}
+
 fn main() -> io::Result<()> {
+    let _managed_runtime_lease = crate::platform::adopt_managed_runtime_lease()?;
     let raw_args: Vec<String> = match args_as_utf8(std::env::args_os()) {
         Ok(args) => args,
         Err(err) => {
@@ -514,6 +527,21 @@ fn main() -> io::Result<()> {
         }
     };
     let raw_args = platform::prepare_interactive_server_bootstrap(raw_args)?;
+    #[cfg(windows)]
+    match installer_stop_sessions_requested(&raw_args) {
+        Ok(true) => match session::stop_all_sessions_for_uninstall() {
+            Ok(_) => std::process::exit(0),
+            Err(err) => {
+                eprintln!("Herdr installer shutdown failed: {err}");
+                std::process::exit(1);
+            }
+        },
+        Ok(false) => {}
+        Err(err) => {
+            eprintln!("Herdr installer shutdown failed: {err}");
+            std::process::exit(2);
+        }
+    }
     if let Some(outcome) = cli::maybe_run_machine(&raw_args) {
         return finish_cli(outcome);
     }
@@ -622,14 +650,13 @@ fn main() -> io::Result<()> {
         println!("       herdr session attach <name>");
         println!("       herdr completion zsh");
         println!("       herdr update [--handoff]");
-        println!("       herdr channel set <stable|preview>");
+        println!("       herdr server start");
         println!("       herdr machine <subcommand> ...");
         println!("       herdr server stop");
         println!("       herdr server reload-config");
         println!("       herdr api <subcommand> ...");
         println!("       herdr completion <shell>");
         println!("       herdr config <subcommand> ...");
-        println!("       herdr channel <subcommand> ...");
         println!("       herdr workspace <subcommand> ...");
         println!("       herdr worktree <subcommand> ...");
         println!("       herdr tab <subcommand> ...");
@@ -653,8 +680,8 @@ fn main() -> io::Result<()> {
                 "Start the persistent server if it is not running",
             ),
             (
-                "herdr channel set <stable|preview>",
-                "Choose the stable or preview update channel",
+                "herdr server stop",
+                "Stop the running server via the API socket",
             ),
             (
                 "herdr server reload-config",
@@ -663,10 +690,6 @@ fn main() -> io::Result<()> {
             (
                 "herdr config reset-keys",
                 "Back up config.toml and remove custom keybindings",
-            ),
-            (
-                "herdr channel <subcommand>",
-                "Manage the stable or preview update channel",
             ),
             ("herdr machine <subcommand>", "Manage saved SSH machines"),
             (
@@ -735,7 +758,7 @@ fn main() -> io::Result<()> {
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
         platform::begin_cli_output();
-        println!("herdr {}", crate::build_info::version());
+        println!("{}", crate::build_info::cli_version());
         return Ok(());
     }
 
@@ -783,7 +806,6 @@ fn main() -> io::Result<()> {
                 "update",
                 "status",
                 "config",
-                "channel",
                 "machine",
                 "workspace",
                 "worktree",
@@ -899,6 +921,27 @@ mod tests {
         assert_eq!(
             args_as_utf8(args).unwrap_err(),
             "argument 2 is not valid UTF-8"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installer_stop_command_is_exact_and_hidden_from_normal_dispatch() {
+        let command = crate::managed_install::INSTALLER_STOP_SESSIONS_COMMAND;
+        assert!(installer_stop_sessions_requested(&["herdr".into()]).is_ok_and(|run| !run));
+        assert!(
+            installer_stop_sessions_requested(&["herdr".into(), command.into()])
+                .is_ok_and(|run| run)
+        );
+        assert!(installer_stop_sessions_requested(&[
+            "herdr".into(),
+            command.into(),
+            "extra".into(),
+        ])
+        .is_err());
+        assert!(
+            installer_stop_sessions_requested(&["herdr".into(), format!("{command}-extra"),])
+                .is_ok_and(|run| !run)
         );
     }
 }

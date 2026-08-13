@@ -33,7 +33,6 @@ pub(super) fn command() -> Command {
         .subcommand(update_command())
         .subcommand(status_command())
         .subcommand(config_command())
-        .subcommand(channel_command())
         .subcommand(machine::command())
         .subcommand(server_command())
         .subcommand(api_command())
@@ -140,20 +139,6 @@ fn config_command() -> Command {
         .about("Manage local configuration")
         .subcommand(Command::new("check").about("Validate config.toml and print diagnostics"))
         .subcommand(Command::new("reset-keys").about("Reset custom keybindings"))
-}
-
-fn channel_command() -> Command {
-    Command::new("channel")
-        .about("Manage stable and preview update channels")
-        .subcommand(Command::new("show").about("Print the configured update channel"))
-        .subcommand(
-            Command::new("set").about("Choose the update channel").arg(
-                Arg::new("channel")
-                    .value_name("CHANNEL")
-                    .required(true)
-                    .value_parser(["stable", "preview"]),
-            ),
-        )
 }
 
 fn server_command() -> Command {

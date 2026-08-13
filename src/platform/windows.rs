@@ -394,6 +394,15 @@ use windows_sys::{
 
 use super::{ClipboardImage, ForegroundJob, Signal};
 
+// This shared boundary also contains the dedicated launcher's pointer and
+// coordination operations, which are intentionally unreachable in `herdr.exe`.
+#[allow(dead_code)]
+mod managed_install;
+pub(crate) use managed_install::{
+    adopt_managed_runtime_lease_platform, managed_install_command_executable_platform,
+    ManagedRuntimeLease,
+};
+
 const STILL_ACTIVE: u32 = 259;
 const FOREGROUND_PROCESS_SNAPSHOT_CACHE_TTL: Duration = Duration::from_millis(250);
 const FOREGROUND_SELECTION_RECHECK: Duration = Duration::from_secs(5);

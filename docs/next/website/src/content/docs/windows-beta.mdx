@@ -7,23 +7,9 @@ Native Windows support is generally available.
 
 Herdr on Windows uses ConPTY and Windows process/runtime behavior instead of the Unix PTY model Herdr was originally built around. Most core workflows are supported, but some capabilities differ from Linux and macOS or remain platform-dependent. Windows may receive more platform-specific fixes as those remaining gaps close.
 
-Install Herdr natively on Windows with PowerShell:
+Install native Windows builds by downloading the newest `herdr-win_v<version>_windows_amd64_setup.exe` from the [herdr-win releases](https://github.com/hdosys/herdr-win/releases). The per-user NSIS setup requires no administrator access, registers **Herdr Win** in Installed Apps, and puts `%LOCALAPPDATA%\Programs\Herdr\bin` on the user `PATH`. One stable launcher selects immutable runtimes under `%LOCALAPPDATA%\Programs\Herdr\runtime` so active sessions can finish before a newer runtime is activated.
 
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
-```
-
-If endpoint security blocks that fileless PowerShell command, open Command Prompt and run:
-
-```cmd
-curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd
-```
-
-Windows builds are available through both stable and preview update channels. New installs use stable by default, and stable is recommended for normal use. Existing preview installs stay on preview until you run `herdr channel set stable`. If an older preview build rejects that command, run `herdr update` once on preview and retry. Preview provides newer, less-tested fixes from `master` and may regress; opt in with `herdr channel set preview` only when you want that tradeoff.
-
-The installer stores releases under `%USERPROFILE%\.herdr\packages\standalone\releases`, puts the active versioned release directory on PATH, keeps `%LOCALAPPDATA%\Programs\Herdr\bin` as a stable compatibility alias, and retains a small number of older releases so running processes do not block updates.
-
-For internal testing, `HERDR_MANIFEST_URL` can point the installer at a custom manifest instead of Herdr's stable or preview manifest. Set `HERDR_CHANNEL=preview` with a custom preview manifest.
+The installed Windows distribution owns its fork CalVer update feed and cannot be redirected to official Herdr or another channel through config.
 
 ## Supported on Windows
 
@@ -128,11 +114,14 @@ From Windows Terminal, use the same remote command as Linux and macOS:
 
 ```powershell
 herdr --remote workbox
+herdr --remote workbox --provision --yes --json
 ```
 
-The target host can run Linux, macOS, or Windows. On Windows hosts, remote attach reuses a compatible package from `PATH` or the active managed release. Interactive direct attach and saved-machine setup prompt before installing or updating the complete package when needed. Background saved reconnect only discovers installed packages and cannot prompt for installation or updates. Herdr uses the installed Windows OpenSSH client and your SSH configuration. Windows OpenSSH does not use Herdr's Unix control-socket reuse, so key authentication through Windows `ssh-agent` is recommended to avoid repeated prompts during remote setup.
+Every supported client can attach to x86_64 and ARM64 Windows hosts. Ordinary attachment and saved machines reuse an endpoint-compatible binary from `PATH` or `%USERPROFILE%\.herdr\remote\herdr.exe`; a version difference alone does not require replacement. Explicit provisioning instead requires the selected deployment's exact runtime identity and validates the complete portable ZIP before any approved server stop. It never runs the managed installer or changes remote `PATH`. Saved reconnects do not install or restart a server, and retain their explicitly selected session. The Windows OpenSSH default shell must be `cmd.exe` or PowerShell 7, and the server starts in the SSH user's existing active desktop session so it survives SSH closure. Windows PowerShell 5.1, an unknown shell, or an ambiguous desktop session fails closed. Windows remote hosts do not support live handoff.
 
-Windows updates run through the Windows installer and update the active versioned release path. New terminals and reconnected SSH sessions receive that path; start Herdr there to use the updated client. Compatible running servers keep their panes alive. Restart a server later only when you need server-side changes from the release. Live handoff is Unix-only.
+Windows targets must also advertise `windows_remote_host` support. A client-only Windows binary is not sufficient to host the SSH bridge.
+
+Windows updates run through the managed setup asset. Existing sessions keep their current immutable runtime, and future launches switch after active leases exit. Live handoff is Unix-only.
 
 ## Reporting Windows issues
 
