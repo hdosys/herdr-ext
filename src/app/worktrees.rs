@@ -39,8 +39,9 @@ impl App {
     pub(crate) fn shutdown_workspace_terminal_runtimes_for_worktree_remove(
         &mut self,
         ws_idx: usize,
-    ) -> Vec<crate::layout::PaneId> {
+    ) -> (Vec<crate::layout::PaneId>, bool) {
         let mut shutdown_panes = Vec::new();
+        let mut shutdown_complete = true;
         for pane_id in self.state.pane_ids_for_workspace(ws_idx) {
             let Some(terminal_id) = self.state.terminal_id_for_pane(ws_idx, pane_id) else {
                 continue;
@@ -58,9 +59,9 @@ impl App {
                 .entry(pane_id)
                 .or_default() += 1;
             shutdown_panes.push(pane_id);
-            self.shutdown_terminal_runtime(terminal_id);
+            shutdown_complete &= self.shutdown_terminal_runtime(terminal_id);
         }
-        shutdown_panes
+        (shutdown_panes, shutdown_complete)
     }
 }
 

@@ -7,7 +7,7 @@ pub(crate) use unix::*;
 #[cfg(windows)]
 mod windows {
     use std::io::{Read, Write};
-    use std::sync::{mpsc as std_mpsc, Arc, Mutex};
+    use std::sync::{mpsc as std_mpsc, Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
     use bytes::Bytes;
@@ -81,6 +81,7 @@ mod windows {
         write_tx: std_mpsc::Sender<PtyIoWriteCommand>,
         response_order: Arc<Mutex<()>>,
         accepting: Arc<Mutex<InputAcceptance>>,
+        shutdown_complete: Arc<(Mutex<bool>, Condvar)>,
     }
 
     impl PtyIoActorHandle {
@@ -197,6 +198,23 @@ mod windows {
             drop(accepting);
             let _ = self.control_tx.send(PtyIoControlCommand::Shutdown);
         }
+
+        pub(crate) fn wait_for_shutdown(&self, timeout: Duration) -> bool {
+            let (complete, notify) = &*self.shutdown_complete;
+            let complete = complete
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *complete {
+                return true;
+            }
+            match notify.wait_timeout_while(complete, timeout, |complete| !*complete) {
+                Ok((complete, _)) => *complete,
+                Err(poisoned) => {
+                    let (complete, _) = poisoned.into_inner();
+                    *complete
+                }
+            }
+        }
     }
 
     pub(crate) struct PtyIoActor;
@@ -225,6 +243,7 @@ mod windows {
                 accepting: !initially_quiesced,
                 enter_completion: None,
             }));
+            let shutdown_complete = Arc::new((Mutex::new(false), Condvar::new()));
 
             crate::thread_spawn::spawn_named("herdr-pty-writer", move || {
                 run_writer(&mut writer, write_rx);
@@ -274,6 +293,7 @@ mod windows {
 
             {
                 let write_tx = write_tx.clone();
+                let shutdown_complete = Arc::clone(&shutdown_complete);
                 crate::thread_spawn::spawn_named("herdr-pty-control", move || {
                     for command in control_rx {
                         match command {
@@ -296,6 +316,13 @@ mod windows {
                             PtyIoControlCommand::Shutdown => break,
                         }
                     }
+                    drop(master);
+                    let (complete, notify) = &*shutdown_complete;
+                    let mut complete = complete
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    *complete = true;
+                    notify.notify_all();
                     debug!(pane_id, "windows pty control thread exiting");
                 })?;
             }
@@ -306,6 +333,7 @@ mod windows {
                 write_tx,
                 response_order,
                 accepting,
+                shutdown_complete,
             })
         }
     }
