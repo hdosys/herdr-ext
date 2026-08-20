@@ -157,12 +157,12 @@ fn repository_git_command(repo_root: &Path, trust_repository: bool) -> std::proc
     command
 }
 
-fn repository_git_args(repo_root: &Path, trust_repository: bool) -> Vec<String> {
-    let mut args = Vec::new();
-    if trust_repository {
-        args.push("-c".to_string());
-        args.push(format!("safe.directory={}", repo_root.display()));
-    }
+fn repository_git_args(repo_root: &Path, _trust_repository: bool) -> Vec<String> {
+    // Worktree commands already select an exact repository. Trust only this child command.
+    let mut args = vec![
+        "-c".to_string(),
+        format!("safe.directory={}", repo_root.display()),
+    ];
     args.push("-C".to_string());
     args.push(repo_root.display().to_string());
     args
@@ -830,6 +830,8 @@ prunable stale
         assert_eq!(
             command.args,
             vec![
+                "-c",
+                "safe.directory=/repo/herdr",
                 "-C",
                 "/repo/herdr",
                 "worktree",
@@ -850,6 +852,8 @@ prunable stale
         assert_eq!(
             command.args,
             vec![
+                "-c",
+                "safe.directory=/repo/herdr",
                 "-C",
                 "/repo/herdr",
                 "worktree",
