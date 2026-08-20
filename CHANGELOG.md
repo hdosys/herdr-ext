@@ -8,6 +8,7 @@
 
 ### Fixed
 - Windows setup now recognizes the managed `local.<build-id>` identity written by earlier local candidates, so a current candidate can upgrade them in place.
+- Windows worktree removal now waits for terminal sessions to release the checkout before unregistering it, preventing locked directories that cannot be retried by workspace ID.
 
 ### Changed
 - `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.

@@ -2459,7 +2459,9 @@ mod tests {
         let (runtime, _input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         app.terminal_runtimes.insert(terminal_id.clone(), runtime);
 
-        let shutdown_panes = app.shutdown_workspace_terminal_runtimes_for_worktree_remove(0);
+        let (shutdown_panes, shutdown_complete) =
+            app.shutdown_workspace_terminal_runtimes_for_worktree_remove(0);
+        assert!(shutdown_complete);
         assert_eq!(shutdown_panes, vec![pane_id]);
 
         let checkout_key = crate::worktree::canonical_or_original(&checkout);

@@ -6,6 +6,8 @@
 - Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
 
 ### Fixed
+- Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
+- Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
 - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
 
 ## [0.9.2] - 2026-09-29

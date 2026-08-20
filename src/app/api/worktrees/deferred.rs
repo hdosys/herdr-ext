@@ -315,11 +315,11 @@ impl App {
             return;
         }
 
-        let shutdown_panes =
+        let (shutdown_panes, shutdown_complete) =
             if Self::should_shutdown_workspace_terminal_runtimes_for_worktree_remove(params.force) {
                 self.shutdown_workspace_terminal_runtimes_for_worktree_remove(ws_idx)
             } else {
-                Vec::new()
+                (Vec::new(), true)
             };
 
         let operation_id = self.next_api_worktree_operation_id();
@@ -348,13 +348,17 @@ impl App {
         let trust_repository = params.trust_repository;
         let event_tx = self.event_tx.clone();
         std::thread::spawn(move || {
-            let result = crate::worktree::run_worktree_remove_command_with_recovery(
-                &command,
-                &repo_root,
-                &path,
-                force,
-                trust_repository,
-            );
+            let result = if shutdown_complete {
+                crate::worktree::run_worktree_remove_command_with_recovery(
+                    &command,
+                    &repo_root,
+                    &path,
+                    force,
+                    trust_repository,
+                )
+            } else {
+                Err("Could not stop the worktree terminal. Close it and retry removal.".to_string())
+            };
             let _ = event_tx.blocking_send(AppEvent::WorktreeRemoveFinished(Box::new(
                 crate::events::WorktreeRemoveResult {
                     workspace_id: workspace_internal_id,
