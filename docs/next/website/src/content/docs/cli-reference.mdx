@@ -12,6 +12,9 @@ Most commands print JSON responses for deterministic automation in scripts.
 ```bash
 herdr                         # launch or attach to the default session
 herdr --remote workbox        # attach through SSH, using local keybindings
+herdr --remote workbox --provision --yes --json
+herdr --remote workbox --remote-keybindings server
+herdr --remote workbox --handoff
 herdr --default-config        # print default config
 herdr update                  # download and install from the configured channel
 herdr completion zsh          # generate a zsh completion script
@@ -122,6 +125,7 @@ compinit
 
 ```bash
 herdr server
+herdr server start
 herdr server stop
 herdr server reload-config
 herdr server agent-manifests [--json]
@@ -129,7 +133,7 @@ herdr server update-agent-manifests [--json]
 herdr server reload-agent-manifests
 ```
 
-`herdr server` runs the headless server explicitly. Use it for supervised or service-style setups. `reload-config` applies reloadable settings without restarting panes. `agent-manifests` shows the active agent detection manifest sources, cached remote versions, and last remote update results. `update-agent-manifests` fetches remote manifest updates immediately, reloads them into the running server, and prints the updated manifest status; pass `--json` for the raw status response. `reload-agent-manifests` reloads agent detection manifests into the running server after local override edits.
+`herdr server` runs the headless server explicitly. Use it for supervised or service-style setups. `herdr server start` starts the persistent background server if needed and returns after it is ready. `reload-config` applies reloadable settings without restarting panes. `agent-manifests` shows the active agent detection manifest sources, cached remote versions, and last remote update results. `update-agent-manifests` fetches remote manifest updates immediately, reloads them into the running server, and prints the updated manifest status; pass `--json` for the raw status response. `reload-agent-manifests` reloads agent detection manifests into the running server after local override edits.
 
 ## Notifications
 

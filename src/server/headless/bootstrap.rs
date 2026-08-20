@@ -53,14 +53,14 @@ pub fn run_server() -> io::Result<()> {
 
     let result = rt.block_on(async {
         // Create the App (with AppState, event channels, etc.).
-        let mut app = app::App::new(
+        let app = app::App::new(
             &loaded_config.config,
             app::AppPolicy::PRODUCTION,
             config::config_diagnostic_summary(&loaded_config.diagnostics),
             api_rx,
             event_hub,
         );
-        seed_startup_workspace_if_empty(&mut app);
+        let startup_cwd = take_startup_cwd();
 
         // Create the headless server.
         let mut server = match HeadlessServer::new(
@@ -79,6 +79,7 @@ pub fn run_server() -> io::Result<()> {
             Err(err) => return Err(err),
         };
 
+        server.startup_cwd = startup_cwd;
         info!(
             api_socket = %api::socket_path().display(),
             client_socket = %client_socket_path().display(),
@@ -95,26 +96,36 @@ pub fn run_server() -> io::Result<()> {
     result
 }
 
-fn seed_startup_workspace_if_empty(app: &mut app::App) {
-    let Some(cwd) = take_startup_cwd() else {
-        return;
-    };
-
-    if !app.state.workspaces.is_empty() {
-        info!(
-            cwd = %cwd.display(),
-            "restored session already has workspaces; ignoring startup cwd"
-        );
-        return;
-    }
-
-    match app.create_workspace_with_options(cwd.clone(), true) {
-        Ok(_) => {
-            info!(cwd = %cwd.display(), "created startup workspace");
+impl HeadlessServer {
+    pub(super) fn initialize_startup_workspaces(&mut self, cols: u16, rows: u16) {
+        // Shell clients send content geometry, already excluding their own chrome.
+        self.app.state.view.terminal_area = Rect::new(0, 0, cols, rows);
+        let startup_cwd = self.startup_cwd.take();
+        if self.app.state.workspaces.is_empty() {
+            let cwd = startup_cwd.unwrap_or_else(|| self.app.resolve_new_terminal_cwd(None));
+            let (_, terminal_id) = self.app.create_workspace_with_deferred_shell(cwd, true);
+            self.pending_startup_workspace_launches
+                .push(app::DeferredWorkspaceShell {
+                    terminal_id,
+                    extra_env: Vec::new(),
+                });
+            self.app.block_startup_session_save();
         }
-        Err(err) => {
-            warn!(cwd = %cwd.display(), err = %err, "failed to create startup workspace");
-            app.state.mode = app::Mode::Navigate;
+        let mut failed = Vec::new();
+        for pending in std::mem::take(&mut self.pending_startup_workspace_launches) {
+            if let Err(err) = self.app.launch_deferred_workspace_shell(
+                &pending.terminal_id,
+                pending.extra_env.clone(),
+                rows,
+                cols,
+            ) {
+                warn!(terminal = %pending.terminal_id, %err, "failed to launch startup workspace shell at client geometry");
+                failed.push(pending);
+            }
+        }
+        self.pending_startup_workspace_launches = failed;
+        if self.pending_startup_workspace_launches.is_empty() {
+            self.app.unblock_startup_session_save();
         }
     }
 }

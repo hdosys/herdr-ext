@@ -12,6 +12,9 @@ Herdr の CLI は、インテグレーションやエージェントが使うの
 ```bash
 herdr                         # デフォルトセッションを起動またはアタッチ
 herdr --remote workbox        # SSH 越しにアタッチ (ローカルのキーバインドを使用)
+herdr --remote workbox --provision --yes --json
+herdr --remote workbox --remote-keybindings server
+herdr --remote workbox --handoff
 herdr --default-config        # デフォルト設定を表示
 herdr update                  # 設定済みチャンネルからダウンロードしてインストール
 herdr completion zsh          # zsh 補完スクリプトを生成
@@ -118,6 +121,7 @@ compinit
 
 ```bash
 herdr server
+herdr server start
 herdr server stop
 herdr server reload-config
 herdr server agent-manifests [--json]
@@ -125,7 +129,7 @@ herdr server update-agent-manifests [--json]
 herdr server reload-agent-manifests
 ```
 
-`herdr server` はヘッドレスサーバーを明示的に起動します。監視下やサービス的な構成で使ってください。`reload-config` はペインを再起動せずにリロード可能な設定を適用します。`agent-manifests` は、アクティブなエージェント検出マニフェストのソース、キャッシュされたリモートバージョン、直近のリモート更新結果を表示します。`update-agent-manifests` はリモートマニフェストの更新を即座に取得し、実行中のサーバーにリロードして、更新後のマニフェスト状態を表示します。生のステータスレスポンスが欲しいときは `--json` を渡してください。`reload-agent-manifests` は、ローカルオーバーライドの編集後にエージェント検出マニフェストを実行中のサーバーにリロードします。
+`herdr server` はヘッドレスサーバーを明示的に起動します。監視下やサービス的な構成で使ってください。`herdr server start` は必要な場合に永続バックグラウンドサーバーを起動し、準備ができてから戻ります。`reload-config` はペインを再起動せずにリロード可能な設定を適用します。`agent-manifests` は、アクティブなエージェント検出マニフェストのソース、キャッシュされたリモートバージョン、直近のリモート更新結果を表示します。`update-agent-manifests` はリモートマニフェストの更新を即座に取得し、実行中のサーバーにリロードして、更新後のマニフェスト状態を表示します。生のステータスレスポンスが欲しいときは `--json` を渡してください。`reload-agent-manifests` は、ローカルオーバーライドの編集後にエージェント検出マニフェストを実行中のサーバーにリロードします。
 
 ## 通知
 

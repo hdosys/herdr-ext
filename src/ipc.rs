@@ -206,6 +206,49 @@ pub(crate) fn poll_local_stream_read_count(
     }
 }
 
+#[cfg(windows)]
+pub(crate) struct LocalStreamDeadlineReader<'a> {
+    stream: &'a mut LocalStream,
+    deadline: std::time::Instant,
+}
+
+#[cfg(windows)]
+impl<'a> LocalStreamDeadlineReader<'a> {
+    pub(crate) fn new(stream: &'a mut LocalStream, timeout: std::time::Duration) -> Self {
+        Self {
+            stream,
+            deadline: std::time::Instant::now() + timeout,
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Read for LocalStreamDeadlineReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(2);
+
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            match poll_local_stream_read_count(self.stream, buffer)? {
+                LocalStreamReadCount::Data(read) => return Ok(read),
+                LocalStreamReadCount::Closed => return Ok(0),
+                LocalStreamReadCount::Pending => {
+                    let now = std::time::Instant::now();
+                    if now >= self.deadline {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "local socket read deadline elapsed",
+                        ));
+                    }
+                    std::thread::sleep(POLL_INTERVAL.min(self.deadline - now));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 fn probe_stream_closed(stream: &mut LocalStream) -> io::Result<bool> {
     stream.set_nonblocking(true)?;

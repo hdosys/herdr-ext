@@ -159,8 +159,13 @@ fn channel_command() -> Command {
 fn server_command() -> Command {
     Command::new("server")
         .about("Run or control the headless server")
+        .subcommand(Command::new("start").about("Start the persistent server if needed"))
         .subcommand(Command::new("stop").about("Stop the running server"))
-        .subcommand(Command::new("reload-config").about("Reload config in the running server"))
+        .subcommand(
+            Command::new("reload-config")
+                .about("Reload config in the running server")
+                .arg(json_flag()),
+        )
         .subcommand(
             Command::new("agent-manifests")
                 .about("Show active agent detection manifests")

@@ -1,4 +1,6 @@
-use crate::api::schema::{EmptyParams, Method, Request, ServerLiveHandoffParams};
+use crate::api::schema::{
+    EmptyParams, Method, Request, ResponseResult, ServerLiveHandoffParams, SuccessResponse,
+};
 
 pub(super) fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
@@ -6,6 +8,7 @@ pub(super) fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>
     };
 
     match subcommand {
+        "start" => server_start(&args[1..]).map(Some),
         "stop" => server_stop(&args[1..]).map(Some),
         "live-handoff" => server_live_handoff(&args[1..]).map(Some),
         "--handoff-import" => Ok(None),
@@ -20,6 +23,21 @@ pub(super) fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>
         _ => {
             print_server_help();
             Ok(Some(2))
+        }
+    }
+}
+
+fn server_start(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("usage: herdr server start");
+        return Ok(2);
+    }
+    let exe = std::env::current_exe()?;
+    match crate::server::autodetect::start_server_daemon_with_exe(exe) {
+        Ok(()) => Ok(0),
+        Err(err) => {
+            eprintln!("{err}");
+            Ok(1)
         }
     }
 }
@@ -44,15 +62,54 @@ fn server_stop(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
-    if !args.is_empty() {
-        eprintln!("usage: herdr server reload-config");
-        return Ok(2);
-    }
+    let json = match args {
+        [] => false,
+        [flag] if flag == "--json" => true,
+        _ => {
+            eprintln!("usage: herdr server reload-config [--json]");
+            return Ok(2);
+        }
+    };
 
-    super::print_response(&super::send_request(&Request {
+    let response = super::send_request(&Request {
         id: "cli:server:reload-config".into(),
         method: Method::ServerReloadConfig(EmptyParams::default()),
-    })?)
+    })?;
+    config_reload_exit_code(&response, json)
+}
+
+fn config_reload_exit_code(response: &serde_json::Value, json: bool) -> std::io::Result<i32> {
+    if response.get("error").is_some() {
+        return super::print_response(response);
+    }
+    let parsed: SuccessResponse = serde_json::from_value(response.clone()).map_err(|err| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("invalid config reload response: {err}"),
+        )
+    })?;
+    let ResponseResult::ConfigReload { status, .. } = &parsed.result else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "server reload-config returned an unexpected response",
+        ));
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&parsed.result).map_err(std::io::Error::other)?
+        );
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string(&parsed).map_err(std::io::Error::other)?
+        );
+    }
+    Ok(if *status == crate::config::ConfigReloadStatus::Applied {
+        0
+    } else {
+        1
+    })
 }
 
 fn server_agent_manifests(args: &[String]) -> std::io::Result<i32> {
@@ -259,9 +316,10 @@ fn parse_live_handoff_params(args: &[String]) -> Option<ServerLiveHandoffParams>
 fn print_server_help() {
     eprintln!("herdr server commands:");
     eprintln!("  herdr server                run as headless server");
+    eprintln!("  herdr server start          start the persistent server if needed");
     eprintln!("  herdr server stop           stop the running server via the API socket");
     eprintln!("  herdr server live-handoff   hand off live panes to a new local server");
-    eprintln!("  herdr server reload-config  reload config.toml in the running server");
+    eprintln!("  herdr server reload-config [--json]  reload config.toml in the running server");
     eprintln!("  herdr server agent-manifests [--json]  show agent detection manifest status");
     eprintln!("  herdr server update-agent-manifests [--json]  fetch and reload agent detection manifests");
     eprintln!("  herdr server reload-agent-manifests  reload agent detection manifests in the running server");
@@ -270,6 +328,38 @@ fn print_server_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn config_reload_response(status: crate::config::ConfigReloadStatus) -> serde_json::Value {
+        serde_json::to_value(SuccessResponse {
+            id: "reload".into(),
+            result: ResponseResult::ConfigReload {
+                status,
+                diagnostics: Vec::new(),
+            },
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn config_reload_exit_status_is_success_only_when_fully_applied() {
+        assert_eq!(
+            config_reload_exit_code(
+                &config_reload_response(crate::config::ConfigReloadStatus::Applied),
+                false
+            )
+            .unwrap(),
+            0
+        );
+        for status in [
+            crate::config::ConfigReloadStatus::Partial,
+            crate::config::ConfigReloadStatus::Failed,
+        ] {
+            assert_eq!(
+                config_reload_exit_code(&config_reload_response(status), false).unwrap(),
+                1
+            );
+        }
+    }
 
     #[test]
     fn update_agent_manifest_status_fetches_reloads_then_reads_status() {

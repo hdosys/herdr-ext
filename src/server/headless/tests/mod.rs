@@ -97,6 +97,8 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
     let headless_size = app.state.headless_size;
 
     HeadlessServer {
+        startup_cwd: None,
+        pending_startup_workspace_launches: Vec::new(),
         app,
         #[cfg(unix)]
         api_tx: None,
@@ -1305,6 +1307,62 @@ async fn cursor_color_extension_tracks_full_and_retained_surface_revisions() {
         read_server_message(legacy_render.recv_timeout(Duration::from_secs(2)).unwrap()),
         ServerMessage::PaneSurface(_)
     ));
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn startup_workspace_shell_waits_for_active_client_geometry() {
+    let mut server = test_headless_server();
+    server.startup_cwd = Some(std::env::temp_dir());
+    let (writer, _control, _render) = test_client_writer();
+    server.handle_server_event(ServerEvent::ClientShellConnected {
+        client_id: 1,
+        surface_cols: 80,
+        surface_rows: 24,
+        cell_width_px: 0,
+        cell_height_px: 0,
+        pixel_mouse: false,
+        direct_graphics: false,
+        endpoint_keybindings: false,
+        mouse_capture: false,
+        surface_active: false,
+        surface_reuse: false,
+        surface_delta: false,
+        surface_scroll: false,
+        writer,
+    });
+    assert!(server.app.state.workspaces.is_empty());
+    let (respond_to, response) = std::sync::mpsc::channel();
+    server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+        request: api::schema::Request {
+            id: "startup-workspace".into(),
+            method: api::schema::Method::WorkspaceCreate(api::schema::WorkspaceCreateParams {
+                source_workspace_id: None,
+                cwd: Some(std::env::temp_dir().display().to_string()),
+                focus: true,
+                label: None,
+                env: Default::default(),
+            }),
+        },
+        respond_to,
+        response_write_complete: None,
+    });
+    let _: api::schema::SuccessResponse =
+        serde_json::from_str(&response.recv_timeout(Duration::from_secs(2)).unwrap()).unwrap();
+    assert_eq!(server.pending_startup_workspace_launches.len(), 1);
+    assert_eq!(server.app.terminal_runtimes.len(), 0);
+    assert!(server.app.startup_session_save_blocked);
+    let (_control, _render) = connect_test_shell(&mut server, 2, 120, 40);
+    assert!(server.pending_startup_workspace_launches.is_empty());
+    assert!(!server.app.startup_session_save_blocked);
+    assert_eq!(server.app.state.workspaces.len(), 1);
+    let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+    let runtime = server
+        .app
+        .state
+        .runtime_for_pane_in_workspace(&server.app.terminal_runtimes, 0, pane_id)
+        .unwrap();
+    assert_eq!(runtime.current_size(), (40, 119));
     shutdown_test_runtimes(&mut server);
 }
 

@@ -11,8 +11,19 @@ enum SessionSaveJob {
 }
 
 impl App {
+    pub(crate) fn block_startup_session_save(&mut self) {
+        self.startup_session_save_blocked = true;
+        self.session_save_deadline = None;
+    }
+
+    pub(crate) fn unblock_startup_session_save(&mut self) {
+        if self.startup_session_save_blocked {
+            self.startup_session_save_blocked = false;
+            self.schedule_session_save();
+        }
+    }
     pub(super) fn schedule_session_save(&mut self) {
-        if self.policy.persist_session {
+        if self.policy.persist_session && !self.startup_session_save_blocked {
             self.pane_exit_checkpoint_pending = false;
             self.session_save_deadline = Some(Instant::now() + SESSION_SAVE_DEBOUNCE);
         }
@@ -60,7 +71,7 @@ impl App {
     }
 
     pub(crate) fn start_background_session_save(&mut self) {
-        if !self.policy.persist_session {
+        if !self.policy.persist_session || self.startup_session_save_blocked {
             self.session_save_deadline = None;
             return;
         }
@@ -92,7 +103,7 @@ impl App {
             let _ = thread.join();
         }
 
-        if !self.policy.persist_session {
+        if !self.policy.persist_session || self.startup_session_save_blocked {
             self.session_save_deadline = None;
             return;
         }
