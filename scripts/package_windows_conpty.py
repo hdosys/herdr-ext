@@ -18,7 +18,10 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_METADATA = PROJECT_ROOT / "packaging" / "windows" / "conpty.json"
 MARKER_PATH = PurePosixPath("conpty/herdr-conpty.json")
+PRODUCT_LICENSE_SOURCE = PROJECT_ROOT / "LICENSE"
+PRODUCT_LICENSE_PATH = PurePosixPath("LICENSE.txt")
 DOWNLOAD_TIMEOUT_SECONDS = 60
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -31,6 +34,20 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def read_product_license() -> bytes:
+    data = PRODUCT_LICENSE_SOURCE.read_bytes()
+    normalized = data.replace(b"\r\n", b"\n")
+    header = normalized[:256]
+    if (
+        b"Apache License\n" not in header
+        or b"Version 2.0, January 2004\n" not in header
+        or b"AGPL" in normalized.upper()
+        or b"AFFERO" in normalized.upper()
+    ):
+        raise ValueError("product LICENSE must be the Apache License 2.0")
+    return data
 
 
 def load_metadata(path: Path) -> dict[str, Any]:
@@ -259,6 +276,7 @@ def stage_bundle(
         raise ValueError(f"output directory already exists: {output_dir}")
     if not herdr_exe.is_file():
         raise ValueError(f"Herdr executable does not exist: {herdr_exe}")
+    product_license = read_product_license()
 
     validate_static_msvc_runtime(herdr_exe.read_bytes(), herdr_exe.name)
 
@@ -273,6 +291,7 @@ def stage_bundle(
         staging = Path(temporary) / "bundle"
         staging.mkdir()
         shutil.copy2(herdr_exe, staging / "herdr.exe")
+        (staging / PRODUCT_LICENSE_PATH).write_bytes(product_license)
 
         for item in bundle["files"]:
             try:
@@ -314,7 +333,7 @@ def stage_bundle(
 
 
 def expected_stage_files(metadata: dict[str, Any], architecture: str) -> set[str]:
-    files = {"herdr.exe", MARKER_PATH.as_posix()}
+    files = {"herdr.exe", MARKER_PATH.as_posix(), PRODUCT_LICENSE_PATH.as_posix()}
     files.update(item["destination"] for item in metadata["bundles"][architecture]["files"])
     files.update(item["destination"] for item in metadata["notices"])
     return files
@@ -338,6 +357,8 @@ def validate_stage(metadata_path: Path, architecture: str, stage_dir: Path) -> N
     # it here to cover a direct archive of an existing stage or a swap after
     # staging.
     validate_static_msvc_runtime((stage_dir / "herdr.exe").read_bytes(), "herdr.exe")
+    if (stage_dir / PRODUCT_LICENSE_PATH).read_bytes() != read_product_license():
+        raise ValueError("staged LICENSE.txt does not match the product license")
     for item in metadata["bundles"][architecture]["files"]:
         path = stage_dir / PurePosixPath(item["destination"])
         actual_hash = sha256_file(path)
@@ -358,7 +379,13 @@ def archive_bundle(
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in sorted(stage_dir.rglob("*")):
             if path.is_file():
-                archive.write(path, path.relative_to(stage_dir).as_posix())
+                relative = path.relative_to(stage_dir).as_posix()
+                info = zipfile.ZipInfo(relative, date_time=ZIP_TIMESTAMP)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                mode = 0o100755 if path.suffix.lower() == ".exe" else 0o100644
+                info.external_attr = mode << 16
+                archive.writestr(info, path.read_bytes(), compresslevel=9)
 
 
 def parse_args() -> argparse.Namespace:
@@ -376,6 +403,10 @@ def parse_args() -> argparse.Namespace:
     archive.add_argument("--architecture", choices=("x86_64",), default="x86_64")
     archive.add_argument("--stage-dir", type=Path, required=True)
     archive.add_argument("--output", type=Path, required=True)
+
+    validate = subparsers.add_parser("validate")
+    validate.add_argument("--architecture", choices=("x86_64",), default="x86_64")
+    validate.add_argument("--stage-dir", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -389,8 +420,10 @@ def main() -> None:
             args.herdr_exe,
             args.output_dir,
         )
-    else:
+    elif args.command == "archive":
         archive_bundle(args.metadata, args.architecture, args.stage_dir, args.output)
+    else:
+        validate_stage(args.metadata, args.architecture, args.stage_dir)
 
 
 if __name__ == "__main__":

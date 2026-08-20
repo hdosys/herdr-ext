@@ -4,22 +4,11 @@ use std::io;
 use std::time::Duration;
 
 pub(crate) fn run_remote_client_bridge(args: &[String]) -> io::Result<()> {
-    let idle_timeout = match args {
-        [] => false,
-        [option]
-            if option == "--idle-timeout-v1"
-                && crate::platform::REMOTE_BRIDGE_IDLE_TIMEOUT_SUPPORTED =>
-        {
-            true
-        }
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "unsupported remote client bridge option",
-            ))
-        }
-    };
-    ensure_remote_server_running()?;
+    let allow_start = super::bridge_allows_start(args)?;
+    let idle_timeout = args.iter().any(|argument| argument == "--idle-timeout-v1");
+    if allow_start {
+        ensure_remote_server_running()?;
+    }
     #[cfg(unix)]
     let _ssh_agent = super::ssh_agent::Registration::start();
 

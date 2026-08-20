@@ -23,9 +23,8 @@ pub(crate) fn connect_saved_ssh(
     let path = saved_bridge_path(profile_id);
     let bridge = SshStdioBridge::start(
         target.to_owned(),
-        remote_herdr,
+        super::attach::remote_bridge_command(&remote_herdr, session, true)?,
         path.clone(),
-        session.to_owned(),
         ssh.options(),
         true,
     )?;
@@ -67,7 +66,7 @@ impl SavedSshApiBridge {
                 metadata
             }
         };
-        let command = super::attach::cached_remote_api_command(&metadata, session);
+        let command = super::attach::cached_remote_api_command(&metadata, session)?;
         let path = crate::platform::remote_bridge_endpoint_path(
             &format!("herdr-api-ssh-{}-{profile_id}.sock", std::process::id()),
             &format!(
@@ -156,7 +155,10 @@ fn validated_saved_ssh(profile_id: &str, target: &str, session: &str) -> io::Res
     validate_profile_path_id(profile_id)?;
     crate::session::validate_name(session)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    Ok(RemoteSsh::new_noninteractive(target.to_owned()))
+    Ok(RemoteSsh::new_noninteractive(
+        target.to_owned(),
+        session.to_owned(),
+    ))
 }
 
 fn validate_profile_path_id(profile_id: &str) -> io::Result<()> {

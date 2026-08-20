@@ -525,6 +525,9 @@ fn handle_request(
             result: ResponseResult::Pong {
                 version: crate::build_info::version(),
                 protocol: crate::protocol::PROTOCOL_VERSION,
+                binary: std::env::current_exe()
+                    .ok()
+                    .map(|path| path.display().to_string()),
                 capabilities,
             },
         })
@@ -1450,7 +1453,15 @@ mod tests {
 
         let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(parsed.id, "req_1");
-        assert!(matches!(parsed.result, ResponseResult::Pong { .. }));
+        let ResponseResult::Pong { binary, .. } = parsed.result else {
+            panic!("ping did not return pong");
+        };
+        assert_eq!(
+            binary,
+            std::env::current_exe()
+                .ok()
+                .map(|path| path.display().to_string())
+        );
     }
 
     #[test]

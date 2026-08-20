@@ -11,6 +11,14 @@ const MAX_METADATA_BYTES: u64 = 16 * 1024;
 pub(crate) struct SshMachineMetadata {
     pub(crate) os: String,
     pub(crate) executable: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) windows: Option<WindowsSshMetadata>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct WindowsSshMetadata {
+    pub(crate) shell: crate::remote::WindowsSshShell,
+    pub(crate) sidecar: bool,
 }
 
 impl SshMachineMetadata {
@@ -20,8 +28,20 @@ impl SshMachineMetadata {
             return false;
         }
         match self.os.as_str() {
-            "linux" | "macos" => path.starts_with('/') && !path.ends_with("/mise/shims/herdr"),
+            "linux" | "macos" => {
+                self.windows.is_none()
+                    && path.starts_with('/')
+                    && !path.ends_with("/mise/shims/herdr")
+            }
             "windows" => {
+                if !self.windows.as_ref().is_some_and(|windows| {
+                    matches!(
+                        windows.shell,
+                        crate::remote::WindowsSshShell::Cmd | crate::remote::WindowsSshShell::Pwsh
+                    )
+                }) {
+                    return false;
+                }
                 let bytes = path.as_bytes();
                 path.starts_with(r"\\")
                     || (bytes.len() >= 3
@@ -136,11 +156,43 @@ mod tests {
             assert_eq!(
                 SshMachineMetadata {
                     os: os.into(),
-                    executable: path.into()
+                    executable: path.into(),
+                    windows: (os == "windows").then_some(WindowsSshMetadata {
+                        shell: crate::remote::WindowsSshShell::Cmd,
+                        sidecar: false
+                    }),
                 }
                 .is_valid(),
                 valid,
                 "{os}: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_metadata_requires_shell_and_retains_sidecar_identity() {
+        use crate::remote::WindowsSshShell;
+        let mut metadata = SshMachineMetadata {
+            os: "windows".into(),
+            executable: r"C:\Users\remote\.herdr\remote\herdr.exe".into(),
+            windows: None,
+        };
+        assert!(!metadata.is_valid());
+        for (shell, valid) in [
+            (WindowsSshShell::Cmd, true),
+            (WindowsSshShell::Pwsh, true),
+            (WindowsSshShell::WindowsPowerShell, false),
+            (WindowsSshShell::Unsupported("other.exe".into()), false),
+        ] {
+            metadata.windows = Some(WindowsSshMetadata {
+                shell,
+                sidecar: true,
+            });
+            assert_eq!(metadata.is_valid(), valid);
+            let stored = serde_json::to_vec(&metadata).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<SshMachineMetadata>(&stored).unwrap(),
+                metadata
             );
         }
     }
@@ -161,6 +213,7 @@ mod tests {
         let metadata = SshMachineMetadata {
             os: "macos".into(),
             executable: "/some path/herdr".into(),
+            windows: None,
         };
         assert!(first.load().is_none());
         first.store(&metadata);
@@ -214,6 +267,7 @@ mod tests {
         cache.store(&SshMachineMetadata {
             os: "macos".into(),
             executable: "/bin/herdr".into(),
+            windows: None,
         });
         assert_eq!(std::fs::read_to_string(&other).unwrap(), "untouched");
         std::fs::remove_dir_all(root).unwrap();

@@ -720,6 +720,7 @@ fn success_response_round_trips() {
         result: ResponseResult::Pong {
             version: "0.1.2".into(),
             protocol: 6,
+            binary: Some("/opt/herdr/bin/herdr".into()),
             capabilities: Some(ServerCapabilities {
                 live_handoff: true,
                 detached_server_daemon: true,

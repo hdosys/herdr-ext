@@ -22,13 +22,15 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// Poll interval when waiting for the server socket to appear.
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// Maximum time one Windows readiness connection may wait for Welcome.
+const CLIENT_PROTOCOL_READINESS_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(250);
+
 /// Timeout for checking the stable JSON API before attaching to the binary protocol socket.
 const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Private daemon-start hint used to seed a fresh headless server from the
 /// directory where the user ran `herdr`.
 pub(crate) const STARTUP_CWD_ENV_VAR: &str = "HERDR_STARTUP_CWD";
-
 // ---------------------------------------------------------------------------
 // Server detection
 // ---------------------------------------------------------------------------
@@ -88,12 +90,12 @@ fn is_server_listening_at(socket_path: &Path) -> bool {
     }
 }
 
-fn read_server_status() -> io::Result<Option<crate::api::RuntimeStatus>> {
+pub(crate) fn read_server_status() -> io::Result<Option<crate::api::RuntimeStatus>> {
     crate::api::read_runtime_status_at(&crate::api::socket_path(), STATUS_REQUEST_TIMEOUT)
 }
 
 #[cfg(windows)]
-fn client_protocol_accepts_hello(socket_path: &Path) -> io::Result<bool> {
+fn client_protocol_accepts_hello(socket_path: &Path, read_timeout: Duration) -> io::Result<bool> {
     if !socket_path.exists() {
         return Ok(false);
     }
@@ -114,17 +116,67 @@ fn client_protocol_accepts_hello(socket_path: &Path) -> io::Result<bool> {
         Err(err) => return Err(err),
     };
 
-    let hello = crate::protocol::ClientMessage::TerminalHello {
-        version: crate::protocol::PROTOCOL_VERSION,
-        cols: 80,
-        rows: 24,
+    use crate::protocol::endpoint::*;
+    let probe = EndpointClientHello {
+        generation: ENDPOINT_PROTOCOL_GENERATION,
+        surface_size: crate::protocol::ClientSurfaceSize { cols: 80, rows: 24 },
         cell_width_px: 0,
         cell_height_px: 0,
         pixel_mouse: false,
+        direct_graphics: false,
+        endpoint_keybindings: false,
+        mouse_capture: false,
+        surface_active: false,
+        surface_cursor_color: false,
+        surface_reuse: false,
+        surface_delta: false,
+        surface_scroll: false,
+        snapshot_codecs: vec![SNAPSHOT_CODEC_V1.into()],
+        surface_codecs: vec![SURFACE_CODEC_V1.into()],
+        input_codecs: vec![INPUT_CODEC_V1.into()],
+        blob_codecs: vec![BLOB_CODEC_V1.into()],
+    };
+    let hello = crate::protocol::ClientMessage::EndpointControl {
+        kind: ENDPOINT_HELLO_KIND.into(),
+        data: serde_json::to_string(&probe).map_err(io::Error::other)?,
     };
 
     match crate::protocol::write_message(&mut stream, &hello) {
-        Ok(()) => Ok(true),
+        Ok(()) => {}
+        Err(crate::protocol::FramingError::Io(err))
+            if matches!(
+                err.kind(),
+                io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::NotFound
+                    | io::ErrorKind::TimedOut
+                    | io::ErrorKind::WouldBlock
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            return Ok(false);
+        }
+        Err(err) => return Err(io::Error::other(err.to_string())),
+    }
+
+    let mut reader = crate::ipc::LocalStreamDeadlineReader::new(&mut stream, read_timeout);
+    let welcome = crate::protocol::read_message(&mut reader, crate::protocol::MAX_FRAME_SIZE);
+    client_protocol_welcome_is_ready(welcome)
+}
+
+#[cfg(windows)]
+fn client_protocol_welcome_is_ready(
+    welcome: Result<crate::protocol::ServerMessage, crate::protocol::FramingError>,
+) -> io::Result<bool> {
+    match welcome {
+        Ok(crate::protocol::ServerMessage::EndpointControl { kind, data })
+            if kind == crate::protocol::endpoint::ENDPOINT_WELCOME_KIND =>
+        {
+            let welcome: crate::protocol::endpoint::EndpointServerWelcome =
+                serde_json::from_str(&data).map_err(io::Error::other)?;
+            Ok(welcome.supports_required_codecs())
+        }
+        Ok(_) | Err(crate::protocol::FramingError::UnexpectedEof) => Ok(false),
         Err(crate::protocol::FramingError::Io(err))
             if matches!(
                 err.kind(),
@@ -212,6 +264,19 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
     Ok(pid)
 }
 
+pub fn start_server_daemon_with_exe(exe: PathBuf) -> io::Result<()> {
+    let socket_path = client_socket_path();
+    if is_server_listening_at(&socket_path) {
+        validate_running_server_compatibility(false)?;
+        return Ok(());
+    }
+    let mut command = build_server_daemon_command(exe);
+    crate::platform::launch_server_daemon_command(&mut command).map_err(|err: io::Error| {
+        io::Error::new(err.kind(), format!("failed to spawn herdr server: {err}"))
+    })?;
+    wait_for_server_socket(&socket_path, SERVER_READY_TIMEOUT)
+}
+
 fn build_server_daemon_command(exe: PathBuf) -> Command {
     let mut command = Command::new(&exe);
     command
@@ -221,6 +286,7 @@ fn build_server_daemon_command(exe: PathBuf) -> Command {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     crate::platform::detach_server_daemon_command(&mut command);
+    crate::remote::configure_remote_sidecar_child(&mut command);
 
     match std::env::current_dir() {
         Ok(cwd) => {
@@ -254,7 +320,11 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
 
     while std::time::Instant::now() < deadline {
         #[cfg(windows)]
-        if client_protocol_accepts_hello(socket_path)? {
+        if client_protocol_accepts_hello(
+            socket_path,
+            CLIENT_PROTOCOL_READINESS_ATTEMPT_TIMEOUT
+                .min(deadline.saturating_duration_since(std::time::Instant::now())),
+        )? {
             info!(path = %socket_path.display(), "server client protocol ready");
             return Ok(());
         }
@@ -330,6 +400,81 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    #[test]
+    fn shell_readiness_checks_generation_and_codecs_not_private_versions() {
+        use crate::protocol::endpoint::*;
+        let ready = |welcome: EndpointServerWelcome| {
+            super::client_protocol_welcome_is_ready(Ok(
+                crate::protocol::ServerMessage::EndpointControl {
+                    kind: ENDPOINT_WELCOME_KIND.into(),
+                    data: serde_json::to_string(&welcome).unwrap(),
+                },
+            ))
+            .unwrap()
+        };
+        let mut welcome = EndpointServerWelcome::compatible(Vec::new());
+        welcome.server_version = "older-compatible-build".into();
+        assert!(ready(welcome.clone()));
+        welcome.input_codec = "unsupported".into();
+        assert!(!ready(welcome));
+        let mut welcome = EndpointServerWelcome::compatible(Vec::new());
+        welcome.generation += 1;
+        assert!(!ready(welcome));
+        assert!(!ready(EndpointServerWelcome::incompatible(
+            "rejected",
+            "not ready"
+        )));
+        assert!(!super::client_protocol_welcome_is_ready(Err(
+            crate::protocol::FramingError::UnexpectedEof
+        ))
+        .unwrap());
+
+        use interprocess::local_socket::traits::Listener as _;
+        let root =
+            std::env::temp_dir().join(format!("herdr-inactive-readiness-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("client.sock");
+        let listener = crate::ipc::bind_local_listener(&path).unwrap();
+        let (release, released) = std::sync::mpsc::channel();
+        let peer = std::thread::spawn(move || {
+            let mut stream = listener.accept().unwrap();
+            let message: crate::protocol::ClientMessage = crate::protocol::read_message(
+                &mut crate::ipc::LocalStreamDeadlineReader::new(
+                    &mut stream,
+                    std::time::Duration::from_secs(2),
+                ),
+                crate::protocol::MAX_FRAME_SIZE,
+            )
+            .unwrap();
+            let crate::protocol::ClientMessage::EndpointControl { kind, data } = message else {
+                panic!("readiness must use the endpoint handshake")
+            };
+            assert_eq!(kind, ENDPOINT_HELLO_KIND);
+            let hello: EndpointClientHello = serde_json::from_str(&data).unwrap();
+            assert!(!hello.surface_active);
+            let mut welcome = EndpointServerWelcome::compatible(Vec::new());
+            welcome.server_version = "older-compatible-build".into();
+            crate::protocol::write_message(
+                &mut stream,
+                &crate::protocol::ServerMessage::EndpointControl {
+                    kind: ENDPOINT_WELCOME_KIND.into(),
+                    data: serde_json::to_string(&welcome).unwrap(),
+                },
+            )
+            .unwrap();
+            let _ = released.recv_timeout(std::time::Duration::from_secs(2));
+        });
+        let ready =
+            super::client_protocol_accepts_hello(&path, std::time::Duration::from_millis(250));
+        let _ = release.send(());
+        peer.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(ready.unwrap());
+    }
+}
 
 #[cfg(all(test, unix))]
 mod tests {

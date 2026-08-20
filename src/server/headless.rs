@@ -233,6 +233,8 @@ pub struct HeadlessServer {
     /// Shared pane runtime size derived from the foreground client, or the
     /// configured headless size when no clients are connected.
     effective_size: (u16, u16),
+    startup_cwd: Option<PathBuf>,
+    pending_startup_workspace_launches: Vec<app::DeferredWorkspaceShell>,
     /// Flag set when shutdown is initiated.
     shutting_down: bool,
     /// Flag set while exporting live PTYs to a replacement server.
@@ -366,6 +368,8 @@ impl HeadlessServer {
             next_activity_stamp: 1,
             headless_size,
             effective_size: headless_size,
+            startup_cwd: None,
+            pending_startup_workspace_launches: Vec::new(),
             shutting_down: false,
             host_shutdown_requested: Arc::new(AtomicBool::new(false)),
             handoff_in_progress: false,
@@ -1887,7 +1891,9 @@ impl HeadlessServer {
                     render_encoding = ?protocol::RenderEncoding::SemanticFrame,
                     "client connected"
                 );
-                self.app.ensure_default_workspace();
+                if surface_active {
+                    self.initialize_startup_workspaces(surface_cols, surface_rows);
+                }
                 let first_app_client = self.app_client_count() == 0;
                 let last_activity = self.allocate_activity_stamp();
                 let observed = crate::kitty_graphics::HostCellSize {
@@ -2986,6 +2992,8 @@ impl HeadlessServer {
             self.app.state.view.terminal_area =
                 Rect::new(0, 0, self.effective_size.0, self.effective_size.1);
         }
+        let defer_startup_workspace = self.startup_cwd.is_some()
+            && matches!(&msg.request.method, api::schema::Method::WorkspaceCreate(_));
         let mut response = if matches!(
             &msg.request.method,
             api::schema::Method::ServerReloadConfig(_)
@@ -3008,6 +3016,27 @@ impl HeadlessServer {
                 })
                 .unwrap_or_else(|_| "{}".to_string())
             })
+        } else if defer_startup_workspace {
+            let request = msg.request;
+            let (response, pending) = match request.method {
+                api::schema::Method::WorkspaceCreate(params) => self
+                    .app
+                    .handle_workspace_create_with_deferred_shell(request.id, params),
+                method => (
+                    self.app.handle_api_request_after_internal_events_drained(
+                        api::schema::Request {
+                            id: request.id,
+                            method,
+                        },
+                    ),
+                    None,
+                ),
+            };
+            if let Some(pending) = pending {
+                self.pending_startup_workspace_launches.push(pending);
+                self.app.block_startup_session_save();
+            }
+            response
         } else {
             self.app
                 .handle_api_request_after_internal_events_drained(msg.request)

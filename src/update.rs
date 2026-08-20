@@ -3121,6 +3121,7 @@ mod tests {
             server: crate::api::RuntimeStatus {
                 version: Some("0.6.2".to_string()),
                 protocol: Some(76),
+                binary: None,
                 capabilities: Some(crate::api::schema::ServerCapabilities {
                     live_handoff: true,
                     detached_server_daemon: true,
@@ -3314,6 +3315,7 @@ mod tests {
         let server = crate::api::RuntimeStatus {
             version: Some("0.5.5".to_string()),
             protocol: Some(2),
+            binary: None,
             capabilities: None,
         };
         let release = ReleaseInfo {

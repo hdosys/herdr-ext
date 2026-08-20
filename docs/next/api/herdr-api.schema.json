@@ -9169,6 +9169,13 @@
           "oneOf": [
             {
               "properties": {
+                "binary": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "capabilities": {
                   "anyOf": [
                     {

@@ -11,6 +11,14 @@ impl HeadlessServer {
         client_id: u64,
         active: bool,
     ) -> Option<(bool, u64)> {
+        let client = self.clients.get(&client_id)?;
+        if !client.is_shell_client() {
+            return None;
+        }
+        if active {
+            let (cols, rows) = client.terminal_size;
+            self.initialize_startup_workspaces(cols, rows);
+        }
         let focus_before = self.shell_focus_targets();
         let focused_tabs_before = self.focused_shell_tabs();
         let (changed, projection_revision) = {

@@ -123,6 +123,8 @@ Herdr separately remembers each machine's remote OS and resolved executable path
 
 The client and server negotiate compatibility rather than requiring identical versions. Saved-machine connections additionally need the server's `surface_interest` and `health_check` capabilities. Older servers without those capabilities show Attention until explicitly updated, even if a standalone attach works. Other missing server methods disable only their corresponding actions.
 
-Updating a compatible client does not replace the running remote server or stop its agents. When you need new server-side behavior, update that server explicitly. Normal replacement asks before stopping the server and its pane processes.
+The selected remote executable must also advertise `remote_connect_only`, so reconnects and readiness checks cannot start a missing server. Standalone setup can update an executable that lacks this capability; background reconnect cannot.
+
+A version difference alone does not require a server restart. Replacing a Windows remote payload still requires approval to stop its server and release runtime leases. Background reconnect never performs that replacement.
 
 Live handoff is experimental and opt-in. For a supported server that needs replacement during standalone setup, you can explicitly add `--handoff` to `herdr --remote`; it is not needed for normal connections or authentication fixes. See [Update](/docs/install/#update) for restart and handoff choices, and [Session state and restore](/docs/session-state/) for what survives each operation.

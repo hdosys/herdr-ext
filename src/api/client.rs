@@ -110,10 +110,12 @@ impl ApiClient {
             ResponseResult::Pong {
                 version,
                 protocol,
+                binary,
                 capabilities,
             } => Ok(crate::api::RuntimeStatus {
                 version: Some(version),
                 protocol: Some(protocol),
+                binary,
                 capabilities,
             }),
             result => Err(ApiClientError::UnexpectedResult(format!("{result:?}"))),
