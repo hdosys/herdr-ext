@@ -1539,6 +1539,15 @@ impl PaneRuntimeIo {
         }
     }
 
+    #[cfg(windows)]
+    fn wait_for_shutdown(&self, timeout: std::time::Duration) -> bool {
+        match self {
+            PaneRuntimeIo::Actor(actor) => actor.wait_for_shutdown(timeout),
+            #[cfg(test)]
+            PaneRuntimeIo::TestChannel { .. } => true,
+        }
+    }
+
     #[cfg(unix)]
     fn duplicate_handoff_fd(&self) -> std::io::Result<std::os::fd::RawFd> {
         match self {
@@ -2231,7 +2240,7 @@ fn publish_reported_cwd(
 }
 
 impl PaneRuntime {
-    pub fn shutdown(mut self) {
+    pub fn shutdown(mut self) -> bool {
         if let Some(handle) = self.detect_handle.take() {
             handle.abort();
         }
@@ -2242,7 +2251,18 @@ impl PaneRuntime {
             self.child_pid.load(Ordering::Acquire),
             self.child_wait_completed.as_deref(),
         );
-        self.preserve_processes_on_drop = true;
+        #[cfg(windows)]
+        let io_shutdown_complete = self.io.wait_for_shutdown(std::time::Duration::from_secs(2));
+        #[cfg(not(windows))]
+        let io_shutdown_complete = true;
+        if !io_shutdown_complete {
+            warn!(
+                pane = self.pane_id.raw(),
+                "PTY master did not close before the shutdown deadline"
+            );
+        }
+        self.preserve_processes_on_drop = io_shutdown_complete;
+        io_shutdown_complete
     }
 
     #[cfg(unix)]
