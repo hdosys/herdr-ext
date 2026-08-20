@@ -30,11 +30,20 @@ pub(crate) struct RemoteLaunch {
     pub(crate) target: String,
     pub(crate) keybindings: RemoteKeybindings,
     pub(crate) live_handoff: bool,
+    pub(crate) provision: bool,
+    pub(crate) overwrite_config: bool,
+    pub(crate) yes: bool,
+    pub(crate) json: bool,
 }
 
 pub(crate) fn extract_remote_args(
     args: &[String],
 ) -> Result<(Vec<String>, Option<RemoteLaunch>), String> {
+    let remote_requested = args
+        .iter()
+        .skip(1)
+        .take_while(|arg| arg.as_str() != "--")
+        .any(|arg| arg == "--remote" || arg.starts_with("--remote="));
     let mut cleaned = Vec::with_capacity(args.len());
     if let Some(program) = args.first() {
         cleaned.push(program.clone());
@@ -44,6 +53,10 @@ pub(crate) fn extract_remote_args(
     let mut keybindings = RemoteKeybindings::Local;
     let mut keybindings_seen = false;
     let mut live_handoff = false;
+    let mut provision = false;
+    let mut overwrite_config = false;
+    let mut yes = false;
+    let mut json = false;
     let mut index = 1;
     while index < args.len() {
         let arg = &args[index];
@@ -65,6 +78,26 @@ pub(crate) fn extract_remote_args(
             };
             remote_target = Some(validate_remote_target(value)?.to_owned());
             index += 2;
+            continue;
+        }
+        if remote_requested && arg == "--provision" {
+            provision = true;
+            index += 1;
+            continue;
+        }
+        if arg == "--overwrite-config" {
+            overwrite_config = true;
+            index += 1;
+            continue;
+        }
+        if remote_requested && matches!(arg.as_str(), "--yes" | "-y") {
+            yes = true;
+            index += 1;
+            continue;
+        }
+        if remote_requested && arg == "--json" {
+            json = true;
+            index += 1;
             continue;
         }
         if let Some(value) = arg.strip_prefix("--remote=") {
@@ -105,6 +138,10 @@ pub(crate) fn extract_remote_args(
         target,
         keybindings,
         live_handoff,
+        provision,
+        overwrite_config,
+        yes,
+        json,
     });
     if remote.is_none() && keybindings_seen {
         return Err("--remote-keybindings requires --remote".to_string());
@@ -113,6 +150,15 @@ pub(crate) fn extract_remote_args(
         cleaned.push("--handoff".to_string());
     }
 
+    if overwrite_config && (!provision || remote.is_none()) {
+        return Err("--overwrite-config requires --remote with --provision".into());
+    }
+    if !provision && json {
+        return Err("--json requires --remote with --provision".into());
+    }
+    if provision && live_handoff {
+        return Err("--provision cannot be combined with --handoff".into());
+    }
     Ok((cleaned, remote))
 }
 

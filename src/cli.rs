@@ -274,6 +274,17 @@ fn run_config_command(args: &[String]) -> std::io::Result<i32> {
 
     match subcommand {
         "check" => config_check(&args[1..]),
+        // Internal exact-build provisioning endpoint. Configuration travels on stdin,
+        // never in process arguments, logs, or the frozen client/server protocol.
+        "provision-import" if args.len() == 1 || (args.len() == 2 && args[1] == "--overwrite") => {
+            let outcome = crate::config::provision::import(
+                std::io::stdin().lock(),
+                &crate::config::config_path(),
+                args.len() == 2,
+            )?;
+            println!("{}", serde_json::to_string(&outcome)?);
+            Ok(0)
+        }
         "reset-keys" => config_reset_keys(&args[1..]),
         "help" | "--help" | "-h" => {
             print_config_help();

@@ -25,7 +25,7 @@ ssh workbox
 
 `workbox` can be a host from your SSH config. You can also use a target such as `ssh://you@server:2222`.
 
-Multi-machine connections support Linux, macOS, and Windows clients connecting to Linux or macOS servers on x86_64 or aarch64, or Windows servers on x86_64. Interactive setup can install or update the complete remote package after confirmation; background reconnects only discover installed packages. See [Remote attach over SSH](/docs/persistence-remote/#remote-attach-over-ssh) for SSH configuration, authentication, and custom binaries.
+Multi-machine connections support Linux, macOS, and Windows clients connecting to Linux or macOS servers on x86_64 or aarch64, or Windows servers on x86_64 or ARM64. Interactive setup can install or update the complete remote package after confirmation; background reconnects only discover installed packages. See [Remote attach over SSH](/docs/persistence-remote/#remote-attach-over-ssh) for SSH configuration, authentication, and custom binaries.
 
 ## Add a machine
 
@@ -47,7 +47,7 @@ herdr machine add workbox --remote-session agents
 
 Without `--label`, this machine shows as `workbox/agents`. If the default name is already taken, `machine add` asks you to pass `--label`.
 
-On Windows servers, setup also checks executables used by Herdr processes owned by the SSH user. It validates their capabilities before reuse, so a compatible running build can be used even when SSH's `PATH` points to an older installation.
+On Windows servers, setup checks an endpoint-compatible `herdr.exe` on the SSH user's `PATH`, then `%USERPROFILE%\.herdr\remote\herdr.exe`. It reuses the initial candidate and server inspection throughout setup.
 
 Herdr checks both the installed binary and the running server. It starts the requested background server before saving the profile. Compatible client and server versions do not have to match. Missing or incompatible installations go through an approval-based setup. When the running server needs replacement, setup asks before stopping it and its pane processes, then starts the compatible server. The default answer is No. If installation and replacement are both needed, one confirmation covers them. `machine add` does not use experimental live handoff. Cancelling or failing setup leaves the profile unsaved.
 
@@ -123,6 +123,8 @@ Herdr separately remembers each machine's remote OS and resolved executable path
 
 The client and server negotiate compatibility rather than requiring identical versions. Saved-machine connections additionally need the server's `surface_interest` and `health_check` capabilities. Older servers without those capabilities show Attention until explicitly updated, even if a standalone attach works. Other missing server methods disable only their corresponding actions.
 
-Updating a compatible client does not replace the running remote server or stop its agents. When you need new server-side behavior, update that server explicitly. Normal replacement asks before stopping the server and its pane processes.
+The selected remote executable must also advertise `remote_connect_only`, so reconnects and readiness checks cannot start a missing server. Standalone setup can update an executable that lacks this capability; background reconnect cannot.
+
+A version difference alone does not require a server restart. Replacing a Windows remote payload still requires approval to stop its server and release runtime leases. Background reconnect never performs that replacement.
 
 Live handoff is experimental and opt-in. For a supported server that needs replacement during standalone setup, you can explicitly add `--handoff` to `herdr --remote`; it is not needed for normal connections or authentication fixes. See [Update](/docs/install/#update) for restart and handoff choices, and [Session state and restore](/docs/session-state/) for what survives each operation.

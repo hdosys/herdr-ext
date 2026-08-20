@@ -1,16 +1,41 @@
 mod args;
 mod attach;
+#[cfg(unix)]
 mod host;
 mod process;
 mod restart_policy;
 mod saved;
 #[cfg(unix)]
 mod ssh_agent;
+mod windows;
 
 pub(crate) use args::*;
 pub(crate) use attach::*;
+#[cfg(unix)]
 pub(crate) use host::run_remote_client_bridge;
 pub(crate) use saved::*;
+
+pub(crate) fn bridge_allows_start(args: &[String]) -> std::io::Result<bool> {
+    let mut allow_start = true;
+    let mut idle_timeout = false;
+    for argument in args {
+        match argument.as_str() {
+            "--connect-only" if allow_start => allow_start = false,
+            "--idle-timeout-v1"
+                if !idle_timeout && crate::platform::REMOTE_BRIDGE_IDLE_TIMEOUT_SUPPORTED =>
+            {
+                idle_timeout = true;
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "invalid remote bridge arguments",
+                ))
+            }
+        }
+    }
+    Ok(allow_start)
+}
 
 pub(crate) fn run_remote_api_bridge(args: &[String]) -> std::io::Result<()> {
     match args {
@@ -46,6 +71,32 @@ pub(crate) fn print_saved_ssh_error_hint(err: &std::io::Error, target: &str) {
     } else {
         print_remote_error_hint(err, target);
     }
+}
+
+#[cfg(windows)]
+pub(crate) fn run_remote_client_bridge(args: &[String]) -> std::io::Result<()> {
+    windows::run_remote_client_bridge(bridge_allows_start(args)?)
+}
+pub(crate) use windows::{
+    adopt_remote_sidecar_lease, configure_remote_sidecar_child, remote_sidecar_active,
+    validate_remote_sidecar_payload, WindowsSshShell, REMOTE_SIDECAR_VALIDATE_ARG,
+};
+
+pub(crate) fn reject_remote_sidecar_update_command(args: &[String]) -> Result<(), String> {
+    if remote_sidecar_active() && update_command_requested(args) {
+        return Err(
+            "self-update is disabled for a remote Windows sidecar; update it from the attaching Herdr client"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn update_command_requested(args: &[String]) -> bool {
+    args.get(1).is_some_and(|command| command == "update")
+        || args
+            .get(1..3)
+            .is_some_and(|commands| commands == ["channel", "set"])
 }
 
 pub(crate) fn print_remote_error_hint(err: &std::io::Error, target: &str) {
@@ -139,5 +190,19 @@ mod tests {
     #[test]
     fn ssh_check_command_quotes_remote_target() {
         assert_eq!(ssh_check_command("host name"), "ssh 'host name'");
+    }
+
+    #[test]
+    fn remote_sidecar_update_gate_matches_every_self_update_entry() {
+        assert!(update_command_requested(&["herdr".into(), "update".into()]));
+        assert!(update_command_requested(&[
+            "herdr".into(),
+            "channel".into(),
+            "set".into(),
+        ]));
+        assert!(!update_command_requested(&[
+            "herdr".into(),
+            "status".into()
+        ]));
     }
 }

@@ -18,7 +18,7 @@ pub(crate) use catalog::*;
 pub(crate) use control::*;
 pub(crate) use message_policy::*;
 pub(crate) use registry::*;
-pub(crate) use ssh_metadata::{SshMachineMetadata, SshMetadataCache};
+pub(crate) use ssh_metadata::{SshMachineMetadata, SshMetadataCache, WindowsSshMetadata};
 pub(crate) use supervisor::*;
 pub(crate) use writer::NativeEndpointTransport;
 

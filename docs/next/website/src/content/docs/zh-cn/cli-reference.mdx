@@ -12,6 +12,9 @@ Herdr 的 CLI 通过与集成和智能体相同的本地 socket API 与运行中
 ```bash
 herdr                         # 启动或连接默认会话
 herdr --remote workbox        # 通过 SSH 连接,使用本地按键绑定
+herdr --remote workbox --provision --yes --json
+herdr --remote workbox --remote-keybindings server
+herdr --remote workbox --handoff
 herdr --default-config        # 打印默认配置
 herdr update                  # 从配置的通道下载并安装
 herdr completion zsh          # 生成 zsh 补全脚本
@@ -118,6 +121,7 @@ compinit
 
 ```bash
 herdr server
+herdr server start
 herdr server stop
 herdr server reload-config
 herdr server agent-manifests [--json]
@@ -125,7 +129,7 @@ herdr server update-agent-manifests [--json]
 herdr server reload-agent-manifests
 ```
 
-`herdr server` 显式运行无界面服务器,适合被监管或服务式的部署。`reload-config` 在不重启窗格的情况下应用可重载设置。`agent-manifests` 显示生效的智能体检测清单来源、缓存的远程版本和最近的远程更新结果。`update-agent-manifests` 立即拉取远程清单更新,重载到运行中的服务器,并打印更新后的清单状态;要原始状态响应就加 `--json`。`reload-agent-manifests` 在编辑本地覆盖后,把智能体检测清单重载到运行中的服务器。
+`herdr server` 显式运行无界面服务器,适合被监管或服务式的部署。`herdr server start` 会在需要时启动持久后台服务器，并在服务器就绪后返回。`reload-config` 在不重启窗格的情况下应用可重载设置。`agent-manifests` 显示生效的智能体检测清单来源、缓存的远程版本和最近的远程更新结果。`update-agent-manifests` 立即拉取远程清单更新,重载到运行中的服务器,并打印更新后的清单状态;要原始状态响应就加 `--json`。`reload-agent-manifests` 在编辑本地覆盖后,把智能体检测清单重载到运行中的服务器。
 
 ## 通知
 

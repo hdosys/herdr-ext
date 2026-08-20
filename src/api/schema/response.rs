@@ -46,6 +46,8 @@ pub enum ResponseResult {
         version: String,
         protocol: u32,
         #[serde(default)]
+        binary: Option<String>,
+        #[serde(default)]
         capabilities: Option<ServerCapabilities>,
     },
     SessionSnapshot {

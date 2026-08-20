@@ -262,7 +262,7 @@ pub fn load_live_config() -> Result<LoadedConfig, Vec<String>> {
     load_live_config_from_str(&content)
 }
 
-fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>> {
+pub(super) fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>> {
     let value = content
         .parse::<toml::Value>()
         .map_err(|err| vec![format!("config parse error: {err}; keeping current config")])?;

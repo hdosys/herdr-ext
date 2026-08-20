@@ -69,7 +69,7 @@ fn resolve_target(path: &Path) -> io::Result<PathBuf> {
     )))
 }
 
-pub(super) fn write_config(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
+pub(crate) fn write_config(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
     check_config_target(path)?;
     let target = resolve_target(path)?;
     if crate::platform::write_existing_config(&target, contents.as_ref())? {
