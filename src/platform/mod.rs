@@ -149,6 +149,13 @@ pub(crate) fn configure_background_command(command: &mut std::process::Command) 
 }
 
 #[cfg(not(windows))]
+pub(crate) fn prepare_interactive_server_bootstrap(
+    args: Vec<String>,
+) -> std::io::Result<Vec<String>> {
+    Ok(args)
+}
+
+#[cfg(not(windows))]
 fn configure_background_command_platform(_command: &mut std::process::Command) {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

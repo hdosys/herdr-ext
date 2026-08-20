@@ -4,8 +4,6 @@ use std::io::IsTerminal as _;
 use std::time::Duration;
 
 use interprocess::local_socket::traits::Stream as _;
-#[cfg(windows)]
-use tracing::debug;
 use tracing::info;
 
 use crate::ipc::LocalStream;
@@ -101,31 +99,26 @@ fn direct_graphics_profile_allowed() -> bool {
     false
 }
 
-#[cfg(windows)]
-fn set_handshake_recv_timeout(
-    stream: &LocalStream,
-    timeout: Option<Duration>,
-    context: &'static str,
-) -> Result<(), ClientError> {
-    match stream.set_recv_timeout(timeout) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == io::ErrorKind::Unsupported => {
-            debug!(err = %err, context, "client socket receive timeout unavailable");
-            Ok(())
-        }
-        Err(err) => Err(ClientError::ConnectionFailed(err)),
+fn read_handshake_welcome(
+    stream: &mut LocalStream,
+    timeout: Duration,
+) -> Result<ServerMessage, ClientError> {
+    #[cfg(windows)]
+    {
+        let mut reader = crate::ipc::LocalStreamDeadlineReader::new(stream, timeout);
+        Ok(protocol::read_message(&mut reader, MAX_FRAME_SIZE)?)
     }
-}
-
-#[cfg(not(windows))]
-fn set_handshake_recv_timeout(
-    stream: &LocalStream,
-    timeout: Option<Duration>,
-    _context: &'static str,
-) -> Result<(), ClientError> {
-    stream
-        .set_recv_timeout(timeout)
-        .map_err(ClientError::ConnectionFailed)
+    #[cfg(not(windows))]
+    {
+        stream
+            .set_recv_timeout(Some(timeout))
+            .map_err(ClientError::ConnectionFailed)?;
+        let welcome = protocol::read_message(stream, MAX_FRAME_SIZE);
+        let cleared = stream.set_recv_timeout(None);
+        let welcome = welcome?;
+        cleared.map_err(ClientError::ConnectionFailed)?;
+        Ok(welcome)
+    }
 }
 
 #[derive(Debug)]
@@ -231,17 +224,7 @@ pub(super) fn do_handshake(
     } else {
         handshake_read_timeout()
     };
-    set_handshake_recv_timeout(
-        stream,
-        Some(read_timeout),
-        "client handshake read timeout unavailable",
-    )?;
-    let welcome: ServerMessage = protocol::read_message(stream, MAX_FRAME_SIZE)?;
-    set_handshake_recv_timeout(
-        stream,
-        None,
-        "failed to clear client handshake read timeout",
-    )?;
+    let welcome = read_handshake_welcome(stream, read_timeout)?;
 
     if endpoint_shell {
         let ServerMessage::EndpointControl { kind, data } = welcome else {
@@ -263,18 +246,13 @@ pub(super) fn do_handshake(
                 format!("invalid endpoint welcome: {error}"),
             )))
         })?;
-        if let Some(error) = welcome.error {
+        if let Some(ref error) = welcome.error {
             return Err(ClientError::HandshakeRejected {
                 version: welcome.generation,
-                error: error.message,
+                error: error.message.clone(),
             });
         }
-        if welcome.generation != ENDPOINT_PROTOCOL_GENERATION
-            || welcome.snapshot_codec != SNAPSHOT_CODEC_V1
-            || welcome.surface_codec != SURFACE_CODEC_V1
-            || welcome.input_codec != INPUT_CODEC_V1
-            || welcome.blob_codec != BLOB_CODEC_V1
-        {
+        if !welcome.supports_required_codecs() {
             return Err(ClientError::HandshakeRejected {
                 version: welcome.generation,
                 error: "server has no compatible endpoint core; update this machine".into(),
@@ -300,6 +278,12 @@ pub(super) fn do_handshake(
         } => {
             if let Some(error) = error {
                 return Err(ClientError::HandshakeRejected { version, error });
+            }
+            if version != PROTOCOL_VERSION {
+                return Err(ClientError::HandshakeRejected {
+                    version,
+                    error: "direct terminal protocol differs from the client".into(),
+                });
             }
             info!(version, ?encoding, "handshake succeeded");
             Ok(HandshakeResult {
@@ -328,5 +312,51 @@ mod tests {
         assert!(!direct_graphics_capability(true, true, (0, 16), supported));
         assert!(!direct_graphics_capability(true, true, (8, 0), supported));
         assert!(!direct_graphics_capability(true, true, (8, 16), false));
+    }
+
+    #[cfg(windows)]
+    use std::io::Write as _;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_handshake_read_deadline_covers_missing_and_partial_frames() {
+        let welcome = ServerMessage::EndpointControl {
+            kind: ENDPOINT_WELCOME_KIND.into(),
+            data: serde_json::to_string(&EndpointServerWelcome::compatible(Vec::new())).unwrap(),
+        };
+        let mut encoded = Vec::new();
+        protocol::write_message(&mut encoded, &welcome).unwrap();
+        for count in [0, 3, encoded.len()] {
+            let root = std::env::temp_dir().join(format!(
+                "herdr-handshake-deadline-{}-{count}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&root).unwrap();
+            let path = root.join("client.sock");
+            let listener = crate::ipc::bind_local_listener(&path).unwrap();
+            let prefix = encoded[..count].to_vec();
+            let (release, released) = std::sync::mpsc::channel();
+            let peer = std::thread::spawn(move || {
+                let mut stream = listener.accept().unwrap();
+                stream.write_all(&prefix).unwrap();
+                let _ = released.recv_timeout(Duration::from_secs(2));
+            });
+            let mut stream = crate::ipc::connect_local_stream(&path).unwrap();
+            let result = read_handshake_welcome(&mut stream, Duration::from_millis(80));
+            let _ = release.send(());
+            peer.join().unwrap();
+            drop(stream);
+            std::fs::remove_dir_all(root).unwrap();
+            if count == encoded.len() {
+                assert!(
+                    matches!(result, Ok(ServerMessage::EndpointControl { kind, .. }) if kind == ENDPOINT_WELCOME_KIND)
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(ClientError::ConnectionLost(ref error)) if error.kind() == io::ErrorKind::TimedOut),
+                    "result: {result:?}"
+                );
+            }
+        }
     }
 }

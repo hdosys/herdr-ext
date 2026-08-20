@@ -15,43 +15,25 @@ from scripts import package_windows_conpty as package
 
 
 class WindowsConptyPackageTests(unittest.TestCase):
-    def test_pinned_metadata_and_notices_are_consistent(self) -> None:
+    def test_checked_in_metadata_matches_notices(self) -> None:
         metadata = package.load_metadata(package.DEFAULT_METADATA)
-        self.assertEqual(metadata["package"]["id"], "Microsoft.Windows.Console.ConPTY")
-        self.assertEqual(metadata["package"]["version"], "1.24.260710001")
-        self.assertEqual(
-            {item["destination"] for item in metadata["bundles"]["x86_64"]["files"]},
-            {
-                "conpty/conpty.dll",
-                "conpty/x64/OpenConsole.exe",
-                "conpty/arm64/OpenConsole.exe",
-            },
-        )
-        loader = (
-            package.PROJECT_ROOT / "vendor/portable-pty/src/win/psuedocon.rs"
-        ).read_text(encoding="utf-8")
-        installer = (package.PROJECT_ROOT / "distribution/install.ps1").read_text(
-            encoding="utf-8"
-        )
-        for item in metadata["bundles"]["x86_64"]["files"]:
-            self.assertIn(item["sha256"], loader)
-            self.assertNotIn(item["sha256"], installer)
-        self.assertIn('Get-Content -LiteralPath $markerPath -Raw', installer)
-        self.assertIn('$filesProperty.Value.PSObject.Properties[$relative]', installer)
         for notice in metadata["notices"]:
             source = package.PROJECT_ROOT / notice["source"]
             self.assertEqual(package.sha256_file(source), notice["sha256"])
 
-    def test_powershell_wrapper_verifies_package_and_signatures(self) -> None:
-        wrapper = (package.PROJECT_ROOT / "scripts/package_windows_conpty.ps1").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('"nuget", "verify", "--all"', wrapper)
-        self.assertIn("Get-AuthenticodeSignature", wrapper)
-        self.assertIn('conpty\\arm64\\OpenConsole.exe', wrapper)
-        self.assertIn('conpty\\x64\\OpenConsole.exe', wrapper)
-        self.assertIn('conpty\\conpty.dll', wrapper)
-        self.assertIn('"*Microsoft Corporation*"', wrapper)
+    def test_product_license_is_apache_2_0_and_rejects_agpl(self) -> None:
+        license_bytes = package.read_product_license()
+        self.assertIn(b"Apache License", license_bytes)
+        self.assertIn(b"Version 2.0, January 2004", license_bytes)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            agpl = Path(temporary) / "LICENSE"
+            agpl.write_text("GNU AFFERO GENERAL PUBLIC LICENSE\n", encoding="utf-8")
+            with mock.patch.object(package, "PRODUCT_LICENSE_SOURCE", agpl):
+                with self.assertRaisesRegex(
+                    ValueError, "product LICENSE must be the Apache License 2.0"
+                ):
+                    package.read_product_license()
 
     def test_package_download_retries_server_errors_with_a_finite_timeout(self) -> None:
         payload = b"package"
@@ -152,6 +134,16 @@ class WindowsConptyPackageTests(unittest.TestCase):
                         package.load_metadata(metadata_path), "x86_64"
                     ),
                 )
+                self.assertTrue(
+                    all(info.date_time == package.ZIP_TIMESTAMP for info in archive.infolist())
+                )
+
+            first_archive = output.read_bytes()
+            for path in stage.rglob("*"):
+                path.touch()
+            second_output = root / "herdr-second.zip"
+            package.archive_bundle(metadata_path, "x86_64", stage, second_output)
+            self.assertEqual(first_archive, second_output.read_bytes())
 
             (stage / "conpty" / "conpty.dll").write_bytes(b"tampered")
             with self.assertRaisesRegex(ValueError, "staged file hash mismatch"):

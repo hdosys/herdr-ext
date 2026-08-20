@@ -64,7 +64,6 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 [target.'cfg(windows)'.dependencies]
 # UTF-16 SDDL input for interprocess security descriptors.
 widestring = "1.2"
-wmi = { version = "0.18.4", default-features = false }
 windows-sys = { version = "0.61.2", features = [
     "Wdk_System_Threading",
     "Win32_Foundation",
@@ -75,11 +74,14 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Console",
+    "Win32_System_Environment",
     "Win32_System_JobObjects",
     "Win32_System_Kernel",
     "Win32_System_Memory",
     "Win32_System_Ole",
     "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_Input_Ime",

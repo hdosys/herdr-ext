@@ -33,8 +33,15 @@ fn pane_border_title(label: &str, pane_width: u16, _focused: bool) -> Option<Str
 
 // Full view computation reaches this helper for active and background panes.
 // Keep terminal queries narrow, allocation-free, and short under the core lock.
-fn terminal_inner_rect(rt: &TerminalRuntime, pane_inner: Rect, pane_scrollbars: bool) -> Rect {
-    if !pane_scrollbars || pane_inner.width <= 4 || rt.alternate_screen_active() {
+fn terminal_inner_rect(
+    rt: Option<&TerminalRuntime>,
+    pane_inner: Rect,
+    pane_scrollbars: bool,
+) -> Rect {
+    if !pane_scrollbars
+        || pane_inner.width <= 4
+        || rt.is_some_and(TerminalRuntime::alternate_screen_active)
+    {
         return pane_inner;
     }
 
@@ -186,7 +193,7 @@ fn stable_scrollbar_gutter(
     pane_inner: Rect,
     pane_scrollbars: bool,
 ) -> (Rect, Option<Rect>) {
-    let inner_rect = terminal_inner_rect(rt, pane_inner, pane_scrollbars);
+    let inner_rect = terminal_inner_rect(Some(rt), pane_inner, pane_scrollbars);
     if inner_rect == pane_inner {
         return (inner_rect, None);
     }
@@ -226,7 +233,7 @@ pub(super) fn resize_tab_panes(
                 Borders::NONE
             };
             let pane_inner = pane_inner_rect(area, borders);
-            let inner_rect = terminal_inner_rect(rt, pane_inner, app.pane_scrollbars);
+            let inner_rect = terminal_inner_rect(Some(rt), pane_inner, app.pane_scrollbars);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
                 rt.resize(
                     inner_rect.height,
@@ -250,7 +257,7 @@ pub(super) fn resize_tab_panes(
         if let Some((terminal_id, rt)) =
             runtime_for_tab_pane(app, terminal_runtimes, workspace_index, tab, info.id)
         {
-            let inner_rect = terminal_inner_rect(rt, pane_inner, app.pane_scrollbars);
+            let inner_rect = terminal_inner_rect(Some(rt), pane_inner, app.pane_scrollbars);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
                 rt.resize(
                     inner_rect.height,
@@ -291,7 +298,7 @@ pub(super) fn compute_pane_infos_for_tab(
             Borders::NONE
         };
         let pane_inner = pane_inner_rect(area, borders);
-        let mut inner_rect = pane_inner;
+        let mut inner_rect = terminal_inner_rect(None, pane_inner, app.pane_scrollbars);
         let mut scrollbar_rect = None;
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, focused_id) {
             (inner_rect, scrollbar_rect) =
@@ -329,7 +336,7 @@ pub(super) fn compute_pane_infos_for_tab(
     for info in &mut pane_infos {
         let pane_inner = pane_inner_rect(info.rect, info.borders);
 
-        let mut inner_rect = pane_inner;
+        let mut inner_rect = terminal_inner_rect(None, pane_inner, app.pane_scrollbars);
         let mut scrollbar_rect = None;
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
             (inner_rect, scrollbar_rect) =
