@@ -5,7 +5,7 @@ use crate::api::schema::{
     WorkspaceCreateParams, WorkspaceMoveBlockParams, WorkspaceMoveParams, WorkspaceRenameParams,
     WorkspaceReportMetadataParams, WorkspaceTarget,
 };
-use crate::app::App;
+use crate::app::{App, DeferredWorkspaceShell};
 
 use super::super::api_helpers::{normalize_metadata_source, normalize_metadata_ttl};
 use super::responses::{encode_error, encode_success};
@@ -41,26 +41,10 @@ impl App {
         id: String,
         params: WorkspaceCreateParams,
     ) -> String {
-        let source_workspace_index = if params.cwd.is_some() {
-            None
-        } else {
-            match params.source_workspace_id.as_deref() {
-                Some(workspace_id) => match self
-                    .parse_workspace_id(workspace_id)
-                    .filter(|index| self.state.workspaces.get(*index).is_some())
-                {
-                    Some(index) => Some(index),
-                    None => return workspace_not_found(id, workspace_id),
-                },
-                None => self.workspace_creation_source(),
-            }
+        let cwd = match self.workspace_create_cwd(&params) {
+            Ok(cwd) => cwd,
+            Err(workspace_id) => return workspace_not_found(id, &workspace_id),
         };
-        let cwd = params.cwd.map(PathBuf::from).unwrap_or_else(|| {
-            source_workspace_index.map_or_else(
-                || self.resolve_new_terminal_cwd(None),
-                |index| self.resolved_new_workspace_cwd_from(index),
-            )
-        });
         let extra_env = match super::env::normalize_launch_env(params.env) {
             Ok(env) => env,
             Err((code, message)) => return encode_error(id, &code, message),
@@ -82,6 +66,62 @@ impl App {
             }
             Err(err) => encode_error(id, "workspace_create_failed", err.to_string()),
         }
+    }
+
+    pub(crate) fn handle_workspace_create_with_deferred_shell(
+        &mut self,
+        id: String,
+        params: WorkspaceCreateParams,
+    ) -> (String, Option<DeferredWorkspaceShell>) {
+        let cwd = match self.workspace_create_cwd(&params) {
+            Ok(cwd) => cwd,
+            Err(workspace_id) => return (workspace_not_found(id, &workspace_id), None),
+        };
+        let extra_env = match super::env::normalize_launch_env(params.env) {
+            Ok(env) => env,
+            Err((code, message)) => return (encode_error(id, &code, message), None),
+        };
+        let (index, terminal_id) = self.create_workspace_with_deferred_shell(cwd, params.focus);
+        if let Some(label) = params.label {
+            if let Some(workspace) = self.state.workspaces.get_mut(index) {
+                workspace.set_custom_name(label);
+                crate::logging::workspace_renamed(&workspace.id);
+            }
+        }
+        self.emit_workspace_open_events(index);
+        let pending = DeferredWorkspaceShell {
+            terminal_id,
+            extra_env,
+        };
+        let Some(result) = self.workspace_created_result(index) else {
+            return (
+                encode_error(
+                    id,
+                    "internal_error",
+                    "created workspace response is incomplete".to_string(),
+                ),
+                Some(pending),
+            );
+        };
+        (encode_success(id, result), Some(pending))
+    }
+
+    fn workspace_create_cwd(&self, params: &WorkspaceCreateParams) -> Result<PathBuf, String> {
+        if let Some(cwd) = params.cwd.as_deref() {
+            return Ok(PathBuf::from(cwd));
+        }
+        let source = match params.source_workspace_id.as_deref() {
+            Some(workspace_id) => Some(
+                self.parse_workspace_id(workspace_id)
+                    .filter(|index| self.state.workspaces.get(*index).is_some())
+                    .ok_or_else(|| workspace_id.to_owned())?,
+            ),
+            None => self.workspace_creation_source(),
+        };
+        Ok(source.map_or_else(
+            || self.resolve_new_terminal_cwd(None),
+            |index| self.resolved_new_workspace_cwd_from(index),
+        ))
     }
 
     pub(super) fn handle_workspace_focus(&mut self, id: String, target: WorkspaceTarget) -> String {

@@ -74,6 +74,7 @@ enum ServerRuntimeStatus {
     Running {
         version: Option<String>,
         protocol: Option<u32>,
+        binary: Option<String>,
         capabilities: Option<crate::api::schema::ServerCapabilities>,
     },
     NotRunning,
@@ -152,9 +153,11 @@ fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
             version,
             protocol,
             capabilities,
+            binary,
         } => {
             println!("{indent}status: running");
             println!("{indent}version: {}", option_label(version.as_deref()));
+            println!("{indent}binary: {}", option_label(binary.as_deref()));
             println!(
                 "{indent}endpoint_compatible: {}",
                 endpoint_compatibility_label(capabilities.as_ref())
@@ -178,6 +181,7 @@ fn read_server_runtime_status() -> std::io::Result<ServerRuntimeStatus> {
         Ok(status) => Ok(ServerRuntimeStatus::Running {
             version: status.version,
             protocol: status.protocol,
+            binary: status.binary,
             capabilities: status.capabilities,
         }),
         Err(err) if super::target::is_remote() => Err(super::target::remote_error(
@@ -264,6 +268,7 @@ struct ServerStatusJson {
     running: bool,
     version: Option<String>,
     protocol: Option<u32>,
+    binary: Option<String>,
     capabilities: Option<ServerCapabilitiesJson>,
     compatible: Option<bool>,
     endpoint_compatible: Option<bool>,
@@ -290,16 +295,21 @@ struct UpdateStatusJson {
 }
 
 fn client_status_json() -> ClientStatusJson {
+    let mut endpoint_capabilities = vec![
+        crate::protocol::endpoint::SURFACE_INTEREST_CAPABILITY,
+        crate::protocol::endpoint::PRESENTATION_EFFECTS_FENCE_CAPABILITY,
+        crate::protocol::endpoint::HEALTH_CHECK_CAPABILITY,
+        crate::protocol::endpoint::REMOTE_CONNECT_ONLY_CAPABILITY,
+    ];
+    if cfg!(windows) {
+        endpoint_capabilities.push(crate::protocol::endpoint::WINDOWS_REMOTE_HOST_CAPABILITY);
+    }
     ClientStatusJson {
         version: crate::build_info::version(),
         channel: crate::config::Config::load().config.update.channel.as_str(),
         protocol: crate::protocol::PROTOCOL_VERSION,
         endpoint_protocol_generation: crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
-        endpoint_capabilities: vec![
-            crate::protocol::endpoint::SURFACE_INTEREST_CAPABILITY,
-            crate::protocol::endpoint::PRESENTATION_EFFECTS_FENCE_CAPABILITY,
-            crate::protocol::endpoint::HEALTH_CHECK_CAPABILITY,
-        ],
+        endpoint_capabilities,
         remote_host_bridge: true,
         remote_bridge_idle_timeout: crate::platform::REMOTE_BRIDGE_IDLE_TIMEOUT_SUPPORTED,
         binary: current_exe_label(),
@@ -312,12 +322,14 @@ fn server_status_json(server: &ServerRuntimeStatus) -> ServerStatusJson {
         ServerRuntimeStatus::Running {
             version,
             protocol,
+            binary,
             capabilities,
         } => ServerStatusJson {
             status: "running",
             running: true,
             version: version.clone(),
             protocol: *protocol,
+            binary: binary.clone(),
             capabilities: capabilities
                 .as_ref()
                 .map(|capabilities| ServerCapabilitiesJson {
@@ -344,6 +356,7 @@ fn server_status_json(server: &ServerRuntimeStatus) -> ServerStatusJson {
             running: false,
             version: None,
             protocol: None,
+            binary: None,
             capabilities: None,
             compatible: None,
             endpoint_compatible: None,
@@ -411,6 +424,44 @@ fn print_status_help() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn server_status_projects_running_binary_identity() {
+        let binary = r"C:\Program Files\Herdr\herdr.exe".to_string();
+        let value = serde_json::to_value(server_status_json(&ServerRuntimeStatus::Running {
+            version: Some(crate::build_info::version()),
+            protocol: Some(crate::protocol::PROTOCOL_VERSION),
+            binary: Some(binary.clone()),
+            capabilities: None,
+        }))
+        .unwrap();
+
+        assert_eq!(value["binary"], binary);
+    }
+
+    #[test]
+    fn client_status_separates_release_compatibility_and_build_identity() {
+        let value = serde_json::to_value(client_status_json()).unwrap();
+
+        assert_eq!(value["version"], crate::build_info::version());
+        assert_eq!(value["herdr_version"], crate::build_info::BASE_VERSION);
+        assert_eq!(
+            value["build_id"],
+            crate::build_info::build_id()
+                .map(serde_json::Value::from)
+                .unwrap_or(serde_json::Value::Null)
+        );
+        assert!(value.get("channel").is_none());
+        assert_eq!(
+            value["endpoint_capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|capability| capability
+                    == crate::protocol::endpoint::WINDOWS_REMOTE_HOST_CAPABILITY),
+            cfg!(windows)
+        );
+    }
+
     fn running_server(
         version: Option<&str>,
         endpoint_generation: Option<u32>,
@@ -418,6 +469,7 @@ mod tests {
         ServerRuntimeStatus::Running {
             version: version.map(str::to_owned),
             protocol: Some(crate::protocol::PROTOCOL_VERSION),
+            binary: None,
             capabilities: Some(crate::api::schema::ServerCapabilities {
                 live_handoff: true,
                 detached_server_daemon: true,
