@@ -13,6 +13,24 @@
       ]
     },
     {
+      "id": "agent",
+      "title": "Preferred agent",
+      "keys": [
+        {
+          "key": "agent.kind",
+          "type": "string",
+          "default": "\"opencode\"",
+          "description": "Client-owned supported agent for the existing-pane start shortcut, including remote panes."
+        },
+        {
+          "key": "agent.args",
+          "type": "string[]",
+          "default": "[]",
+          "description": "Additional arguments for the preferred agent. Not shell command text. OpenCode network flags remain managed by Herdr."
+        }
+      ]
+    },
+    {
       "id": "server",
       "title": "Server",
       "keys": [
@@ -580,9 +598,15 @@
           "description": "Reload config.toml in the running app/server."
         },
         {
-          "key": "keys.open_notification_target",
+          "key": "keys.start_agent",
           "type": "keybinding",
           "default": "\"prefix+o\"",
+          "description": "Start the preferred agent in the selected available shell pane."
+        },
+        {
+          "key": "keys.open_notification_target",
+          "type": "keybinding",
+          "default": "\"prefix+shift+o\"",
           "description": "Focus the currently visible notification target."
         },
         {
@@ -1414,6 +1438,12 @@
       "id": "session",
       "title": "Session",
       "keys": [
+        {
+          "key": "session.auto_start_agent",
+          "type": "string",
+          "default": "unset",
+          "description": "Start one supported interactive Agent in each new tab root and in eligible existing roots when the setting is enabled live."
+        },
         {
           "key": "session.resume_agents_on_restore",
           "type": "boolean",

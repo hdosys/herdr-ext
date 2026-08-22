@@ -415,7 +415,6 @@ fn normalized_process_name(name: &str) -> String {
         .to_ascii_lowercase()
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn is_powershell_process_name(name: &str) -> bool {
     matches!(
         normalized_process_name(name).as_str(),
@@ -423,24 +422,143 @@ pub(crate) fn is_powershell_process_name(name: &str) -> bool {
     )
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-pub(crate) fn interactive_unix_shell_command(
-    argv: &[String],
+pub(crate) fn initial_pane_shell_ready_for_input(
     shell_name: &str,
-    quote_posix_arg: fn(&str) -> String,
-) -> Option<String> {
-    let quote = if is_powershell_process_name(shell_name) {
-        quote_powershell_arg
+    content_seen: bool,
+    cwd_reported: bool,
+) -> bool {
+    if cfg!(windows) && is_powershell_process_name(shell_name) {
+        cwd_reported
     } else {
-        quote_posix_arg
-    };
+        content_seen
+    }
+}
+
+#[cfg(test)]
+mod initial_shell_readiness_tests {
+    use super::initial_pane_shell_ready_for_input;
+
+    #[test]
+    fn session_auto_start_waits_for_windows_powershell_prompt() {
+        assert!(!initial_pane_shell_ready_for_input("cmd.exe", false, false));
+        assert!(initial_pane_shell_ready_for_input("cmd.exe", true, false));
+        assert_eq!(
+            initial_pane_shell_ready_for_input("powershell.exe", true, false),
+            !cfg!(windows)
+        );
+        assert!(initial_pane_shell_ready_for_input(
+            "powershell.exe",
+            true,
+            true
+        ));
+    }
+}
+
+pub(crate) fn interactive_shell_command(argv: &[String], shell_name: &str) -> Option<String> {
+    let shell_name = normalized_process_name(shell_name);
+    match shell_name.as_str() {
+        "nu" => render_shell_command(argv, "^", quote_nushell_arg),
+        "pwsh" | "powershell" => render_powershell_command(argv),
+        "cmd" => render_shell_command(argv, "", quote_cmd_arg),
+        shell_name if is_unix_like_shell_name(shell_name) => {
+            render_shell_command(argv, "", quote_posix_arg)
+        }
+        _ => None,
+    }
+}
+
+fn render_powershell_command(argv: &[String]) -> Option<String> {
+    let (program, args) = argv.split_first()?;
+    let mut command = format!(
+        "& (Get-Command -Name {} -CommandType Application -TotalCount 1 -ErrorAction Stop).Path",
+        quote_powershell_arg(program)
+    );
+    if cfg!(windows) && !args.is_empty() {
+        command.push_str(" --%");
+        for arg in args {
+            command.push(' ');
+            command.push_str(&quote_windows_command_line_arg(arg));
+        }
+        return Some(command);
+    }
+    for arg in args {
+        command.push(' ');
+        command.push_str(&quote_powershell_arg(arg));
+    }
+    Some(command)
+}
+
+fn render_shell_command(
+    argv: &[String],
+    invocation_prefix: &str,
+    quote: fn(&str) -> String,
+) -> Option<String> {
     let mut parts = argv.iter();
-    let mut command = quote(parts.next()?);
+    let mut command = invocation_prefix.to_string();
+    command.push_str(&quote(parts.next()?));
     for part in parts {
         command.push(' ');
         command.push_str(&quote(part));
     }
     Some(command)
+}
+
+fn quote_posix_arg(value: &str) -> String {
+    if !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(
+                    ch,
+                    '@' | '%' | '_' | '+' | '=' | ':' | ',' | '.' | '/' | '-'
+                )
+        })
+    {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn quote_nushell_arg(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' => quoted.push_str("\\\\"),
+            '"' => quoted.push_str("\\\""),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            ch => quoted.push(ch),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+fn quote_cmd_arg(value: &str) -> String {
+    let mut encoded = String::new();
+    let mut chunk = String::new();
+    let flush_chunk = |encoded: &mut String, chunk: &mut String| {
+        if !chunk.is_empty() {
+            encoded.push_str(&quote_windows_command_line_arg(chunk));
+            chunk.clear();
+        }
+    };
+    for ch in value.chars() {
+        if matches!(ch, '%' | '!' | '&' | '|' | '<' | '>' | '^' | '(' | ')') {
+            flush_chunk(&mut encoded, &mut chunk);
+            encoded.push('^');
+            encoded.push(ch);
+        } else {
+            chunk.push(ch);
+        }
+    }
+    flush_chunk(&mut encoded, &mut chunk);
+    if encoded.is_empty() {
+        "\"\"".to_string()
+    } else {
+        encoded
+    }
 }
 
 pub(crate) fn quote_powershell_arg(value: &str) -> String {
@@ -487,8 +605,13 @@ pub(crate) fn quote_windows_command_line_arg(value: &str) -> String {
 
 pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
     let normalized = normalized_process_name(name);
+    is_unix_like_shell_name(&normalized)
+        || matches!(normalized.as_str(), "nu" | "pwsh" | "powershell" | "cmd")
+}
+
+fn is_unix_like_shell_name(name: &str) -> bool {
     matches!(
-        normalized.as_str(),
+        name,
         "sh" | "bash"
             | "dash"
             | "zsh"
@@ -499,10 +622,6 @@ pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
             | "tcsh"
             | "elvish"
             | "xonsh"
-            | "nu"
-            | "pwsh"
-            | "powershell"
-            | "cmd"
     )
 }
 
@@ -568,6 +687,57 @@ impl PrefixInputSource for RealPrefixInputSource {
 
     fn restore(&mut self) {
         let _ = self.restore.take();
+    }
+}
+
+#[cfg(test)]
+mod interactive_shell_command_tests {
+    use super::interactive_shell_command;
+
+    #[test]
+    fn uses_each_shells_native_invocation_syntax() {
+        let argv = vec![
+            "agent-cli".into(),
+            String::new(),
+            "two words".into(),
+            "a'b".into(),
+            "$HOME".into(),
+            "semi;colon".into(),
+            "@options".into(),
+        ];
+
+        assert_eq!(
+            interactive_shell_command(&argv, "bash").as_deref(),
+            Some("agent-cli '' 'two words' 'a'\\''b' '$HOME' 'semi;colon' @options")
+        );
+        let powershell = if cfg!(windows) {
+            "& (Get-Command -Name agent-cli -CommandType Application -TotalCount 1 -ErrorAction Stop).Path --% \"\" \"two words\" a'b $HOME semi;colon @options"
+        } else {
+            "& (Get-Command -Name agent-cli -CommandType Application -TotalCount 1 -ErrorAction Stop).Path '' 'two words' 'a''b' '$HOME' 'semi;colon' '@options'"
+        };
+        assert_eq!(
+            interactive_shell_command(&argv, "pwsh").as_deref(),
+            Some(powershell)
+        );
+        assert_eq!(
+            interactive_shell_command(&argv, "nu").as_deref(),
+            Some("^\"agent-cli\" \"\" \"two words\" \"a'b\" \"$HOME\" \"semi;colon\" \"@options\"")
+        );
+        assert_eq!(
+            interactive_shell_command(&argv, "cmd.exe").as_deref(),
+            Some("agent-cli \"\" \"two words\" a'b $HOME semi;colon @options")
+        );
+        assert_eq!(interactive_shell_command(&argv, "unknown"), None);
+    }
+
+    #[test]
+    fn nushell_preserves_windows_paths_and_quotes() {
+        let argv = vec![r"C:\Program Files\agent.exe".into(), r#"a\b\"c"#.into()];
+
+        assert_eq!(
+            interactive_shell_command(&argv, "nu").as_deref(),
+            Some(r#"^"C:\\Program Files\\agent.exe" "a\\b\\\"c""#)
+        );
     }
 }
 
@@ -658,28 +828,6 @@ mod tests {
     fn parse_agent_env_hint_ignores_missing_or_unknown_agents() {
         assert_eq!(parse_agent_env_hint(b"PATH=/bin\0TERM=xterm\0"), None);
         assert_eq!(parse_agent_env_hint(b"HERDR_AGENT=not-an-agent\0"), None);
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn interactive_shell_command_quotes_for_posix_and_powershell() {
-        let argv = vec![
-            "pi".into(),
-            String::new(),
-            "two words".into(),
-            "a'b".into(),
-            "$HOME".into(),
-            "semi;colon".into(),
-            "@options".into(),
-        ];
-        assert_eq!(
-            interactive_shell_command(&argv, "bash").as_deref(),
-            Some("pi '' 'two words' 'a'\\''b' '$HOME' 'semi;colon' @options")
-        );
-        assert_eq!(
-            interactive_shell_command(&argv, "pwsh").as_deref(),
-            Some("pi '' 'two words' 'a''b' '$HOME' 'semi;colon' '@options'")
-        );
     }
 
     #[test]

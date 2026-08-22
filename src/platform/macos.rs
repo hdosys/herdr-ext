@@ -201,10 +201,6 @@ pub(crate) fn scrollback_editor_argv(path: &Path) -> std::io::Result<Vec<String>
     Ok(vec!["/bin/sh".to_string(), "-c".to_string(), command])
 }
 
-pub(crate) fn interactive_shell_command(argv: &[String], shell_name: &str) -> Option<String> {
-    super::interactive_unix_shell_command(argv, shell_name, shell_quote)
-}
-
 fn shell_quote(value: &str) -> String {
     if !value.is_empty()
         && value.chars().all(|ch| {

@@ -3224,7 +3224,7 @@ impl HeadlessServer {
     ///
     /// Similar to the former App scheduler but without terminal resize polling.
     fn handle_scheduled_tasks_headless(&mut self, now: Instant, geometry_dirty: bool) -> bool {
-        let mut changed = false;
+        let mut changed = self.app.try_start_tab_auto_start_agents(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.

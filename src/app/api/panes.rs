@@ -2332,6 +2332,36 @@ mod tests {
         (app, public_pane_id)
     }
 
+    #[tokio::test]
+    async fn pane_split_does_not_queue_configured_tab_agent() {
+        use super::super::test_support::{exiting_test_command, shutdown_test_runtimes};
+        use crate::config::ShellModeConfig;
+
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        app.tab_auto_start_agent = Some(Agent::OpenCode);
+        app.state.default_shell = exiting_test_command().into();
+        app.state.shell_mode = ShellModeConfig::NonLogin;
+
+        let response = app.handle_pane_split(
+            "split".into(),
+            PaneSplitParams {
+                workspace_id: None,
+                target_pane_id: Some(public_pane_id),
+                direction: SplitDirection::Right,
+                ratio: None,
+                cwd: None,
+                focus: false,
+                right_click: Default::default(),
+                env: Default::default(),
+            },
+        );
+
+        let response: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert!(matches!(response.result, ResponseResult::PaneInfo { .. }));
+        assert!(app.pending_tab_auto_start_agents.is_empty());
+        shutdown_test_runtimes(&mut app);
+    }
+
     #[test]
     fn pane_input_set_changes_only_the_target_pane() {
         let (mut app, public_pane_id) = app_with_test_workspace();
