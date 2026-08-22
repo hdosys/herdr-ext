@@ -11,6 +11,7 @@
 ### Fixed
 - Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
 - Windows `agent start` now launches npm-installed agents with arguments through the interactive shell instead of passing a bare shim name to `Start-Process`. (#2685)
+- Full-lifecycle agent sessions now regain hook authority after a temporary foreground takeover ends instead of remaining permanently stale. (#1033)
 - Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
 - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
 
