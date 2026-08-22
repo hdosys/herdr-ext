@@ -23,7 +23,7 @@ pub use self::{
         IndexedKeybind, KeyCombo, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadReport,
+        validated_sidebar_bounds, AgentConfig, AgentPanelSortConfig, Config, ConfigReloadReport,
         ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, PaneBordersConfig,
         ShellModeConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle, TabBarPositionConfig,
         ToastClipboardPosition, ToastConfig, ToastDelivery, ToastHerdrPosition,
@@ -122,9 +122,30 @@ impl Config {
             .chain(self.ui.sound.diagnostics())
             .chain(tab_bar_right_diagnostics(&self.ui.tab_bar_right))
             .chain(window_title_diagnostics(&self.ui.window_title))
+            .chain(self.invalid_session_auto_start_agent_diagnostic())
+            .chain(self.agent.launch().err())
             .chain(self.invalid_sidebar_bounds_diagnostic())
             .chain(self.invalid_headless_size_diagnostic())
             .collect()
+    }
+
+    pub(crate) fn session_auto_start_agent(&self) -> Option<crate::detect::Agent> {
+        self.session
+            .auto_start_agent
+            .as_deref()
+            .and_then(crate::detect::parse_agent_label)
+    }
+
+    pub(crate) fn invalid_session_auto_start_agent_diagnostic(&self) -> Option<String> {
+        self.session
+            .auto_start_agent
+            .as_deref()
+            .filter(|agent| crate::detect::parse_agent_label(agent).is_none())
+            .map(|agent| {
+                format!(
+                    "unsupported agent kind in session.auto_start_agent: {agent:?}; ignoring auto-start"
+                )
+            })
     }
 
     pub(crate) fn headless_size(&self) -> (u16, u16) {
