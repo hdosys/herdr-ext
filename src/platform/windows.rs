@@ -980,54 +980,6 @@ fn raw_command_shell(comspec: Option<std::ffi::OsString>) -> std::ffi::OsString 
         .unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".into())
 }
 
-pub(crate) fn interactive_shell_command(argv: &[String], shell_name: &str) -> Option<String> {
-    let shell_name = shell_name.to_ascii_lowercase();
-    let powershell = shell_name.contains("powershell") || shell_name.contains("pwsh");
-    let script = powershell_agent_script(argv)?;
-    if powershell {
-        Some(script)
-    } else {
-        Some(cmd_encoded_powershell_command(&script))
-    }
-}
-
-fn powershell_agent_script(argv: &[String]) -> Option<String> {
-    let (program, args) = argv.split_first()?;
-    if args.is_empty() {
-        return Some(format!("& {}", super::quote_powershell_arg(program)));
-    }
-
-    let powershell_args = args
-        .iter()
-        .map(|arg| super::quote_powershell_arg(arg))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let command_line = args
-        .iter()
-        .map(|arg| super::quote_windows_command_line_arg(arg))
-        .collect::<Vec<_>>()
-        .join(" ");
-    Some(format!(
-        "if((Get-Command {} -ErrorAction SilentlyContinue).CommandType -eq 'ExternalScript'){{& {} {}}}else{{Start-Process -FilePath {} -ArgumentList {} -NoNewWindow -Wait}}",
-        super::quote_powershell_arg(program),
-        super::quote_powershell_arg(program),
-        powershell_args,
-        super::quote_powershell_arg(program),
-        super::quote_powershell_arg(&command_line),
-    ))
-}
-
-fn cmd_encoded_powershell_command(script: &str) -> String {
-    use base64::Engine as _;
-
-    let utf16 = script
-        .encode_utf16()
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>();
-    let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
-    format!("powershell.exe -NoLogo -NoProfile -EncodedCommand {encoded}")
-}
-
 pub(crate) fn detached_custom_command_process_platform(command: &str) -> std::process::Command {
     detached_custom_command_process_with_comspec(command, std::env::var_os("ComSpec"))
 }
@@ -4111,42 +4063,92 @@ mod tests {
     }
 
     #[test]
-    fn powershell_agent_command_omits_argument_list_when_no_arguments_are_passed() {
-        let argv = vec!["opencode".into()];
+    fn supported_windows_shells_keep_agent_launch_in_the_selected_shell() {
+        let argv = vec!["agent-cli".into()];
 
         assert_eq!(
-            super::interactive_shell_command(&argv, "powershell.exe").as_deref(),
-            Some("& opencode")
+            interactive_shell_command(&argv, "powershell.exe").as_deref(),
+            Some(
+                "& (Get-Command -Name agent-cli -CommandType Application -TotalCount 1 -ErrorAction Stop).Path"
+            )
         );
+        assert_eq!(
+            interactive_shell_command(&argv, "cmd.exe").as_deref(),
+            Some("agent-cli")
+        );
+        assert_eq!(
+            interactive_shell_command(&argv, "nu.exe").as_deref(),
+            Some("^\"agent-cli\"")
+        );
+        assert_eq!(
+            interactive_shell_command(&argv, "bash.exe").as_deref(),
+            Some("agent-cli")
+        );
+        assert_eq!(interactive_shell_command(&argv, "unknown.exe"), None);
     }
 
     #[test]
-    fn cmd_agent_command_encodes_edge_arguments_without_cmd_expansion() {
-        use base64::Engine as _;
+    fn nushell_agent_commands_use_direct_external_invocation() {
+        let argv = vec![
+            "agent-cli".into(),
+            "resume".into(),
+            "--workspace".into(),
+            r"C:\Workspaces\two words".into(),
+        ];
 
-        assert_eq!(super::super::quote_powershell_arg("@options"), "'@options'");
+        let command = interactive_shell_command(&argv, "nu.exe").unwrap();
+        assert_eq!(
+            command,
+            r#"^"agent-cli" "resume" "--workspace" "C:\\Workspaces\\two words""#
+        );
+        assert!(!command.to_ascii_lowercase().contains("powershell"));
+        assert!(!command.contains("EncodedCommand"));
+    }
+
+    #[test]
+    fn child_process_job_assigns_and_terminates_within_deadline() {
+        let mut child = Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Start-Sleep -Seconds 30",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn job test child");
+        let job = super::ChildProcessJob::new_kill_on_close().expect("create child job");
+        if let Err(err) = job.assign(&child) {
+            let _ = child.kill();
+            let _ = super::wait_child_bounded(&mut child, Duration::from_secs(5));
+            panic!("assign job test child: {err}");
+        }
+        assert!(child.try_wait().expect("inspect job test child").is_none());
+        let started = Instant::now();
+        job.terminate_and_wait(&mut child, Duration::from_secs(5))
+            .expect("terminate job test child");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(child
+            .try_wait()
+            .expect("reinspect job test child")
+            .is_some());
+    }
+
+    #[test]
+    fn cmd_agent_command_escapes_shell_expansion_without_powershell() {
         let argv = vec![
             "pi".into(),
             String::new(),
             "two words".into(),
             "100%".into(),
-            "wow!".into(),
-            "a'b".into(),
-            "--model".into(),
+            "%PATH%".into(),
+            "a&b".into(),
+            "!PATH!".into(),
         ];
-        let command = super::interactive_shell_command(&argv, "cmd.exe").unwrap();
-        let encoded = command.split_whitespace().last().unwrap();
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .unwrap();
-        let utf16 = bytes
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            String::from_utf16(&utf16).unwrap(),
-            "if((Get-Command pi -ErrorAction SilentlyContinue).CommandType -eq 'ExternalScript'){& pi '' 'two words' '100%' 'wow!' 'a''b' '--model'}else{Start-Process -FilePath pi -ArgumentList '\"\" \"two words\" 100% wow! a''b --model' -NoNewWindow -Wait}"
-        );
+        let command = interactive_shell_command(&argv, "cmd.exe").unwrap();
+        assert_eq!(command, r#"pi "" "two words" 100^% ^%PATH^% a^&b ^!PATH^!"#);
     }
 
     #[test]
@@ -4167,6 +4169,16 @@ mod tests {
             "@echo off\r\n>\"%HERDR_ARGV_CAPTURE%\" (\r\necho(%~1\r\necho(%~2\r\necho(%~3\r\necho(%~4\r\necho(%~5\r\necho(%~6\r\necho(%~7\r\n)\r\n",
         )
         .unwrap();
+        fs::write(
+            base.join("pi"),
+            "#!/bin/sh\nprintf '%s\\n' \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$6\" > \"$HERDR_ARGV_CAPTURE\"\n",
+        )
+        .unwrap();
+        fs::write(
+            base.join("pi.ps1"),
+            "& \"$PSScriptRoot\\pi.cmd\" @args\nexit $LASTEXITCODE\n",
+        )
+        .unwrap();
         let argv = vec![
             "pi".into(),
             String::new(),
@@ -4180,14 +4192,29 @@ mod tests {
         let inherited_path = std::env::var_os("PATH").unwrap_or_default();
         let path = format!("{};{}", base.display(), inherited_path.to_string_lossy());
         let run_command = |shell: &str, command: &str, capture: &std::path::Path| {
-            let mut process = if shell == "cmd.exe" {
-                let mut process = Command::new("cmd.exe");
-                process.args(["/d", "/c", command]);
-                process
-            } else {
-                let mut process = Command::new("powershell.exe");
-                process.args(["-NoLogo", "-NoProfile", "-Command", command]);
-                process
+            let mut process = match shell {
+                "cmd.exe" => {
+                    let mut process = Command::new("cmd.exe");
+                    process.args(["/d", "/s", "/c"]);
+                    process.raw_arg(format!("\"{command}\""));
+                    process
+                }
+                "powershell.exe" => {
+                    let mut process = Command::new("powershell.exe");
+                    process.args(["-NoLogo", "-NoProfile", "-Command", command]);
+                    process
+                }
+                "nu.exe" => {
+                    let mut process = Command::new("nu.exe");
+                    process.args(["--no-config-file", "--commands", command]);
+                    process
+                }
+                "bash.exe" | "sh.exe" => {
+                    let mut process = Command::new(shell);
+                    process.args(["--noprofile", "--norc", "-c", command]);
+                    process
+                }
+                _ => unreachable!("unsupported test shell"),
             };
             process
                 .env("PATH", &path)
@@ -4197,9 +4224,21 @@ mod tests {
                 .unwrap()
         };
 
-        for shell in ["powershell.exe", "cmd.exe"] {
+        let mut shells = vec!["powershell.exe", "cmd.exe"];
+        for shell in ["nu.exe", "bash.exe", "sh.exe"] {
+            if Command::new(shell)
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+            {
+                shells.push(shell);
+            }
+        }
+        for shell in shells {
             let no_args_capture = base.join(format!("{shell}-no-args.txt"));
-            let no_args_command = super::interactive_shell_command(&["pi".into()], shell).unwrap();
+            let no_args_command = interactive_shell_command(&["pi".into()], shell).unwrap();
             let status = run_command(shell, &no_args_command, &no_args_capture);
             assert!(status.success(), "{shell} argument-free command failed");
             assert_eq!(
@@ -4210,7 +4249,7 @@ mod tests {
             );
 
             let capture = base.join(format!("{shell}.txt"));
-            let command = super::interactive_shell_command(&argv, shell).unwrap();
+            let command = interactive_shell_command(&argv, shell).unwrap();
             let status = run_command(shell, &command, &capture);
             assert!(status.success(), "{shell} command failed");
             assert_eq!(
@@ -4227,7 +4266,7 @@ mod tests {
         .unwrap();
         for shell in ["powershell.exe", "cmd.exe"] {
             let capture = base.join(format!("{shell}-ps1.txt"));
-            let command = super::interactive_shell_command(&argv, shell).unwrap();
+            let command = interactive_shell_command(&argv, shell).unwrap();
             let status = run_command(shell, &command, &capture);
             assert!(status.success(), "{shell} PowerShell script command failed");
             assert_eq!(

@@ -1861,6 +1861,10 @@ impl<'a> PaneShellConfig<'a> {
             mode,
         }
     }
+
+    pub(crate) fn resolved_shell(self) -> String {
+        pane_shell(self.default_shell)
+    }
 }
 
 /// Target platform for shell launch policy. Parameterized (instead of raw
@@ -1989,7 +1993,12 @@ fn pane_shell_command_builder_for_target(
     shell_config: PaneShellConfig<'_>,
     target: ShellLaunchTarget,
 ) -> io::Result<CommandBuilder> {
-    let shell = pane_shell(shell_config.default_shell);
+    let shell = shell_config.resolved_shell();
+    let shell = if target == ShellLaunchTarget::Windows && shell.eq_ignore_ascii_case("nu") {
+        "nu.exe".to_string()
+    } else {
+        shell
+    };
     // Unix login shells go through portable-pty's default-program builder so
     // they receive the login argv0 convention. Windows has no such convention
     // and the default-program builder would launch cmd.exe, so Windows login
@@ -2034,8 +2043,7 @@ fn uses_windows_powershell_pane_shell_for_target(
     // Login mode no longer routes Windows through the default-program builder,
     // so login PowerShell panes are launched directly and can carry the same
     // prompt-based cwd reporting as non-login panes.
-    target == ShellLaunchTarget::Windows
-        && is_powershell_shell(&pane_shell(shell_config.default_shell))
+    target == ShellLaunchTarget::Windows && is_powershell_shell(&shell_config.resolved_shell())
 }
 
 fn is_powershell_shell(shell: &str) -> bool {
@@ -3691,6 +3699,12 @@ impl PaneRuntime {
             .or_else(|| self.reported_cwd.lock().ok().and_then(|cwd| cwd.clone()))
     }
 
+    pub(crate) fn has_reported_cwd(&self) -> bool {
+        self.reported_cwd
+            .lock()
+            .is_ok_and(|reported_cwd| reported_cwd.is_some())
+    }
+
     pub fn child_pid(&self) -> Option<u32> {
         let pid = self.child_pid.load(Ordering::Acquire);
         (pid > 0).then_some(pid)
@@ -4698,6 +4712,15 @@ mod tests {
         .unwrap();
 
         assert_eq!(cmd.get_argv(), &[std::ffi::OsString::from("cmd.exe")]);
+
+        for configured in ["nu", "nu.exe"] {
+            let cmd = pane_shell_command_builder_for_target(
+                PaneShellConfig::new(configured, crate::config::ShellModeConfig::NonLogin),
+                ShellLaunchTarget::Windows,
+            )
+            .unwrap();
+            assert_eq!(cmd.get_argv(), &[std::ffi::OsString::from("nu.exe")]);
+        }
     }
 
     #[test]

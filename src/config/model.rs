@@ -234,6 +234,9 @@ pub struct TerminalConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct SessionConfig {
+    /// Start this supported interactive agent in the root pane of each new tab in
+    /// a persistent session. Unset by default.
+    pub auto_start_agent: Option<String>,
     /// Resume supported AI-agent panes into their native conversation sessions
     /// when restoring a Herdr session. Default: true.
     pub resume_agents_on_restore: bool,
@@ -241,9 +244,63 @@ pub struct SessionConfig {
     pub startup_per_agent_delay_ms: u32,
 }
 
+/// Client-owned preferences for the existing-pane managed launch shortcut.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AgentConfig {
+    pub kind: String,
+    pub args: Vec<String>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            kind: "opencode".into(),
+            args: Vec::new(),
+        }
+    }
+}
+
+impl AgentConfig {
+    pub(crate) fn launch(&self) -> Result<(crate::detect::Agent, Vec<String>), String> {
+        let kind = crate::detect::parse_agent_label(&self.kind)
+            .ok_or_else(|| format!("Unsupported agent.kind: {:?}", self.kind))?;
+        if self
+            .args
+            .iter()
+            .any(|arg| arg.chars().any(char::is_control))
+        {
+            return Err("agent.args must not contain control characters".into());
+        }
+        let mut args = Vec::new();
+        if kind == crate::detect::Agent::OpenCode && !self.args.is_empty() {
+            if self.args.iter().any(|arg| {
+                matches!(
+                    arg.split('=').next(),
+                    Some("--hostname" | "--port" | "--mdns" | "--no-mdns")
+                )
+            }) {
+                return Err(
+                    "OpenCode network flags in agent.args are managed by Herdr; remove them".into(),
+                );
+            }
+            // Preserve the root attach endpoint when adding user arguments. Do
+            // not change the public agent.start API's explicit argv semantics.
+            args.extend(
+                crate::agent_resume::opencode_local_server_argv()
+                    .into_iter()
+                    .skip(1),
+            );
+        }
+        args.extend(self.args.iter().cloned());
+        Ok((kind, args))
+    }
+}
+
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
+            auto_start_agent: None,
             resume_agents_on_restore: true,
             startup_per_agent_delay_ms: 100,
         }
@@ -283,6 +340,7 @@ pub struct Config {
     pub onboarding: Option<bool>,
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
+    pub agent: AgentConfig,
     pub session: SessionConfig,
     pub server: ServerConfig,
     pub update: UpdateConfig,
@@ -342,7 +400,9 @@ pub struct KeysConfig {
     pub detach: BindingConfig,
     /// Reload config.toml in the running app/server. Default: "prefix+shift+r".
     pub reload_config: BindingConfig,
-    /// Focus the currently visible notification target. Default: "prefix+o".
+    /// Start the preferred agent in the selected shell pane. Default: "prefix+o".
+    pub start_agent: BindingConfig,
+    /// Focus the currently visible notification target. Default: "prefix+shift+o".
     pub open_notification_target: BindingConfig,
     /// Select the previous workspace. Unset by default.
     pub previous_workspace: BindingConfig,
@@ -479,6 +539,8 @@ pub(crate) struct KeysConfigOverlay {
     detach: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reload_config: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_agent: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     open_notification_target: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -631,6 +693,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(navigate_pane_right);
         apply_field!(detach);
         apply_field!(reload_config);
+        apply_field!(start_agent);
         apply_field!(open_notification_target);
         apply_field!(previous_workspace);
         apply_field!(next_workspace);
@@ -736,6 +799,7 @@ impl KeysConfig {
         copy_effective_action_field!(navigate_pane_right, keybinds.navigate.pane_right);
         copy_effective_action_field!(detach, keybinds.detach);
         copy_effective_action_field!(reload_config, keybinds.reload_config);
+        copy_effective_action_field!(start_agent, keybinds.start_agent);
         copy_effective_action_field!(open_notification_target, keybinds.open_notification_target);
         copy_effective_action_field!(previous_workspace, keybinds.previous_workspace);
         copy_effective_action_field!(next_workspace, keybinds.next_workspace);
@@ -1105,7 +1169,8 @@ impl Default for KeysConfig {
             navigate_pane_right: BindingConfig::one("l"),
             detach: BindingConfig::one("prefix+q"),
             reload_config: BindingConfig::one("prefix+shift+r"),
-            open_notification_target: BindingConfig::one("prefix+o"),
+            start_agent: BindingConfig::one("prefix+o"),
+            open_notification_target: BindingConfig::one("prefix+shift+o"),
             previous_workspace: BindingConfig::empty(),
             next_workspace: BindingConfig::empty(),
             previous_agent: BindingConfig::empty(),
@@ -1361,19 +1426,35 @@ new_cwd = "~/Projects"
     }
 
     #[test]
-    fn resume_agents_on_restore_defaults_on_and_parses() {
+    fn session_config_defaults_parse_and_validate() {
         let default_config = Config::default();
+        assert!(default_config.session.auto_start_agent.is_none());
         assert!(default_config.session.resume_agents_on_restore);
         assert_eq!(default_config.session.startup_per_agent_delay_ms, 100);
 
         let toml = r#"
 [session]
+auto_start_agent = "opencode"
 resume_agents_on_restore = false
 startup_per_agent_delay_ms = 0
 "#;
         let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.session.auto_start_agent.as_deref(), Some("opencode"));
         assert!(!config.session.resume_agents_on_restore);
         assert_eq!(config.session.startup_per_agent_delay_ms, 0);
+        assert!(config.collect_diagnostics().is_empty());
+
+        let config: Config = toml::from_str(
+            r#"
+[session]
+auto_start_agent = "not-an-agent"
+"#,
+        )
+        .unwrap();
+        assert!(config
+            .collect_diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.contains("session.auto_start_agent")));
     }
 
     #[test]

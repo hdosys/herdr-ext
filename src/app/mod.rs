@@ -7,7 +7,7 @@ pub(crate) mod actions;
 mod agent_resume;
 pub(crate) mod agent_view;
 mod agents;
-pub(crate) use agents::{AGENT_START_SETTLE_DELAY, MAX_AGENT_START_TIMEOUT};
+pub(crate) use agents::{unused_agent_name, AGENT_START_SETTLE_DELAY, MAX_AGENT_START_TIMEOUT};
 mod api;
 #[cfg(test)]
 pub(crate) use api::test_support::exiting_test_command;
@@ -105,6 +105,13 @@ pub(crate) struct DeferredWorkspaceShell {
     pub(crate) extra_env: Vec<(String, String)>,
 }
 
+#[derive(Debug)]
+pub(crate) struct PendingTabAutoStartAgent {
+    kind: crate::detect::Agent,
+    pane_id: String,
+    deadline: Instant,
+}
+
 pub struct App {
     pub state: AppState,
     pub(crate) pixel_mouse_available: bool,
@@ -140,6 +147,8 @@ pub struct App {
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
     startup_per_agent_delay: Duration,
     next_agent_resume_at: Option<Instant>,
+    pub(crate) tab_auto_start_agent: Option<crate::detect::Agent>,
+    pub(crate) pending_tab_auto_start_agents: Vec<PendingTabAutoStartAgent>,
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
     session_writer: Arc<std::sync::Mutex<crate::persist::SessionWriter>>,
@@ -614,6 +623,11 @@ impl App {
                 config.session.startup_per_agent_delay_ms.into(),
             ),
             next_agent_resume_at: None,
+            tab_auto_start_agent: policy
+                .persist_session
+                .then(|| config.session_auto_start_agent())
+                .flatten(),
+            pending_tab_auto_start_agents: Vec::new(),
             session_save_deadline: None,
             session_save_thread: None,
             session_writer,
@@ -809,6 +823,21 @@ impl App {
         let mut diagnostics = load_diagnostics.to_vec();
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
+
+        if !invalid_section("session") {
+            let next_agent = self
+                .policy
+                .persist_session
+                .then(|| config.session_auto_start_agent())
+                .flatten();
+            if next_agent != self.tab_auto_start_agent {
+                self.pending_tab_auto_start_agents.clear();
+                self.tab_auto_start_agent = next_agent;
+                if next_agent.is_some() {
+                    self.queue_existing_tab_auto_start_agents();
+                }
+            }
+        }
 
         if !invalid_section("keys") {
             match config.live_keybinds_with_diagnostics() {

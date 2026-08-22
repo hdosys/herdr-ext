@@ -238,12 +238,18 @@ impl App {
             return false;
         }
 
-        let Some(resume_command) = shell_command_from_argv(&plan.argv) else {
+        let shell_config =
+            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode);
+        let shell_name = shell_config.resolved_shell();
+        let Some(resume_command) =
+            crate::platform::interactive_shell_command(&plan.argv, &shell_name)
+        else {
             tracing::warn!(
                 pane = pane_id.raw(),
                 terminal = %terminal_id,
                 agent = %plan.agent,
-                "failed to start deferred agent resume with empty argv"
+                shell = %shell_name,
+                "failed to render deferred agent resume command for pane shell"
             );
             return false;
         };
@@ -271,7 +277,7 @@ impl App {
             self.state.pane_scrollback_limit_bytes,
             host_terminal_theme,
             self.state.host_terminal_appearance,
-            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
+            shell_config,
             &launch_env,
             self.event_tx.clone(),
             self.render_notify.clone(),
@@ -353,36 +359,9 @@ fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
     )
 }
 
-fn shell_command_from_argv(argv: &[String]) -> Option<String> {
-    let mut parts = argv.iter();
-    let first = shell_quote(parts.next()?);
-    let mut command = first;
-    for part in parts {
-        command.push(' ');
-        command.push_str(&shell_quote(part));
-    }
-    Some(command)
-}
-
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    if value.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric()
-            || matches!(
-                byte,
-                b'_' | b'-' | b'.' | b'/' | b':' | b'@' | b'%' | b'+' | b'='
-            )
-    }) {
-        return value.to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{App, Instant, Rect};
 
     #[cfg(unix)]
     fn test_app() -> App {
@@ -951,20 +930,5 @@ mod tests {
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
-    }
-
-    #[test]
-    fn shell_command_from_argv_quotes_resume_arguments() {
-        let argv = vec![
-            "claude".to_string(),
-            "--resume".to_string(),
-            "session with ' quote".to_string(),
-        ];
-
-        assert_eq!(
-            shell_command_from_argv(&argv).as_deref(),
-            Some("claude --resume 'session with '\\'' quote'")
-        );
-        assert_eq!(shell_command_from_argv(&[]), None);
     }
 }
