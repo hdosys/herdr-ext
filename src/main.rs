@@ -146,7 +146,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # settings = "prefix+s"
 # detach = "prefix+q"
 # reload_config = "prefix+shift+r"
-# open_notification_target = "prefix+o"
+# start_agent = "prefix+o"
+# open_notification_target = "prefix+shift+o"
 # workspace_picker = "prefix+w"
 # goto = "prefix+g"
 # new_workspace = "prefix+shift+n"
@@ -219,6 +220,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # tabs = ""       # e.g. "ctrl" makes ctrl+1..9 switch tabs directly
 # workspaces = "" # e.g. "ctrl+shift" makes ctrl+shift+1..9 switch workspaces directly
 # agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows directly
+
+# Preferred agent for prefix+o. These preferences stay on the client, including
+# remote connections. The agent must be installed on the selected server.
+# [agent]
+# kind = "opencode"
+# args = []               # argument list, not a shell command or executable path
 
 # Size of the virtual terminal used when no client is attached.
 # Attached clients always use their own terminal size.
@@ -390,6 +397,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # droid = "off"
 
 [session]
+# Start one supported interactive Agent in the root pane of each new tab in a
+# persistent session. Uses the same kind labels as `herdr agent start`.
+# Enabling this during live reload also starts eligible existing tab roots.
+# auto_start_agent = "opencode"
 # Resume supported AI-agent panes into their native conversation sessions after
 # a Herdr server restart. Requires official integrations that report session refs.
 # resume_agents_on_restore = true

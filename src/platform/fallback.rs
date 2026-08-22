@@ -164,10 +164,6 @@ pub(crate) fn pane_custom_command_pty_builder_platform(
     portable_pty::CommandBuilder::from_argv(raw_command_argv(command, "-c"))
 }
 
-pub(crate) fn interactive_shell_command(_argv: &[String], _shell_name: &str) -> Option<String> {
-    None
-}
-
 /// Unsupported platform stub.
 pub(crate) fn scrollback_editor_argv(_path: &std::path::Path) -> std::io::Result<Vec<String>> {
     Err(std::io::Error::new(

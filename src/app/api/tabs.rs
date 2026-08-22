@@ -117,6 +117,7 @@ impl App {
                     self.state.switch_workspace_tab(ws_idx, tab_idx);
                     self.state.mode = Mode::Terminal;
                 }
+                self.queue_tab_auto_start_agent(ws_idx, tab_idx);
                 self.schedule_session_save();
                 self.emit_tab_created_events(ws_idx, tab_idx);
                 encode_success(
@@ -426,7 +427,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tab_create_follows_cached_focused_pane_cwd_without_runtime() {
+    async fn tab_create_follows_cached_cwd_and_queues_configured_agent_for_root() {
         let event_hub = crate::api::EventHub::default();
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
@@ -436,6 +437,7 @@ mod tests {
             api_rx,
             event_hub,
         );
+        app.tab_auto_start_agent = Some(crate::detect::Agent::OpenCode);
         app.state.default_shell = exiting_test_command().into();
         app.state.shell_mode = ShellModeConfig::NonLogin;
         let workspace = Workspace::test_new("tabs");
@@ -465,11 +467,17 @@ mod tests {
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         assert!(matches!(success.result, ResponseResult::TabCreated { .. }));
         let created = &app.state.workspaces[0].tabs[1];
+        let created_root = created.root_pane;
         let created_terminal_id = created.terminal_id(created.root_pane).unwrap();
         let created_cwd = &app.state.terminals.get(created_terminal_id).unwrap().cwd;
         assert_eq!(
             crate::worktree::canonical_or_original(created_cwd),
             crate::worktree::canonical_or_original(&cached_cwd)
+        );
+        assert_eq!(app.pending_tab_auto_start_agents.len(), 1);
+        assert_eq!(
+            app.pending_tab_auto_start_agents[0].pane_id,
+            app.public_pane_id(0, created_root).unwrap()
         );
         shutdown_test_runtimes(&mut app);
     }
