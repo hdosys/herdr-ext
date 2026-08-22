@@ -51,6 +51,7 @@ struct PendingFullLifecycleHookReport {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FullLifecycleHookSuppressionReason {
+    ForegroundTakeover,
     HookClear,
     ProcessExit,
 }
@@ -626,7 +627,7 @@ impl TerminalState {
                 })
             });
             self.suppress_current_full_lifecycle_hook_authority(
-                FullLifecycleHookSuppressionReason::HookClear,
+                FullLifecycleHookSuppressionReason::ForegroundTakeover,
             );
             self.hook_authority = None;
             self.persisted_agent_session = durable_session;
@@ -979,7 +980,11 @@ impl TerminalState {
             if suppressed.agent_label != agent_label {
                 return FullLifecycleHookReportRoute::Ignore;
             }
-            if suppressed.reason == FullLifecycleHookSuppressionReason::HookClear {
+            if matches!(
+                suppressed.reason,
+                FullLifecycleHookSuppressionReason::ForegroundTakeover
+                    | FullLifecycleHookSuppressionReason::HookClear
+            ) {
                 let reanchor_sequence = matches!(
                     (&suppressed.session_ref, session_ref),
                     (Some(previous), Some(incoming)) if previous != incoming
@@ -1166,6 +1171,9 @@ impl TerminalState {
                     == Some(detected_agent);
                 if !should_clear {
                     return true;
+                }
+                if suppressed.reason == FullLifecycleHookSuppressionReason::ForegroundTakeover {
+                    return false;
                 }
                 if suppressed.reason == FullLifecycleHookSuppressionReason::ProcessExit {
                     if let Some(session_ref) = suppressed.replacement_session_ref.take() {
@@ -3473,6 +3481,65 @@ mod tests {
 
         assert!(terminal.hook_authority.is_none());
         assert_eq!(terminal.state, AgentState::Idle);
+    }
+
+    #[test]
+    fn transient_foreground_takeover_allows_live_session_to_reacquire_authority() {
+        let now = Instant::now();
+        let mut terminal = test_terminal();
+        let session_ref =
+            crate::agent_resume::AgentSessionRef::id("kimi-session-a").expect("session ref");
+        anchor_full_lifecycle_session(
+            &mut terminal,
+            Agent::Kimi,
+            "herdr:kimi",
+            "kimi",
+            session_ref.clone(),
+        );
+        terminal
+            .set_hook_authority_at(
+                "herdr:kimi".into(),
+                "kimi".into(),
+                AgentState::Working,
+                None,
+                Some(session_ref.clone()),
+                Some(100),
+                now,
+            )
+            .expect("initial live session");
+
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Codex),
+            AgentState::Working,
+            false,
+            false,
+            false,
+            false,
+            now + Duration::from_millis(1),
+        );
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Kimi),
+            AgentState::Working,
+            false,
+            false,
+            false,
+            false,
+            now + Duration::from_millis(2),
+        );
+
+        let resumed = terminal.set_hook_authority_at(
+            "herdr:kimi".into(),
+            "kimi".into(),
+            AgentState::Working,
+            None,
+            Some(session_ref),
+            Some(101),
+            now + Duration::from_millis(3),
+        );
+
+        assert!(resumed.is_some());
+        assert!(terminal.full_lifecycle_hook_authority_active());
+        assert_eq!(terminal.state, AgentState::Working);
     }
 
     #[test]
