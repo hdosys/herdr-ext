@@ -156,6 +156,7 @@ impl App {
             self.state.switch_workspace(idx);
             self.state.mode = Mode::Terminal;
         }
+        self.queue_tab_auto_start_agent(idx, 0);
         self.schedule_session_save();
         Ok(idx)
     }
@@ -266,6 +267,7 @@ impl App {
             self.render_dirty.clone(),
         )?;
         self.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        self.queue_tab_auto_start_agent(ws_idx, tab_idx);
         self.schedule_session_save();
         Ok(())
     }

@@ -3305,7 +3305,7 @@ impl HeadlessServer {
         if self.host_shutdown_requested() {
             return false;
         }
-        let mut changed = false;
+        let mut changed = self.app.try_start_tab_auto_start_agents(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.
