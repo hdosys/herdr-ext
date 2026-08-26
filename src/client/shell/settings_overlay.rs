@@ -194,6 +194,18 @@ pub(super) fn render_settings_overlay(
                 &mut choice_hits,
             );
         }
+        ClientSettingsSection::Completion => {
+            render_choice_section(
+                buffer,
+                content,
+                "agent completion",
+                "show completion popups and play done sounds",
+                &["on", "off"],
+                settings.selected,
+                palette,
+                &mut choice_hits,
+            );
+        }
         ClientSettingsSection::Integrations => {
             render_integrations(buffer, content, settings, palette);
         }

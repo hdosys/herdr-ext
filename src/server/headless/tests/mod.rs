@@ -6217,6 +6217,7 @@ fn headless_scheduled_tasks_expire_agent_metadata() {
 
     assert!(
         server.handle_internal_event_with_forwarding(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "custom:pi".into(),
             agent_label: "pi".into(),
@@ -8383,6 +8384,7 @@ fn stale_api_agent_report_does_not_forward_done_sound() {
         request: api::schema::Request {
             id: "stale".into(),
             method: api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
+                suppress_completion: false,
                 pane_id: public_pane_id,
                 source: "herdr:pi".into(),
                 agent: "pi".into(),

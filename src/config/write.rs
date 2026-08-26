@@ -3,6 +3,7 @@ pub(crate) enum ConfigEdit<'a> {
     Theme(&'a str),
     StatusIndicators(super::StatusIndicatorStyle),
     Sound(bool),
+    CompletionNotifications(bool),
     ToastDelivery(super::ToastDelivery),
 }
 
@@ -12,6 +13,7 @@ impl ConfigEdit<'_> {
             Self::Theme(_) => "theme",
             Self::StatusIndicators(_) => "status indicators",
             Self::Sound(_) => "sound setting",
+            Self::CompletionNotifications(_) => "completion notifications",
             Self::ToastDelivery(_) => "toast setting",
         }
     }
@@ -31,6 +33,9 @@ impl ConfigEdit<'_> {
             ),
             Self::Sound(enabled) => {
                 super::upsert_section_bool(content, "ui.sound", "enabled", enabled)
+            }
+            Self::CompletionNotifications(enabled) => {
+                super::upsert_section_bool(content, "ui", "notify_on_agent_completion", enabled)
             }
             Self::ToastDelivery(delivery) => {
                 let value = match delivery {

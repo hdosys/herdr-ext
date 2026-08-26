@@ -1496,6 +1496,7 @@ impl AppState {
                 message,
                 seq,
                 session_ref,
+                suppress_completion,
             } => {
                 if crate::agent_resume::is_reserved_native_state_source(&source, &agent_label) {
                     self.update_terminal_state(pane_id, |terminal| {
@@ -1504,16 +1505,20 @@ impl AppState {
                     .into_iter()
                     .collect()
                 } else {
-                    self.update_terminal_state(pane_id, |terminal| {
-                        terminal.set_hook_authority_with_session_ref(
-                            source,
-                            agent_label,
-                            state,
-                            message,
-                            session_ref,
-                            seq,
-                        )
-                    })
+                    self.update_terminal_state_with_completion_policy(
+                        pane_id,
+                        suppress_completion,
+                        |terminal| {
+                            terminal.set_hook_authority_with_session_ref(
+                                source,
+                                agent_label,
+                                state,
+                                message,
+                                session_ref,
+                                seq,
+                            )
+                        },
+                    )
                     .into_iter()
                     .collect()
                 }
@@ -3283,6 +3288,7 @@ mod tests {
                 pane_id,
                 source: "custom:worker".into(),
                 agent_label: label.into(),
+                suppress_completion: false,
                 state,
                 message: None,
                 seq: Some(seq),
@@ -3646,6 +3652,7 @@ mod tests {
 
     fn report_custom_agent_with_resume(state: &mut AppState, pane_id: PaneId, argv: &[&str]) {
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "prime-agent".into(),
             agent_label: "prime-agent".into(),
@@ -3717,6 +3724,7 @@ mod tests {
             pane_id,
             source: "custom:other".into(),
             agent_label: "other".into(),
+            suppress_completion: false,
             state: AgentState::Working,
             message: None,
             seq: None,
@@ -3817,6 +3825,7 @@ mod tests {
             observed_at: std::time::Instant::now(),
         });
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "herdr:pi".into(),
             agent_label: "pi".into(),
@@ -3846,6 +3855,7 @@ mod tests {
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
 
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id: bg_pane_id,
             source: "custom:hermes".into(),
             agent_label: "hermes".into(),
@@ -3884,6 +3894,7 @@ mod tests {
             observed_at: std::time::Instant::now(),
         });
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id: bg_pane_id,
             source: "herdr:codex".into(),
             agent_label: "codex".into(),
@@ -3932,6 +3943,7 @@ mod tests {
             observed_at: std::time::Instant::now(),
         });
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "herdr:claude".into(),
             agent_label: "claude".into(),
@@ -4041,6 +4053,7 @@ mod tests {
             observed_at: std::time::Instant::now(),
         });
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "herdr:devin".into(),
             agent_label: "devin".into(),
@@ -4065,6 +4078,7 @@ mod tests {
         let second_session = test_dir.join("two.jsonl").display().to_string();
 
         let first_updates = state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "custom:pi".into(),
             agent_label: "pi".into(),
@@ -4077,6 +4091,7 @@ mod tests {
         state.session_dirty = false;
 
         let second_updates = state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "custom:pi".into(),
             agent_label: "pi".into(),

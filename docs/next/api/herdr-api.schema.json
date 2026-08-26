@@ -2932,6 +2932,10 @@
             },
             "state": {
               "$ref": "#/schemas/request/$defs/PaneAgentState"
+            },
+            "suppress_completion": {
+              "description": "Suppress completion attention when this report ends a user-cancelled operation.",
+              "type": "boolean"
             }
           },
           "required": [
