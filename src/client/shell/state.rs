@@ -27,6 +27,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
     pub(super) sound_enabled: bool,
     pub(super) toast_delivery: crate::config::ToastDelivery,
+    pub(super) notify_on_agent_completion: bool,
     pub(super) toast_delay_seconds: u64,
     pub(super) toast_position: crate::config::ToastHerdrPosition,
     pub(super) copy_on_select: bool,
@@ -387,6 +388,7 @@ pub(super) enum ClientSettingsSection {
     Theme,
     Indicators,
     Sound,
+    Completion,
     Toast,
     Integrations,
 }
@@ -396,6 +398,7 @@ impl ClientSettingsSection {
         Self::Theme,
         Self::Indicators,
         Self::Sound,
+        Self::Completion,
         Self::Toast,
         Self::Integrations,
     ];
@@ -405,6 +408,7 @@ impl ClientSettingsSection {
             Self::Theme => "theme",
             Self::Indicators => "indicators",
             Self::Sound => "sound",
+            Self::Completion => "completion",
             Self::Toast => "toasts",
             Self::Integrations => "integrations",
         }

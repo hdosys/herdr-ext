@@ -8,8 +8,10 @@
 ### Changed
 - Pane and workspace metadata reports can atomically update and retain up to 64 custom tokens while preserving the existing key, value, source, and TTL bounds.
 - Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
+- Agent completion alerts follow the upstream enabled default again and can be disabled from Settings > completion or with `ui.notify_on_agent_completion = false`; attention-required notifications remain enabled.
 
 ### Fixed
+- Cancelling an OpenCode response no longer reports an error that asks for attention.
 - Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
 - Windows `agent start` now launches npm-installed agents with arguments through the interactive shell instead of passing a bare shim name to `Start-Process`. (#2685)
 - Full-lifecycle agent sessions now regain hook authority after a temporary foreground takeover ends instead of remaining permanently stale. (#1033)

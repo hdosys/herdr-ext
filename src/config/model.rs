@@ -1036,6 +1036,9 @@ pub struct UiConfig {
     /// Accent color for highlights, borders, and navigation UI.
     /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
     pub accent: String,
+    /// Notify when a background agent finishes. Default: true.
+    /// Attention-required notifications are unaffected.
+    pub notify_on_agent_completion: bool,
     /// Optional visual toast notifications for background workspace events.
     pub toast: ToastConfig,
     /// Play sounds when agents change state in background workspaces.
@@ -1259,6 +1262,7 @@ impl Default for UiConfig {
             status_indicators: StatusIndicatorStyle::Dots,
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
+            notify_on_agent_completion: true,
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
         }
@@ -1884,6 +1888,9 @@ mouse_scroll_lines = 0
     #[test]
     fn toast_config_parses() {
         let toml = r#"
+[ui]
+notify_on_agent_completion = true
+
 [ui.toast]
 delivery = "terminal"
 delay_seconds = 2
@@ -1896,6 +1903,7 @@ enabled = false
 position = "top-center"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.notify_on_agent_completion);
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
         assert_eq!(config.ui.toast.delay_seconds, 2);
         assert_eq!(config.ui.toast.herdr.position, ToastHerdrPosition::TopLeft);
@@ -1907,8 +1915,9 @@ position = "top-center"
     }
 
     #[test]
-    fn toast_config_defaults_preserve_existing_behavior_with_delay() {
+    fn notification_defaults_enable_completion_with_delay() {
         let config = Config::default();
+        assert!(config.ui.notify_on_agent_completion);
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
         assert_eq!(config.ui.toast.delay_seconds, 1);
         assert_eq!(

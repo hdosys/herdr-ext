@@ -1111,6 +1111,12 @@
       "title": "Notifications",
       "keys": [
         {
+          "key": "ui.notify_on_agent_completion",
+          "type": "boolean",
+          "default": "true",
+          "description": "Notify when a background agent finishes. Disable from Settings > completion or set false to hide completion popups and done sounds. Questions, permission prompts, and errors remain actionable regardless of this setting."
+        },
+        {
           "key": "ui.toast.delivery",
           "type": "enum",
           "default": "\"off\"",
