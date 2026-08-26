@@ -6,6 +6,7 @@
 - New persistent sessions can start one configured interactive Agent in the root pane of every genuinely new tab with `[session] auto_start_agent`; enabling the setting during live reload also starts it in existing tab roots that are waiting at their shell.
 
 ### Changed
+- Pane and workspace metadata reports can atomically update and retain up to 64 custom tokens while preserving the existing key, value, source, and TTL bounds.
 - Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
 
 ### Fixed

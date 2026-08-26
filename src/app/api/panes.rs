@@ -4434,6 +4434,35 @@ mod tests {
     }
 
     #[test]
+    fn pane_metadata_accepts_sixty_four_tokens_and_rejects_resource_overflow() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        let mut params = metadata_params(pane_id.clone());
+        params.title = None;
+        params.tokens = (0..MAX_METADATA_TOKEN_KEYS_PER_RESOURCE)
+            .map(|index| (format!("key{index}"), Some("value".into())))
+            .collect();
+
+        let response = app.handle_pane_report_metadata("maximum".into(), params);
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+
+        let mut overflow = metadata_params(pane_id.clone());
+        overflow.title = None;
+        overflow.tokens =
+            std::collections::HashMap::from([("overflow".into(), Some("rejected".into()))]);
+        let response = app.handle_pane_report_metadata("overflow".into(), overflow);
+        assert_eq!(metadata_error_code(&response), "metadata_token_limit");
+
+        let (_, internal_pane_id) = app.parse_pane_id(&pane_id).unwrap();
+        let terminal_id = &app.state.workspaces[0]
+            .pane_state(internal_pane_id)
+            .unwrap()
+            .attached_terminal_id;
+        let values = app.state.terminals[terminal_id].metadata_tokens.values();
+        assert_eq!(values.len(), MAX_METADATA_TOKEN_KEYS_PER_RESOURCE);
+        assert!(!values.contains_key("overflow"));
+    }
+
+    #[test]
     fn pane_tokens_are_independent_from_presentation_guards() {
         let (mut app, pane_id) = app_with_test_workspace();
         let (_, internal_pane_id) = app.parse_pane_id(&pane_id).unwrap();
