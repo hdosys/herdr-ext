@@ -102,6 +102,11 @@ impl ClientShellState {
         event: SemanticNotification,
         now: std::time::Instant,
     ) -> (Vec<ClientShellNotificationEffect>, bool) {
+        if event.kind == SemanticNotificationKind::Finished
+            && !self.config.notify_on_agent_completion
+        {
+            return (Vec::new(), false);
+        }
         let delay = if event.kind == SemanticNotificationKind::Custom {
             0
         } else {
@@ -144,11 +149,31 @@ impl ClientShellState {
         (effects, repaint || cleared_visible)
     }
 
+    pub(super) fn discard_disabled_completions(&mut self, now: std::time::Instant) -> bool {
+        let mut repaint = false;
+        if !self.config.notify_on_agent_completion {
+            self.pending_notifications
+                .retain(|pending| pending.event.kind != SemanticNotificationKind::Finished);
+            self.queued_notifications
+                .retain(|queued| queued.event.kind != SemanticNotificationKind::Finished);
+            if self
+                .visible_notification
+                .as_ref()
+                .is_some_and(|visible| visible.event.kind == SemanticNotificationKind::Finished)
+            {
+                self.visible_notification = None;
+                self.promote_queued_notification(now);
+                repaint = true;
+            }
+        }
+        repaint
+    }
+
     pub(crate) fn tick_notifications(
         &mut self,
         now: std::time::Instant,
     ) -> (Vec<ClientShellNotificationEffect>, bool) {
-        let mut repaint = false;
+        let mut repaint = self.discard_disabled_completions(now);
         if self
             .visible_notification
             .as_ref()
