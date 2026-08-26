@@ -670,7 +670,9 @@ Integrations report agent state with `pane.report_agent`.
 ```
 
 `state` carries semantic agent state and affects waits, notifications, and
-rollups. Report display-only values separately through metadata.
+rollups. Set `suppress_completion` only when an `idle` report ends a
+user-cancelled operation and must not request completion attention. Report
+display-only values separately through metadata.
 
 Session-only official integrations report native session references with `pane.report_agent_session`. State-reporting integrations can still include native session references in `pane.report_agent`. State-independent session reports do not affect waits, notifications, or rollups.
 

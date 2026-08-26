@@ -376,6 +376,9 @@ pub struct PaneReportAgentParams {
     /// first element must be a plain command name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_argv: Option<Vec<String>>,
+    /// Suppress completion attention when this report ends a user-cancelled operation.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub suppress_completion: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

@@ -1575,6 +1575,7 @@ impl App {
             state: detect_state_from_api(params.state),
             message: params.message,
             seq: params.seq,
+            suppress_completion: params.suppress_completion,
         });
         let applied =
             report_is_newer && self.session_report_applied(ws_idx, pane_id, session_ref.as_ref());

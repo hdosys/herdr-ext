@@ -77,6 +77,7 @@ impl ClientShellState {
                     &loaded.diagnostics,
                     &loaded.invalid_sections,
                 );
+                self.discard_disabled_completions(std::time::Instant::now());
                 if let Some(appearance) = self.host_appearance {
                     self.config.palette = crate::app::client_palette_for_appearance(
                         &self.config.theme_runtime,
@@ -127,6 +128,7 @@ impl ClientShellConfig {
             status_indicators: config.ui.status_indicators,
             sound_enabled: config.ui.sound.enabled,
             toast_delivery: config.ui.toast.delivery,
+            notify_on_agent_completion: config.ui.notify_on_agent_completion,
             toast_delay_seconds: config.ui.toast.delay_seconds,
             toast_position: config.ui.toast.herdr.position,
             copy_on_select: config.ui.copy_on_select,
@@ -334,6 +336,7 @@ impl ClientShellConfig {
                 self.status_indicators = ui.status_indicators;
                 self.sound_enabled = ui.sound.enabled;
                 self.toast_delivery = ui.toast.delivery;
+                self.notify_on_agent_completion = ui.notify_on_agent_completion;
                 self.toast_delay_seconds = ui.toast.delay_seconds;
                 self.toast_position = ui.toast.herdr.position;
                 self.copy_on_select = ui.copy_on_select;

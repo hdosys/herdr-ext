@@ -521,9 +521,12 @@ Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mob
 
 ## Notifications
 
-Herdr can notify you when a background agent finishes or needs input:
+Herdr notifies you when a background agent needs input or finishes. Completion alerts are enabled by default. Disable them from **Settings > completion** or in configuration when frequent idle transitions are not useful:
 
 ```toml
+[ui]
+notify_on_agent_completion = false
+
 [ui.toast]
 delivery = "herdr"
 delay_seconds = 1
@@ -532,7 +535,7 @@ delay_seconds = 1
 position = "bottom-right"
 ```
 
-Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification that also works over SSH, `system` for the local OS notification service, or `off` to disable popups. Herdr suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
+Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification that also works over SSH, `system` for the local OS notification service, or `off` to disable popups. Herdr suppresses popups for the active tab. `notify_on_agent_completion` affects only finished notifications, and user-cancelled responses never emit completion attention. Questions, permission prompts, and errors continue to request attention. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
 
 On macOS, `system` tries `terminal-notifier` first and falls back to `/usr/bin/osascript` when it is unavailable or fails. The fallback appears as Script Editor in Notification Center and cannot activate the hosting terminal. Install `terminal-notifier` with `brew install terminal-notifier`. For a supported, detected terminal, it can activate the terminal app when you click the notification. Alternatively, choose `terminal` to let a supported outer terminal own the notification.
 
@@ -547,7 +550,7 @@ done_path = "sounds/done.mp3"
 request_path = "sounds/request.mp3"
 ```
 
-`path` sets one sound for all sound notifications. `done_path` and `request_path` override only the finished and needs-input sounds.
+`path` sets one sound for all sound notifications. `done_path` and `request_path` override only the finished and needs-input sounds. The done sound plays only when `ui.notify_on_agent_completion` is enabled.
 
 Per-agent sound overrides accept `default`, `on`, or `off`. Use detected agent labels such as `claude`, `codex`, `devin`, or `droid` as keys. Droid is muted by default.
 
