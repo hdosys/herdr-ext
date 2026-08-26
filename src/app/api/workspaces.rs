@@ -7,7 +7,10 @@ use crate::api::schema::{
 };
 use crate::app::{App, DeferredWorkspaceShell};
 
-use super::super::api_helpers::{normalize_metadata_source, normalize_metadata_ttl};
+use super::super::api_helpers::{
+    normalize_metadata_source, normalize_metadata_tokens, normalize_metadata_ttl,
+    MAX_METADATA_TOKEN_KEYS_PER_RESOURCE,
+};
 use super::responses::{encode_error, encode_success};
 
 impl App {
@@ -294,7 +297,7 @@ impl App {
             Ok(ttl) => ttl,
             Err(message) => return encode_error(id, "invalid_metadata_ttl", message),
         };
-        let tokens = match super::super::api_helpers::normalize_metadata_tokens(params.tokens) {
+        let tokens = match normalize_metadata_tokens(params.tokens) {
             Ok(tokens) => tokens,
             Err(message) => return encode_error(id, "invalid_metadata_token", message),
         };
@@ -309,14 +312,14 @@ impl App {
             return encode_success(id, ResponseResult::Ok {});
         }
         if workspace.metadata_tokens.key_count_after_patch(&tokens)
-            > super::super::api_helpers::MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
+            > MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
         {
             return encode_error(
                 id,
                 "metadata_token_limit",
                 format!(
                     "workspace metadata may contain at most {} tokens",
-                    super::super::api_helpers::MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
+                    MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
                 ),
             );
         }
@@ -850,6 +853,53 @@ mod tests {
                 if workspace.tokens.get("summary").map(String::as_str) == Some("done")
                     && !workspace.tokens.contains_key("jj_status")
         )));
+    }
+
+    #[test]
+    fn workspace_metadata_accepts_sixty_four_tokens_and_rejects_resource_overflow() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        let workspace_id = app.public_workspace_id(0);
+        let response = app.handle_workspace_report_metadata(
+            "maximum".into(),
+            WorkspaceReportMetadataParams {
+                workspace_id: workspace_id.clone(),
+                source: "user:test".into(),
+                tokens: (0..MAX_METADATA_TOKEN_KEYS_PER_RESOURCE)
+                    .map(|index| (format!("key{index}"), Some("value".into())))
+                    .collect(),
+                seq: None,
+                ttl_ms: None,
+            },
+        );
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+
+        let response = app.handle_workspace_report_metadata(
+            "overflow".into(),
+            WorkspaceReportMetadataParams {
+                workspace_id,
+                source: "user:test".into(),
+                tokens: std::collections::HashMap::from([(
+                    "overflow".into(),
+                    Some("rejected".into()),
+                )]),
+                seq: None,
+                ttl_ms: None,
+            },
+        );
+        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "metadata_token_limit");
+
+        let values = app.workspace_info(0).tokens;
+        assert_eq!(values.len(), MAX_METADATA_TOKEN_KEYS_PER_RESOURCE);
+        assert!(!values.contains_key("overflow"));
     }
 
     #[test]

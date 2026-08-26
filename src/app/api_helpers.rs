@@ -202,8 +202,8 @@ pub(super) fn normalize_reported_agent_label(agent: &str) -> Option<String> {
 pub(super) const METADATA_TTL_MAX_MS: u64 = 86_400_000;
 pub(super) const METADATA_SOURCE_MAX_CHARS: usize = 80;
 const METADATA_TTL_MIN_MS: u64 = 1;
-const MAX_METADATA_TOKEN_KEYS_PER_REQUEST: usize = 16;
-pub(super) const MAX_METADATA_TOKEN_KEYS_PER_RESOURCE: usize = 32;
+const MAX_METADATA_TOKEN_KEYS_PER_REQUEST: usize = 64;
+pub(super) const MAX_METADATA_TOKEN_KEYS_PER_RESOURCE: usize = 64;
 const MAX_METADATA_TOKEN_KEY_LEN: usize = 32;
 const MAX_METADATA_TOKEN_VALUE_LEN: usize = 80;
 
@@ -308,9 +308,17 @@ mod metadata_token_tests {
             )]))
             .is_err());
         }
-        let too_many = (0..=MAX_METADATA_TOKEN_KEYS_PER_REQUEST)
+        let maximum = (0..MAX_METADATA_TOKEN_KEYS_PER_REQUEST)
             .map(|index| (format!("key{index}"), Some("value".into())))
             .collect();
-        assert!(normalize_metadata_tokens(too_many).is_err());
+        assert_eq!(
+            normalize_metadata_tokens(maximum).unwrap().len(),
+            MAX_METADATA_TOKEN_KEYS_PER_REQUEST
+        );
+
+        let one_too_many = (0..=MAX_METADATA_TOKEN_KEYS_PER_REQUEST)
+            .map(|index| (format!("key{index}"), Some("value".into())))
+            .collect();
+        assert!(normalize_metadata_tokens(one_too_many).is_err());
     }
 }
