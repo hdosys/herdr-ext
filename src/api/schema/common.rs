@@ -5,7 +5,7 @@ pub(super) fn metadata_token_patch_schema(
 ) -> schemars::Schema {
     schemars::json_schema!({
         "type": "object",
-        "maxProperties": 16,
+        "maxProperties": 64,
         "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,32}$" },
         "additionalProperties": { "type": ["string", "null"] }
     })
@@ -16,7 +16,7 @@ pub(super) fn metadata_token_values_schema(
 ) -> schemars::Schema {
     schemars::json_schema!({
         "type": "object",
-        "maxProperties": 32,
+        "maxProperties": 64,
         "propertyNames": { "pattern": "^[A-Za-z0-9_-]{1,32}$" },
         "additionalProperties": { "type": "string" }
     })
