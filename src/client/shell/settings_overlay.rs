@@ -251,7 +251,11 @@ pub(super) fn render_settings_overlay(
         inner.x,
         inner.bottom().saturating_sub(2),
         inner.width,
-        " ↑↓ select  tab section",
+        if settings.section == ClientSettingsSection::Integrations {
+            " tab section"
+        } else {
+            " ↑↓ select  tab section"
+        },
         Style::default().fg(palette.overlay1).bg(palette.panel_bg),
     );
 
