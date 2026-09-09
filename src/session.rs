@@ -534,6 +534,7 @@ fn normalize_name(name: &str) -> Result<Option<String>, String> {
 mod tests {
     use super::*;
     #[cfg(unix)]
+    #[cfg(unix)]
     use interprocess::local_socket::traits::Listener as _;
     use std::sync::{Mutex, OnceLock};
 

@@ -7,6 +7,7 @@ use std::io::{self, IsTerminal, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
+#[cfg(unix)]
 use interprocess::local_socket::traits::Listener as _;
 #[cfg(all(test, unix))]
 use interprocess::local_socket::traits::Stream as _;
