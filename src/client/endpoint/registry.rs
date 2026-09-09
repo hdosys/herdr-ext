@@ -493,6 +493,41 @@ mod tests {
     }
 
     #[test]
+    fn unavailable_local_does_not_route_input_to_an_unselected_connected_remote() {
+        let mut registry = EndpointRegistry::empty();
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let remote = ClientEndpointId::Ssh(profile());
+        registry.insert(
+            remote.clone(),
+            FakeTransport {
+                sent: sent.clone(),
+                error: None,
+            },
+            2,
+            negotiation(),
+            true,
+        );
+        assert_eq!(registry.active_id(), &ClientEndpointId::Local);
+        assert!(!registry.active_surface_available());
+        assert_eq!(
+            registry.send(&ClientMessage::Input {
+                data: b"x".to_vec()
+            }),
+            EndpointSendOutcome::NotSent
+        );
+        assert!(sent.lock().unwrap().is_empty());
+        assert!(registry.set_active(&remote));
+        registry.unfreeze_input();
+        assert!(registry.active_surface_available());
+        assert_eq!(
+            registry.send(&ClientMessage::Input {
+                data: b"x".to_vec()
+            }),
+            EndpointSendOutcome::Sent
+        );
+    }
+
+    #[test]
     fn negotiated_remote_health_probe_expires_the_connection() {
         let mut registry = EndpointRegistry::new(
             FakeTransport {

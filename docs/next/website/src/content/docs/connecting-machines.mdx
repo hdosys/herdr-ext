@@ -85,6 +85,8 @@ Renaming changes the displayed label without reconnecting. Disabling keeps the p
 
 Removing or disabling the machine you are viewing returns you to Local. If Local is unavailable, Herdr shows that and retries its connection instead of selecting a different remote machine. With enabled saved machines, the client can remain usable even if Local fails or restarts.
 
+Local startup and compatibility failures show their reason and restart guidance without blocking a healthy saved machine. A previously saved machine selection is still restored normally; a Local failure does not select a different machine.
+
 ## Connection problems
 
 - **Reconnecting:** Herdr retries automatically after a network interruption, sleep, or SSH failure. Repeated failures increase the delay up to two minutes; brief successful connections do not reset it. A connection must remain healthy for a minute before the next interruption gets a fast retry. SSH connections are checked for application-level activity and probed when quiet, so a broken connection does not stay Online indefinitely. Local detects native connection closure or failure instead of using remote health probes.

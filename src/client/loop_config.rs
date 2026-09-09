@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) struct ClientLoopConfig {
+    pub(super) local_startup_error: Option<String>,
     pub(super) sound_config: crate::config::SoundConfig,
     pub(super) mouse_scroll_lines: usize,
     pub(super) redraw_on_focus_gained: bool,
