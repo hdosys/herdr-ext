@@ -336,48 +336,50 @@ fn stop_socket_with_timeout(
 }
 
 pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
+    delete_session_in(&crate::config::config_dir().join("sessions"), name)
+}
+
+fn delete_session_in(sessions_dir: &Path, name: &str) -> Result<SessionInfo, String> {
     if name == DEFAULT_SESSION_NAME {
         return Err("deleting the default session is not supported".to_string());
     }
     validate_name(name)?;
-    let Some(dir) = exact_session_dir_for_delete(name)? else {
-        return Ok(session_info(Some(name)));
-    };
+    let entries = std::fs::read_dir(sessions_dir).map_err(|err| {
+        format!(
+            "failed to enumerate sessions at {}: {err}",
+            sessions_dir.display()
+        )
+    })?;
+    let mut matched = None;
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("failed to enumerate sessions: {err}"))?;
+        if entry.file_name() == std::ffi::OsStr::new(name)
+            && entry
+                .file_type()
+                .map_err(|err| format!("failed to inspect session {name}: {err}"))?
+                .is_dir()
+        {
+            matched = Some(entry.path());
+            break;
+        }
+    }
+    let dir = matched.ok_or_else(|| format!("no session with the exact name {name:?}; use `herdr session list` to check its spelling"))?;
     let socket_path = dir.join("herdr.sock");
     if is_running_at(&socket_path) {
         return Err(format!(
             "session {name} is running; stop it before deleting"
         ));
     }
-    let info = session_info(Some(name));
+    let info = SessionInfo {
+        name: name.to_owned(),
+        default: false,
+        running: false,
+        socket_path: socket_path.display().to_string(),
+        session_dir: dir.display().to_string(),
+    };
     match std::fs::remove_dir_all(&dir) {
         Ok(()) => Ok(info),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(info),
-        Err(err) => Err(err.to_string()),
-    }
-}
-
-fn exact_session_dir_for_delete(name: &str) -> Result<Option<PathBuf>, String> {
-    let sessions_dir = crate::config::config_dir().join("sessions");
-    let entries = match std::fs::read_dir(&sessions_dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err.to_string()),
-    };
-    for entry in entries {
-        let entry = entry.map_err(|err| err.to_string())?;
-        if entry.file_name() == std::ffi::OsStr::new(name) {
-            return Ok(Some(entry.path()));
-        }
-    }
-
-    // A path lookup alone can resolve a different spelling on case-insensitive
-    // filesystems. Never probe its socket or delete it without an exact entry.
-    match std::fs::symlink_metadata(sessions_dir.join(name)) {
-        Ok(_) => Err(format!(
-            "session {name} does not match an exact session name; use the spelling shown by `herdr session list`"
-        )),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err.to_string()),
     }
 }
@@ -543,7 +545,6 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    #[cfg(unix)]
     fn unique_test_path(name: &str) -> std::path::PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1116,6 +1117,74 @@ mod tests {
     #[test]
     fn delete_default_session_is_rejected() {
         assert!(delete_session(DEFAULT_SESSION_NAME).is_err());
+    }
+
+    #[test]
+    fn delete_session_requires_the_recorded_directory_spelling() {
+        let root = unique_test_path("delete-case");
+        let sessions = root.join("sessions");
+        let upper = sessions.join("Foo");
+        let sibling = sessions.join("Other");
+        std::fs::create_dir_all(&upper).unwrap();
+        std::fs::create_dir(&sibling).unwrap();
+        std::fs::write(upper.join("sentinel"), b"Foo").unwrap();
+        std::fs::write(sibling.join("sentinel"), b"Other").unwrap();
+
+        let error = delete_session_in(&sessions, "foo").unwrap_err();
+        assert!(error.contains("no session with the exact name"), "{error}");
+        assert_eq!(std::fs::read(upper.join("sentinel")).unwrap(), b"Foo");
+        let lower = sessions.join("foo");
+        match std::fs::create_dir(&lower) {
+            Ok(()) => {
+                std::fs::write(lower.join("sentinel"), b"foo").unwrap();
+                let deleted = delete_session_in(&sessions, "foo").unwrap();
+                assert_eq!(deleted.name, "foo");
+                assert!(!lower.exists());
+                assert_eq!(std::fs::read(upper.join("sentinel")).unwrap(), b"Foo");
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => panic!("could not create case-sensitive fixture: {error}"),
+        }
+        let deleted = delete_session_in(&sessions, "Foo").unwrap();
+        assert_eq!(deleted.name, "Foo");
+        assert_eq!(PathBuf::from(deleted.session_dir), upper);
+        assert!(!upper.exists());
+        assert_eq!(std::fs::read(sibling.join("sentinel")).unwrap(), b"Other");
+        assert!(delete_session_in(&sessions, "Foo").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn delete_session_reports_enumeration_failure() {
+        let root = unique_test_path("delete-enumeration");
+        std::fs::create_dir(&root).unwrap();
+        let sessions = root.join("sessions");
+        std::fs::write(&sessions, b"not a directory").unwrap();
+        let error = delete_session_in(&sessions, "Foo").unwrap_err();
+        assert!(error.contains("failed to enumerate sessions"), "{error}");
+        assert_eq!(std::fs::read(&sessions).unwrap(), b"not a directory");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn delete_session_detects_running_windows_peer_bound_with_case_alias() {
+        let root = unique_test_path("delete-running-case");
+        let sessions = root.join("sessions");
+        let recorded = sessions.join("Foo");
+        std::fs::create_dir_all(&recorded).unwrap();
+        std::fs::write(recorded.join("sentinel"), b"keep").unwrap();
+        let alias_socket = sessions.join("foo").join("herdr.sock");
+        crate::ipc::prepare_socket_path(&alias_socket, |_| "test socket is busy".into()).unwrap();
+        let listener = crate::ipc::bind_private_local_listener(&alias_socket).unwrap();
+        let identity = crate::ipc::socket_file_identity(&alias_socket).unwrap();
+        let result = delete_session_in(&sessions, "Foo");
+        drop(listener);
+        crate::ipc::remove_socket_file_if_owned(&alias_socket, &identity).unwrap();
+        assert!(result.unwrap_err().contains("is running"));
+        assert_eq!(std::fs::read(recorded.join("sentinel")).unwrap(), b"keep");
+        delete_session_in(&sessions, "Foo").unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
