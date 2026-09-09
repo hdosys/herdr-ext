@@ -1,7 +1,9 @@
 use std::io;
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 
-use interprocess::local_socket::traits::{Listener as _, Stream as _};
+#[cfg(unix)]
+use interprocess::local_socket::traits::Listener as _;
+use interprocess::local_socket::traits::Stream as _;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 

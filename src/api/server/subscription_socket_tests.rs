@@ -4,6 +4,7 @@ use crate::api::schema::{
     ReadSource,
 };
 use crate::ipc::{poll_local_stream_read_count, LocalStreamReadCount};
+#[cfg(unix)]
 use interprocess::local_socket::traits::Listener as _;
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicU64;

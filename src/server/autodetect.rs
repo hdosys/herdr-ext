@@ -434,6 +434,7 @@ mod windows_tests {
         ))
         .unwrap());
 
+        #[cfg(unix)]
         use interprocess::local_socket::traits::Listener as _;
         let root =
             std::env::temp_dir().join(format!("herdr-inactive-readiness-{}", std::process::id()));

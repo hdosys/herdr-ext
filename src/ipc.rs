@@ -7,8 +7,49 @@ use std::path::Path;
 #[cfg(unix)]
 use interprocess::local_socket::traits::Stream as _;
 
+#[cfg(unix)]
 pub(crate) type LocalListener = interprocess::local_socket::Listener;
 pub(crate) type LocalStream = interprocess::local_socket::Stream;
+
+#[cfg(windows)]
+pub(crate) const WINDOWS_LOCAL_PIPE_BUFFER_BYTES: usize = 16 * 1024;
+
+#[cfg(windows)]
+pub(crate) struct LocalListener {
+    inner: interprocess::os::windows::named_pipe::PipeListener<
+        interprocess::os::windows::named_pipe::pipe_mode::Bytes,
+        interprocess::os::windows::named_pipe::pipe_mode::Bytes,
+    >,
+    stream_nonblocking: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(windows)]
+impl LocalListener {
+    pub(crate) fn accept(&self) -> io::Result<LocalStream> {
+        use std::sync::atomic::Ordering;
+
+        let stream = self.inner.accept()?;
+        stream.set_nonblocking(self.stream_nonblocking.load(Ordering::Acquire))?;
+        let stream = interprocess::os::windows::named_pipe::local_socket::Stream::from(stream);
+        Ok(LocalStream::from(stream))
+    }
+
+    pub(crate) fn incoming(&self) -> impl Iterator<Item = io::Result<LocalStream>> + '_ {
+        std::iter::repeat_with(|| self.accept())
+    }
+
+    pub(crate) fn set_nonblocking(
+        &self,
+        mode: interprocess::local_socket::ListenerNonblockingMode,
+    ) -> io::Result<()> {
+        use std::sync::atomic::Ordering;
+
+        self.inner.set_nonblocking(mode.accept_nonblocking())?;
+        self.stream_nonblocking
+            .store(mode.stream_nonblocking(), Ordering::Release);
+        Ok(())
+    }
+}
 
 pub(crate) enum LocalStreamRead {
     Data,
@@ -65,14 +106,7 @@ pub(crate) fn bind_local_listener(path: &Path) -> io::Result<LocalListener> {
 
     #[cfg(windows)]
     {
-        use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
-
-        let name = path.to_string_lossy().to_string();
-        let name = name.to_ns_name::<GenericNamespaced>()?;
-        let listener = ListenerOptions::new()
-            .name(name)
-            .reclaim_name(false)
-            .create_sync()?;
+        let listener = bind_windows_local_listener(path, None)?;
         fs::write(path, windows_socket_marker())?;
         Ok(listener)
     }
@@ -141,24 +175,37 @@ pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<LocalListen
 
     #[cfg(windows)]
     {
-        use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
-        use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
         use interprocess::os::windows::security_descriptor::SecurityDescriptor;
         use widestring::U16CString;
 
         let sddl = U16CString::from_str("D:P(A;;GA;;;SY)(A;;GA;;;OW)")
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         let security_descriptor = SecurityDescriptor::deserialize(&sddl)?;
-        let name = path.to_string_lossy().to_string();
-        let name = name.to_ns_name::<GenericNamespaced>()?;
-        let listener = ListenerOptions::new()
-            .name(name)
-            .reclaim_name(false)
-            .security_descriptor(security_descriptor)
-            .create_sync()?;
+        let listener = bind_windows_local_listener(path, Some(security_descriptor))?;
         fs::write(path, windows_socket_marker())?;
         Ok(listener)
     }
+}
+
+#[cfg(windows)]
+fn bind_windows_local_listener(
+    path: &Path,
+    security_descriptor: Option<interprocess::os::windows::security_descriptor::SecurityDescriptor>,
+) -> io::Result<LocalListener> {
+    use interprocess::os::windows::named_pipe::{pipe_mode::Bytes, PipeListenerOptions};
+
+    let mut pipe_name = std::ffi::OsString::from(r"\\.\pipe\");
+    pipe_name.push(path.as_os_str());
+    let inner = PipeListenerOptions::new()
+        .path(pipe_name.as_os_str())
+        .input_buffer_size_hint(WINDOWS_LOCAL_PIPE_BUFFER_BYTES as u32)
+        .output_buffer_size_hint(WINDOWS_LOCAL_PIPE_BUFFER_BYTES as u32)
+        .security_descriptor(security_descriptor)
+        .create_duplex::<Bytes>()?;
+    Ok(LocalListener {
+        inner,
+        stream_nonblocking: std::sync::atomic::AtomicBool::new(false),
+    })
 }
 
 pub(crate) fn poll_local_stream_read(
@@ -383,8 +430,6 @@ pub(crate) fn restrict_socket_permissions(_path: &Path, _mode: u32) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(windows)]
-    use interprocess::local_socket::traits::Listener as _;
     #[cfg(windows)]
     use std::path::PathBuf;
 
