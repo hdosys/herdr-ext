@@ -2696,7 +2696,9 @@ fn confirm_remote_install_with_server_status(
     eprintln!(
         "To complete the remote update, Herdr must stop the running remote server after installing."
     );
-    eprintln!("This stops active remote pane processes, including shells, agents, dev servers, and tests.");
+    eprintln!(
+        "This stops active remote pane processes, including shells, agents, dev servers, and tests."
+    );
     eprintln!();
     eprint!(
         "Install {} and stop the remote server now? [y/N] ",
@@ -3351,7 +3353,9 @@ fn confirm_remote_server_stop(
         }
     }
 
-    eprintln!("This stops active remote pane processes, including shells, agents, dev servers, and tests.");
+    eprintln!(
+        "This stops active remote pane processes, including shells, agents, dev servers, and tests."
+    );
     let prompt = if required_upgrade {
         "stop and update the remote server, then continue attaching? [y/N] "
     } else {
@@ -4582,13 +4586,87 @@ fn sanitize_path_component(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use interprocess::local_socket::traits::Stream as _;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_bridge_copy_progresses_with_polling_and_peer_disconnect() {
+        use std::sync::mpsc;
+
+        let socket = local_forward_socket_path("polling-copy-test", "default");
+        crate::ipc::prepare_socket_path(&socket, |_| "test bridge is already active".into())
+            .unwrap();
+        let listener = crate::ipc::bind_private_local_listener(&socket).unwrap();
+        let socket_identity = crate::ipc::socket_file_identity(&socket).unwrap();
+        let mut client = crate::ipc::connect_local_stream(&socket).unwrap();
+        let mut server = prepare_remote_bridge_stream(listener.accept().unwrap()).unwrap();
+        crate::ipc::set_local_stream_polling(&mut server, true).unwrap();
+        client.set_nonblocking(true).unwrap();
+        let (phase_tx, phase_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let writer = thread::spawn(move || {
+            let stopped = AtomicBool::new(false);
+            let payload = vec![0x5a; 128 * 1024];
+            let first = copy_reader_to_local_stream(
+                &mut io::Cursor::new(&payload),
+                &mut server,
+                &stopped,
+                &stopped,
+            );
+            phase_tx.send(first).unwrap();
+            continue_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            let second = copy_reader_to_local_stream(
+                &mut io::Cursor::new(&payload),
+                &mut server,
+                &stopped,
+                &stopped,
+            );
+            let _ = phase_tx.send(second);
+        });
+
+        let mut received = vec![0; 128 * 1024];
+        io::Read::read_exact(
+            &mut crate::ipc::LocalStreamDeadlineReader::new(&mut client, Duration::from_secs(3)),
+            &mut received,
+        )
+        .expect("polling bridge download must progress");
+        assert!(received.iter().all(|byte| *byte == 0x5a));
+        assert_eq!(
+            phase_rx
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap()
+                .unwrap(),
+            128 * 1024
+        );
+        continue_tx.send(()).unwrap();
+        let mut first_byte = [0];
+        io::Read::read_exact(
+            &mut crate::ipc::LocalStreamDeadlineReader::new(&mut client, Duration::from_secs(3)),
+            &mut first_byte,
+        )
+        .expect("second download must begin before disconnect");
+        // A disappearing client must release a download even when it no longer reads.
+        drop(client);
+        assert!(phase_rx
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap()
+            .is_err());
+        writer.join().unwrap();
+        drop(listener);
+        crate::ipc::remove_socket_file_if_owned(&socket, &socket_identity).unwrap();
+    }
 
     fn decode_windows_command(command: &str) -> String {
         use base64::Engine as _;
 
         let encoded = command
-            .strip_prefix("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ")
-            .expect("encoded PowerShell command");
+            .split_once("FromBase64String('")
+            .expect("encoded PowerShell command")
+            .1
+            .split_once('\'')
+            .unwrap()
+            .0;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .expect("base64");
