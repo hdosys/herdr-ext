@@ -57,6 +57,7 @@ use transport::*;
 
 #[cfg(test)]
 pub(crate) use shell::{ClientShellConfig, ClientShellState};
+pub(crate) use startup::retain_local_startup_result;
 pub use startup::{run_client, run_terminal_attach};
 pub use terminal_sessions::{run_terminal_session_control, run_terminal_session_observe};
 
@@ -176,6 +177,7 @@ fn run_client_with_mode(
     attach_request: Option<(String, bool)>,
     attach_escape: Option<AttachEscapeState>,
     log_message: &'static str,
+    mut local_startup_error: Option<String>,
 ) -> io::Result<()> {
     init_logging();
 
@@ -213,6 +215,7 @@ fn run_client_with_mode(
         .as_ref()
         .is_some_and(shell::ClientShellConfig::uses_endpoint_keybindings);
     let mut loop_config = ClientLoopConfig {
+        local_startup_error: None,
         sound_config: loaded_config.config.ui.sound,
         mouse_scroll_lines,
         redraw_on_focus_gained,
@@ -242,17 +245,21 @@ fn run_client_with_mode(
     };
     let federated = endpoint_catalog.has_enabled_ssh();
 
-    let initial_stream = match crate::ipc::connect_local_stream(&socket_path) {
-        Ok(stream) => Some(stream),
-        Err(error) if federated => {
-            warn!(%error, "Local is unavailable; keeping saved machines available");
-            None
+    if !federated {
+        if let Some(error) = local_startup_error.take() {
+            return Err(io::Error::other(error));
         }
-        Err(error) => {
-            return Err(io::Error::other(
-                ClientError::ConnectionFailed(error).to_string(),
-            ));
-        }
+    }
+    let initial_stream = if local_startup_error.is_some() {
+        None
+    } else {
+        retain_local_startup_result(
+            crate::ipc::connect_local_stream(&socket_path).map_err(|error| {
+                io::Error::other(ClientError::ConnectionFailed(error).to_string())
+            }),
+            federated,
+            &mut local_startup_error,
+        )?
     };
 
     // Get one coherent geometry snapshot before raw mode changes the terminal.
@@ -322,14 +329,9 @@ fn run_client_with_mode(
             Ok((stream, handshake))
         })
         .transpose();
-    let initial = match initial {
-        Ok(initial) => initial,
-        Err(error) if federated => {
-            warn!(%error, "Local handshake failed; keeping saved machines available");
-            None
-        }
-        Err(error) => return Err(error),
-    };
+    let initial =
+        retain_local_startup_result(initial, federated, &mut local_startup_error)?.flatten();
+    loop_config.local_startup_error = local_startup_error;
 
     // Install a panic hook so the foreground client always restores its terminal.
     let panic_restore = terminal_guard.panic_restore();
@@ -521,6 +523,9 @@ async fn run_client_loop(
                 &endpoint::ClientEndpointId::Local,
                 endpoint::ClientEndpointStatus::Connecting,
             );
+        }
+        if let Some(error) = config.local_startup_error {
+            shell.receive_local_unavailable(error);
         }
     }
     let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
@@ -1359,6 +1364,12 @@ async fn run_client_loop(
                     let unavailable = state.shell.as_mut().and_then(|shell| {
                         shell.set_endpoint_status(&endpoint_id, status);
                         shell.set_machine_diagnostic(&endpoint_id, message.clone());
+                        if status == endpoint::ClientEndpointStatus::Attention
+                            && endpoint_id.is_local()
+                        {
+                            shell.receive_local_unavailable(message.clone());
+                            return None;
+                        }
                         (status == endpoint::ClientEndpointStatus::Attention
                             && shell.endpoint_is_active(&endpoint_id))
                         .then(|| format!("{}: {message}", shell.endpoint_label(&endpoint_id)))
