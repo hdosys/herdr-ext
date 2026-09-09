@@ -753,6 +753,26 @@ mod tests {
     fn parse_wezterm_control_associated_text_keeps_report_all_key_events() {
         for (sequence, expected_code, expected_kind) in [
             (
+                "\x1b[9;1;9u",
+                KeyCode::Tab,
+                crossterm::event::KeyEventKind::Press,
+            ),
+            (
+                "\x1b[27;1;27u",
+                KeyCode::Esc,
+                crossterm::event::KeyEventKind::Press,
+            ),
+            (
+                "\x1b[9;1:3;9u",
+                KeyCode::Tab,
+                crossterm::event::KeyEventKind::Release,
+            ),
+            (
+                "\x1b[27;1:3;27u",
+                KeyCode::Esc,
+                crossterm::event::KeyEventKind::Release,
+            ),
+            (
                 "\x1b[13;1;13u",
                 KeyCode::Enter,
                 crossterm::event::KeyEventKind::Press,
@@ -771,16 +791,6 @@ mod tests {
                 "\x1b[127::8;1:3u",
                 KeyCode::Backspace,
                 crossterm::event::KeyEventKind::Release,
-            ),
-            (
-                "\x1b[27;1;27u",
-                KeyCode::Esc,
-                crossterm::event::KeyEventKind::Press,
-            ),
-            (
-                "\x1b[9;1;9u",
-                KeyCode::Tab,
-                crossterm::event::KeyEventKind::Press,
             ),
         ] {
             let key = parse_terminal_key_sequence(sequence).expect("captured key should parse");
