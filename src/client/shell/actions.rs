@@ -488,6 +488,25 @@ impl ClientShellState {
         )
     }
 
+    pub(crate) fn receive_local_unavailable(&mut self, message: String) -> bool {
+        self.set_endpoint_status(&ClientEndpointId::Local, ClientEndpointStatus::Attention);
+        if self.visible_endpoint_notice.as_ref().is_some_and(|notice| {
+            notice.key.kind == ClientEndpointNoticeKind::LocalUnavailable
+                && notice.deadline > std::time::Instant::now()
+        }) {
+            return false;
+        }
+        self.push_endpoint_notice(
+            ClientEndpointNoticeKind::LocalUnavailable,
+            message.clone(),
+            "Local unavailable",
+            format!(
+                "Local: {message}\n\n{}",
+                crate::session::active_restart_after_update_guidance()
+            ),
+        )
+    }
+
     pub(crate) fn focus_endpoint_target(
         &mut self,
         target: ClientEndpointFocusTarget,

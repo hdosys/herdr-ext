@@ -691,6 +691,7 @@ pub(super) enum ClientEndpointNoticeKind {
     Rejected,
     Timeout,
     Unavailable,
+    LocalUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1272,7 +1273,10 @@ impl ClientShellState {
         self.popup_pending_deadline = None;
         self.pending_integration_installs = 0;
         self.endpoint_notice_seen.clear();
-        self.visible_endpoint_notice = None;
+        self.visible_endpoint_notice = self.visible_endpoint_notice.take().filter(|notice| {
+            notice.key.kind == ClientEndpointNoticeKind::LocalUnavailable
+                && notice.deadline > std::time::Instant::now()
+        });
         self.endpoint_error = None;
         self.endpoint_error_deadline = None;
         self.navigate_workspace_id = None;

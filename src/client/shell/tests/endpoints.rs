@@ -544,6 +544,61 @@ fn machine_navigation_does_not_require_a_local_snapshot_or_surface() {
 }
 
 #[test]
+fn local_startup_notice_survives_remote_activation_without_blocking_remote_input() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let profile = remote_profile();
+    let remote = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.receive_local_unavailable("endpoint generation 99 is incompatible".into());
+    assert_eq!(
+        state.endpoint_status(&ClientEndpointId::Local),
+        Some(ClientEndpointStatus::Attention)
+    );
+    let deadline = state.visible_endpoint_notice.as_ref().unwrap().deadline;
+    assert!(state.endpoint_is_active(&ClientEndpointId::Local));
+    let typed = state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::Char('x'),
+        KeyModifiers::NONE,
+    ))]);
+    assert!(typed.requests.is_empty() && typed.actions.is_empty());
+
+    state.set_endpoint_status(&remote, ClientEndpointStatus::Online);
+    let mut remote_snapshot = snapshot();
+    remote_snapshot.boot_id = "remote-boot".into();
+    state.set_endpoint_snapshot(&remote, Box::new(remote_snapshot));
+    assert!(state.activate_endpoint_projection(&remote));
+    let mut remote_surface = surface();
+    remote_surface.boot_id = "remote-boot".into();
+    state.set_pane_surface(remote_surface);
+    let frame = state.compose(160, 40).unwrap();
+    let text = frame
+        .cells
+        .iter()
+        .map(|cell| cell.symbol.as_str())
+        .collect::<String>();
+    assert!(text.contains("Local unavailable"));
+    assert!(text.contains("generation 99"));
+    let notice = state.visible_endpoint_notice.as_ref().unwrap();
+    assert_eq!(notice.deadline, deadline);
+    assert!(notice.body.contains("Stopping exits pane processes"));
+    assert!(!state.receive_local_unavailable("later retry failure".into()));
+    assert!(state
+        .visible_endpoint_notice
+        .as_ref()
+        .unwrap()
+        .body
+        .contains("generation 99"));
+    let typed = state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::Char('x'),
+        KeyModifiers::NONE,
+    ))]);
+    assert!(matches!(
+        typed.requests.as_slice(),
+        [ClientMessage::ClientShellPaneInput { .. }]
+    ));
+}
+
+#[test]
 fn sidebar_renders_local_and_saved_ssh_endpoints_with_status() {
     let (mut state, _) = state_with_remote();
     let frame = state.compose(100, 28).expect("combined endpoint frame");

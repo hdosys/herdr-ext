@@ -620,7 +620,7 @@ fn main() -> io::Result<()> {
     if args.get(1).map(|s| s.as_str()) == Some("client") {
         let loaded_config = config::Config::load();
         exit_if_nested_disabled(&loaded_config.config);
-        return client::run_client();
+        return client::run_client(None);
     }
 
     if args.get(1).map(|s| s.as_str()) == Some("update") {

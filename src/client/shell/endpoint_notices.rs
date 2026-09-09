@@ -71,9 +71,9 @@ pub(super) fn render_notice(
             ClientEndpointNoticeKind::Unsupported | ClientEndpointNoticeKind::Rejected => {
                 palette.red
             }
-            ClientEndpointNoticeKind::Timeout | ClientEndpointNoticeKind::Unavailable => {
-                palette.yellow
-            }
+            ClientEndpointNoticeKind::Timeout
+            | ClientEndpointNoticeKind::Unavailable
+            | ClientEndpointNoticeKind::LocalUnavailable => palette.yellow,
         },
         palette,
     )
