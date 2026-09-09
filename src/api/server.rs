@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use interprocess::local_socket::traits::{ListenerExt as _, Stream as _};
+#[cfg(unix)]
+use interprocess::local_socket::traits::ListenerExt as _;
+use interprocess::local_socket::traits::Stream as _;
 use tracing::{debug, error, info, warn};
 
 #[cfg(all(test, unix))]
@@ -748,7 +750,6 @@ fn read_initial_request_line_with_limits(
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
-    use interprocess::local_socket::traits::Listener as _;
     use std::io::{BufRead, BufReader};
     use std::sync::mpsc::{self, Receiver};
 
@@ -1115,6 +1116,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use interprocess::local_socket::traits::Listener as _;
     use std::collections::HashMap;
     use std::io::{BufRead, BufReader, Read};
