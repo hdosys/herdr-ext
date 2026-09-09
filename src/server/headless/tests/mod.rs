@@ -2823,6 +2823,33 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
     let diverged_surface = recv_pane_surface(&render_rx, "diverged surface");
     assert!(frame_text(&diverged_surface.frame).contains("SECOND_WORKSPACE"));
 
+    let (respond_to, failed_response) = std::sync::mpsc::channel();
+    server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
+        request: crate::api::schema::Request {
+            id: "missing-agent".into(),
+            method: crate::api::schema::Method::AgentFocus(crate::api::schema::AgentTarget {
+                target: "missing-agent".into(),
+            }),
+        },
+        respond_to,
+        response_write_complete: None,
+    });
+    let failed: serde_json::Value = serde_json::from_str(
+        &failed_response
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(failed["error"].is_object());
+    assert_eq!(
+        server.clients[&9]
+            .shell_location
+            .as_ref()
+            .unwrap()
+            .focused_tab_id(),
+        Some(second_tab_id.as_str())
+    );
+
     server
         .app
         .event_tx
@@ -2843,8 +2870,12 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
         respond_to,
         response_write_complete: None,
     });
-    let response: crate::api::schema::SuccessResponse =
-        serde_json::from_str(&response_rx.recv().expect("agent focus response")).unwrap();
+    let response: crate::api::schema::SuccessResponse = serde_json::from_str(
+        &response_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("agent focus response"),
+    )
+    .unwrap();
     let crate::api::schema::ResponseResult::AgentInfo { agent } = response.result else {
         panic!("expected agent info");
     };
