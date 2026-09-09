@@ -23,6 +23,7 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Maximum time one Windows readiness connection may wait for Welcome.
+#[cfg(windows)]
 const CLIENT_PROTOCOL_READINESS_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Timeout for checking the stable JSON API before attaching to the binary protocol socket.
@@ -194,8 +195,11 @@ fn client_protocol_welcome_is_ready(
     }
 }
 
-fn validate_running_server_compatibility(saved_federation: bool) -> io::Result<()> {
-    let Some(status) = read_server_status()? else {
+fn validate_running_server_compatibility(
+    status: Option<crate::api::RuntimeStatus>,
+    saved_federation: bool,
+) -> io::Result<()> {
+    let Some(status) = status else {
         return Err(io::Error::other(format!(
             "a herdr server is listening, but its status API is unavailable.\n\n{}\nIf that fails, stop the old server process manually.",
             crate::session::active_restart_after_update_guidance()
@@ -269,7 +273,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 pub fn start_server_daemon_with_exe(exe: PathBuf) -> io::Result<()> {
     let socket_path = client_socket_path();
     if is_server_listening_at(&socket_path) {
-        validate_running_server_compatibility(false)?;
+        validate_running_server_compatibility(read_server_status()?, false)?;
         return Ok(());
     }
     let mut command = build_server_daemon_command(exe);
@@ -378,30 +382,76 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
 
     let startup = if is_server_listening_at(&socket_path) {
         info!("server already running, attaching as client");
-        if saved_federation {
-            Ok(())
-        } else {
-            validate_running_server_compatibility(false)
-        }
+        read_server_status()
+            .and_then(|status| validate_running_server_compatibility(status, saved_federation))
     } else {
         info!("no server running, spawning server daemon");
         spawn_server_daemon()
             .and_then(|_| wait_for_server_socket(&socket_path, SERVER_READY_TIMEOUT))
     };
-    if let Err(error) = startup {
-        if !saved_federation {
-            return Err(error);
-        }
-        tracing::warn!(%error, "Local startup failed; keeping saved machines available");
-    }
+    let mut local_startup_error = None;
+    crate::client::retain_local_startup_result(
+        startup,
+        saved_federation,
+        &mut local_startup_error,
+    )?;
 
     // Now attach as a thin client.
-    crate::client::run_client()
+    crate::client::run_client(local_startup_error)
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod startup_diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn local_compatibility_failure_is_retained_for_federation_but_not_ignored() {
+        let mut status = crate::api::RuntimeStatus {
+            version: Some("another-build".into()),
+            protocol: Some(1),
+            binary: None,
+            capabilities: Some(crate::api::schema::ServerCapabilities {
+                live_handoff: false,
+                detached_server_daemon: true,
+                endpoint_protocol_generation: Some(
+                    crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
+                ),
+                surface_interest: true,
+                health_check: true,
+                ssh_agent_registration: false,
+            }),
+        };
+        assert!(validate_running_server_compatibility(Some(status.clone()), true).is_ok());
+        status
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .endpoint_protocol_generation = Some(99);
+        let error = validate_running_server_compatibility(Some(status), true).unwrap_err();
+        let expected = error.to_string();
+        assert!(expected.contains("endpoint generation 99"));
+        assert!(expected.contains("Stopping exits pane processes"));
+        let mut diagnostic = None;
+        assert!(crate::client::retain_local_startup_result::<()>(
+            Err(error),
+            true,
+            &mut diagnostic
+        )
+        .unwrap()
+        .is_none());
+        assert_eq!(diagnostic.as_deref(), Some(expected.as_str()));
+        assert!(crate::client::retain_local_startup_result::<()>(
+            Err(io::Error::other(expected)),
+            false,
+            &mut None
+        )
+        .is_err());
+    }
+}
 
 #[cfg(all(test, windows))]
 mod windows_tests {
@@ -694,7 +744,8 @@ test "$sid" = "$$"
         let path = dir.join("api.sock");
         std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &path);
 
-        let err = validate_running_server_compatibility(false).unwrap_err();
+        let err = validate_running_server_compatibility(read_server_status().unwrap(), false)
+            .unwrap_err();
 
         assert!(
             err.to_string().contains("status API is unavailable"),
@@ -730,7 +781,8 @@ test "$sid" = "$$"
             stream.flush().unwrap();
         });
 
-        let err = validate_running_server_compatibility(false).unwrap_err();
+        let err = validate_running_server_compatibility(read_server_status().unwrap(), false)
+            .unwrap_err();
         let message = err.to_string();
 
         let _ = handle.join();
