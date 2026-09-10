@@ -407,6 +407,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(text.contains("settings"));
     assert!(text.contains("keybinds"));
     assert!(text.contains("reload config"));
+    assert!(text.contains("add machine..."));
     assert!(text.contains("detach"));
 
     let keybinds = state.hits.global_menu_rows[1].0;
@@ -421,6 +422,16 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
 
     state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
         highlighted: 3,
+    }));
+    let machine_setup = state.handle_input_bytes(b"\r");
+    assert!(matches!(
+        &machine_setup.actions[..],
+        [ClientShellAction::OpenSafeWebUrl(url)]
+            if url == "https://herdr.dev/docs/connecting-machines/"
+    ));
+
+    state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
+        highlighted: 4,
     }));
     let detach = state.handle_input_bytes(b"\r");
     assert!(detach.detach);
