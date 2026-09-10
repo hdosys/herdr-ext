@@ -3,6 +3,7 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
+    AddMachine,
     WhatsNew,
 }
 
@@ -35,6 +36,7 @@ pub(super) fn global_menu_items(
             "reload config",
             ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
         ),
+        ("add machine...", ClientGlobalMenuAction::AddMachine),
     ];
     if snapshot.update_available.is_some() || snapshot.latest_release_notes_available {
         items.push((
@@ -103,6 +105,11 @@ impl ClientShellState {
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
+            ClientGlobalMenuAction::AddMachine => outcome.actions.push(
+                ClientShellAction::OpenSafeWebUrl(
+                    "https://herdr.dev/docs/connecting-machines/".to_owned(),
+                ),
+            ),
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
         }
         outcome.repaint = true;
