@@ -710,7 +710,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("● update ready"));
-    let update_row = state.hits.global_menu_rows[3].0;
+    let update_row = state.hits.global_menu_rows[4].0;
     assert_eq!(update_row.width, 16);
     let menu_buffer = menu.to_ratatui_buffer().expect("menu buffer");
     assert_eq!(
@@ -721,7 +721,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
         menu_buffer[(update_row.x + 3, update_row.y)].fg,
         state.config.palette.text
     );
-    state.activate_global_menu_item(3, &mut ClientShellInput::default());
+    state.activate_global_menu_item(4, &mut ClientShellInput::default());
     let notes = state.compose(106, 30).expect("release notes");
     let bottom_row_start = usize::from(notes.width) * usize::from(notes.height - 1);
     let bottom_row = notes.cells[bottom_row_start..]
