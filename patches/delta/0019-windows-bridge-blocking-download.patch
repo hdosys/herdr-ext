@@ -1,7 +1,7 @@
 From b33d4d7ccbb97dc2a3f77fed7ffdf2de27d47e01 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 11:15:26 +0200
-Subject: [PATCH 14/28] fix(remote): preserve blocking Windows bridge writes
+Subject: [PATCH 14/29] fix(remote): preserve blocking Windows bridge writes
 
 Backport the transport correction from herdrdev/herdr commit b28e7709d963be5fb4472d3db69f349cf1468213. Keep the fork endpoint, session and provisioning contracts. Exercise large downloads through the polling reader and peer-disconnect cleanup on native Windows.
 

@@ -1,7 +1,7 @@
 From 7d4c4834f0499d78fef390c63eee1ebfaa869ddb Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:26:02 +0200
-Subject: [PATCH 23/28] fix(session): require exact recorded names before
+Subject: [PATCH 23/29] fix(session): require exact recorded names before
  deletion
 
 Resolve deletion through immediate directory entries, keep the existing exact-target live-socket guard, and report unmatched names rather than claiming deletion. Exercise case aliases with a task-owned Windows private listener and no environment mutation.

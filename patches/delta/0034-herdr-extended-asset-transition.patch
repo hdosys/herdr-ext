@@ -1,0 +1,152 @@
+From 53b6eeacb2a8dd8169a7ecfb2faef324311694f1 Mon Sep 17 00:00:00 2001
+From: User-3090 <71881005+User-3090@users.noreply.github.com>
+Date: Tue, 15 Sep 2026 21:27:55 +0200
+Subject: [PATCH 29/29] feat(update): accept Herdr Extended asset names
+
+---
+ src/update.rs | 78 +++++++++++++++++++++++++++++++++++++++------------
+ 1 file changed, 60 insertions(+), 18 deletions(-)
+
+diff --git a/src/update.rs b/src/update.rs
+index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea1c059139 100644
+--- a/src/update.rs
++++ b/src/update.rs
+@@ -320,7 +320,10 @@ fn update_asset_key(os: &str, arch: &str) -> String {
+     }
+ }
+ 
+-fn expected_release_asset_name(asset_key: &str, release_version: ReleaseVersion) -> Option<String> {
++fn expected_release_asset_names(
++    asset_key: &str,
++    release_version: ReleaseVersion,
++) -> Option<[String; 2]> {
+     let suffix = match asset_key {
+         "linux-x86_64" => "linux_amd64",
+         "linux-aarch64" => "linux_arm64",
+@@ -330,7 +333,35 @@ fn expected_release_asset_name(asset_key: &str, release_version: ReleaseVersion)
+         "windows-x86_64-installer" => "windows_amd64_setup.exe",
+         _ => return None,
+     };
+-    Some(format!("herdr-win_v{release_version}_{suffix}"))
++    Some([
++        format!("herdr-win_v{release_version}_{suffix}"),
++        format!("herdr-ext_v{release_version}_{suffix}"),
++    ])
++}
++
++fn validated_release_asset_name(
++    asset_key: &str,
++    asset_url: &str,
++    release_version: ReleaseVersion,
++) -> Result<String, String> {
++    let names = expected_release_asset_names(asset_key, release_version)
++        .ok_or_else(|| format!("unsupported preview asset target {asset_key}"))?;
++    for name in &names {
++        let expected_url = format!(
++            "{}v{release_version}/{name}",
++            crate::distribution::RELEASE_DOWNLOAD_PREFIX
++        );
++        if asset_url == expected_url {
++            return Ok(name.clone());
++        }
++    }
++    Err(format!(
++        "preview asset {asset_key} must use {}v{release_version}/{} or {}v{release_version}/{}",
++        crate::distribution::RELEASE_DOWNLOAD_PREFIX,
++        names[0],
++        crate::distribution::RELEASE_DOWNLOAD_PREFIX,
++        names[1]
++    ))
+ }
+ 
+ fn validate_preview_release_asset(
+@@ -338,15 +369,7 @@ fn validate_preview_release_asset(
+     asset: &AssetRef,
+     release_version: ReleaseVersion,
+ ) -> Result<(), String> {
+-    let expected_name = expected_release_asset_name(asset_key, release_version)
+-        .ok_or_else(|| format!("unsupported preview asset target {asset_key}"))?;
+-    let expected_url = format!(
+-        "{}v{release_version}/{expected_name}",
+-        crate::distribution::RELEASE_DOWNLOAD_PREFIX
+-    );
+-    if asset.url != expected_url {
+-        return Err(format!("preview asset {asset_key} must use {expected_url}"));
+-    }
++    validated_release_asset_name(asset_key, &asset.url, release_version)?;
+     let sha256 = asset
+         .sha256
+         .as_deref()
+@@ -708,8 +731,11 @@ fn download_windows_installer(release: &ReleaseInfo) -> Result<DownloadedWindows
+     let release_version = release
+         .release_version
+         .ok_or("selected Windows update has no release version")?;
+-    let asset_name = expected_release_asset_name("windows-x86_64-installer", release_version)
+-        .ok_or("selected Windows update has no installer asset name")?;
++    let asset_name = validated_release_asset_name(
++        "windows-x86_64-installer",
++        &release.download_url,
++        release_version,
++    )?;
+     let path = root.join(asset_name);
+     let download = DownloadedWindowsInstaller { root, path };
+ 
+@@ -2455,7 +2481,7 @@ mod cross_platform_tests {
+     #[cfg(windows)]
+     #[test]
+     fn windows_installer_command_uses_verified_local_asset_and_start_gate() {
+-        let installer = Path::new(r"C:\Temp\herdr-win_v2026.07.31.1_windows_amd64_setup.exe");
++        let installer = Path::new(r"C:\Temp\herdr-ext_v2026.07.31.1_windows_amd64_setup.exe");
+         let start_gate = Path::new(r"C:\Temp\installer.start");
+         let command = windows_installer_command(installer, start_gate);
+         assert_eq!(command.get_program(), installer.as_os_str());
+@@ -2504,11 +2530,14 @@ mod cross_platform_tests {
+ 
+     #[cfg(windows)]
+     #[test]
+-    fn windows_manifest_requires_fork_nsis_asset_and_sha256() {
++    fn windows_manifest_accepts_transition_asset_names_and_requires_sha256() {
+         let release_version = ReleaseVersion::parse("2026.07.31.1").unwrap();
+         assert_eq!(
+-            expected_release_asset_name("windows-x86_64-installer", release_version).as_deref(),
+-            Some("herdr-win_v2026.07.31.1_windows_amd64_setup.exe")
++            expected_release_asset_names("windows-x86_64-installer", release_version),
++            Some([
++                "herdr-win_v2026.07.31.1_windows_amd64_setup.exe".to_string(),
++                "herdr-ext_v2026.07.31.1_windows_amd64_setup.exe".to_string(),
++            ])
+         );
+         let valid = AssetRef {
+             url: format!(
+@@ -2525,6 +2554,18 @@ mod cross_platform_tests {
+         )
+         .is_ok());
+ 
++        let mut renamed = valid.clone();
++        renamed.url = format!(
++            "{}v2026.07.31.1/herdr-ext_v2026.07.31.1_windows_amd64_setup.exe",
++            crate::distribution::RELEASE_DOWNLOAD_PREFIX
++        );
++        assert!(validate_preview_release_asset(
++            "windows-x86_64-installer",
++            &renamed,
++            release_version
++        )
++        .is_ok());
++
+         let mut invalid = valid.clone();
+         invalid.format = Some("zip".to_string());
+         assert!(validate_preview_release_asset(
+@@ -2630,7 +2671,8 @@ mod cross_platform_tests {
+         };
+         let release_version = ReleaseVersion::parse("2026.08.12.2").unwrap();
+         let asset_key = update_asset_key(platform_target().0, platform_target().1);
+-        let asset_name = expected_release_asset_name(&asset_key, release_version).unwrap();
++        let asset_name =
++            expected_release_asset_names(&asset_key, release_version).unwrap()[1].clone();
+         let assets = BTreeMap::from([(
+             asset_key,
+             AssetRef {
+-- 
+2.55.0.windows.3
+

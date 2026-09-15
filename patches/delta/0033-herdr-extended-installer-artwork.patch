@@ -1,7 +1,7 @@
 From 336f6bcb42f6a7672467be227a0c70ed240def3c Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 20:25:06 +0200
-Subject: [PATCH 28/28] fix(installer): update the Herdr Extended artwork
+Subject: [PATCH 28/29] fix(installer): update the Herdr Extended artwork
 
 ---
  packaging/windows/installer/artwork/README.md |   2 +-

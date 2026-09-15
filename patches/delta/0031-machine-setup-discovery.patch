@@ -1,7 +1,7 @@
 From ac466a136af7bd52e579f524d6ad1f7206be0d71 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 10 Sep 2026 16:13:05 +0200
-Subject: [PATCH 26/28] feat(client): surface machine setup in menu
+Subject: [PATCH 26/29] feat(client): surface machine setup in menu
 
 ---
  src/client/shell/global_menu.rs            |  7 +++++++
