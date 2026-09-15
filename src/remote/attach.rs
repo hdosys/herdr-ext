@@ -7,7 +7,6 @@ use std::io::{self, IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-#[cfg(unix)]
 use interprocess::TryClone as _;
 use interprocess::local_socket::ListenerNonblockingMode;
 #[cfg(unix)]
