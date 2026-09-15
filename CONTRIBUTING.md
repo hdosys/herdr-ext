@@ -536,17 +536,14 @@ separate dispatches:
    validated files as one normal, non-prerelease GitHub release and marks it Latest.
    If `master` has advanced or the candidate expired, dispatch a new build instead.
 
-Do not reuse one CalVer for different source. Through 2027-09-14, Linux and macOS
-publish raw `herdr-win_v<CalVer>_{linux,macos}_{amd64,arm64}` executables. Windows
-publishes `herdr-win_v<CalVer>_windows_amd64.zip` and appends `_setup.exe` for
-setup. Every release during this period must include the updater support that
-accepts both `herdr-win_v...` and `herdr-ext_v...`. For the first release on or
-after 2027-09-15, change the one canonical asset-name generator and its complete
-workflow, updater, remote-provisioning, documentation, and focused-test projection
-to `herdr-ext_v...`. Do not publish duplicate public aliases. Older direct clients
-that missed the transition use one manual setup download; setup updates their exact
-managed installation in place. Upstream package versions and source/control hashes
-remain separate provenance.
+Do not reuse one CalVer for different source. Linux and macOS publish raw
+`herdr-ext_v<CalVer>_{linux,macos}_{amd64,arm64}` executables. Windows publishes
+`herdr-ext_v<CalVer>_windows_amd64.zip` and appends `_setup.exe` for setup.
+Use `scripts/preview.py herdr-ext-asset-names` as the canonical name generator.
+Do not publish duplicate public aliases or defer names based on a calendar.
+Older direct clients that reject renamed assets use one manual setup download;
+setup updates their exact managed installation in place. Upstream package
+versions and source/control hashes remain separate provenance.
 
 The retained candidate compiles that CalVer into every platform binary.
 `herdr --version` must be `herdr-ext <CalVer> (Herdr <upstream-version>)`; Windows

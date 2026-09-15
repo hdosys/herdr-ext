@@ -76,7 +76,7 @@ jobs:
             throw "Candidate builds do not accept a promotion build run ID"
           }
           $releaseVersion = $env:RELEASE_VERSION_INPUT.Trim()
-          $assetJson = & python control\scripts\preview.py herdr-win-asset-names `
+          $assetJson = & python control\scripts\preview.py herdr-ext-asset-names `
             --release-version $releaseVersion
           if ($LASTEXITCODE -ne 0) {
             throw "invalid Herdr Extended release version '$releaseVersion'"
@@ -694,13 +694,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          asset_json="$(python3 control/scripts/preview.py herdr-win-asset-names \
+          asset_json="$(python3 control/scripts/preview.py herdr-ext-asset-names \
             --release-version "$RELEASE_VERSION")"
           asset_name="$(python3 -c \
             'import json, sys; print(json.load(sys.stdin)[sys.argv[1]])' \
             '${{ matrix.asset_key }}' <<<"$asset_json")"
           case "$asset_name" in
-            "herdr-win_v${RELEASE_VERSION}_"*) ;;
+            "herdr-ext_v${RELEASE_VERSION}_"*) ;;
             *)
               echo "Invalid release asset name: ${asset_name}" >&2
               exit 1
@@ -1010,7 +1010,7 @@ jobs:
             --release-version "$release_version" \
             --manifest control/website/preview.json
           asset_names_json="$(jq -cS .asset_names "$metadata")"
-          expected_names="$(python3 control/scripts/preview.py herdr-win-asset-names \
+          expected_names="$(python3 control/scripts/preview.py herdr-ext-asset-names \
             --release-version "$release_version" | jq -cS .)"
           if [[ "$asset_names_json" != "$expected_names" ]]; then
             echo "Candidate asset names do not match the tested compatibility naming owner." >&2

@@ -15,11 +15,6 @@ rules belong in `PRODUCT.md`; stable technical design belongs in
 
 ## Items
 
-- On the first release on or after 2027-09-15, switch the canonical public release
-  assets from `herdr-win_v...` to `herdr-ext_v...` in the existing generator,
-  workflow, updater, remote-provisioning, documentation, and focused tests. Publish
-  no duplicate aliases; preserve the WinGet ID and all managed installation,
-  command, state, and protocol identities.
 - Make OpenCode activity reporting keep the sidebar indicator busy whenever the
   visible root or a direct child session is still working; currently a working child
   can transiently appear idle until a later OpenCode event corrects the state.

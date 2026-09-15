@@ -4,13 +4,24 @@ This changelog records only user-visible changes released by Herdr Extended. For
 
 ## Unreleased
 
+## [2026.09.15.5] - 2026-09-15
+
+Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.
+
+### Changed
+- Release downloads now use `herdr-ext_v...` filenames and Installed Apps shows
+  **Herdr Extended** as the publisher.
+- Existing WinGet installations retain package ID `hdosys.herdr-win`. Update
+  through WinGet when the catalog offers this version, or run the current Windows
+  installer over a managed installation. No prior uninstall is required.
+
 ## [2026.09.15.4] - 2026-09-15
 
 Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.
 
 ### Changed
 - Direct updates accept both the current `herdr-win_v...` release filenames and
-  the future `herdr-ext_v...` names during a one-year transition.
+  the renamed `herdr-ext_v...` names.
 - The unpublished local Windows setup now uses the `herdr-ext` filename while
   preserving managed installation and package identifiers.
 

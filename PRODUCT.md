@@ -289,14 +289,12 @@ tests remain the detailed implementation truth.
   lifecycle.
 - Each release has a manually selected Herdr Extended CalVer `YYYY.MM.DD.N` and is based
   on the exact latest upstream stable release selected during the most recent
-  explicit refresh. Releases through the one-year transition retain
-  `herdr-win_v<CalVer>_<os>_<arch>.<ext>` and `_setup.exe`. Every Herdr Extended
-  client released during that transition accepts both this name and
-  `herdr-ext_v<CalVer>_<os>_<arch>.<ext>`. The first release on or after
-  2027-09-15 switches its current assets to `herdr-ext_v...`; a direct-install
-  client that never received the transition support then requires one manual
-  setup download, which updates the same managed installation in place without
-  uninstalling it. The GitHub release title,
+  explicit refresh. Current assets use `herdr-ext_v<CalVer>_<os>_<arch>.<ext>`
+  and `_setup.exe`. The package ID remains `hdosys.herdr-win`; existing WinGet
+  installations upgrade through that ID when the new manifest is in the catalog.
+  Direct clients that reject the renamed assets use the current installer to
+  update the same managed installation in place without uninstalling it. There
+  is no waiting period or duplicate release asset. The GitHub release title,
   notes, and installer metadata visibly pair that CalVer with `Herdr
   v<upstream-version>`. Source/control hashes remain exact provenance.
 - Candidate builds and release promotion are separate manual operations. A build

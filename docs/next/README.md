@@ -159,8 +159,20 @@ notify_on_agent_completion = false
 
 ### Updates
 
-- Existing WinGet-owned installation: update through WinGet
-- Direct setup or portable installation: `herdr update`
+**Herdr Win has been renamed to Herdr Extended.** Release downloads now start
+with `herdr-ext`; the command remains `herdr` and the WinGet ID remains
+`hdosys.herdr-win`.
+
+- WinGet installation: `winget upgrade --id hdosys.herdr-win --exact --source winget`.
+  New releases appear there after the WinGet manifest is accepted into the catalog.
+- Manual Windows installation: download and run the current installer from the
+  [release page](https://github.com/hdosys/herdr-ext/releases/latest). It updates an
+  existing managed installation without uninstalling it or removing your settings.
+- Portable, Linux, or macOS installation: replace it with the matching release
+  download, or use `herdr update` on clients that support the renamed assets.
+
+If an older client's built-in update rejects the new filename, use the package
+manager or manual download above instead.
 
 Direct updates accept only a newer stable CalVer from an immutable normal GitHub release. Active sessions continue on their current immutable runtime and the replacement activates safely afterward; update never terminates running work. `herdr update` refuses to replace a WinGet-managed installation.
 

@@ -20,16 +20,16 @@ FORK_RELEASE_PREFIXES = (
 )
 PORTABLE_TARGET_NAMES = {
     "linux-x86_64": re.compile(
-        r"^herdr-win_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_linux_amd64$"
+        r"^herdr-(?:ext|win)_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_linux_amd64$"
     ),
     "linux-aarch64": re.compile(
-        r"^herdr-win_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_linux_arm64$"
+        r"^herdr-(?:ext|win)_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_linux_arm64$"
     ),
     "macos-x86_64": re.compile(
-        r"^herdr-win_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_macos_amd64$"
+        r"^herdr-(?:ext|win)_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_macos_amd64$"
     ),
     "macos-aarch64": re.compile(
-        r"^herdr-win_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_macos_arm64$"
+        r"^herdr-(?:ext|win)_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_macos_arm64$"
     ),
 }
 WINDOWS_ZIP_TARGET = "windows-x86_64"
@@ -40,7 +40,7 @@ RELEASE_TARGETS = {
     WINDOWS_INSTALLER_TARGET,
 }
 WINDOWS_SETUP_NAME = re.compile(
-    r"^herdr-win_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_windows_amd64_setup\.exe$"
+    r"^herdr-(?:ext|win)_v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*_windows_amd64_setup\.exe$"
 )
 
 
