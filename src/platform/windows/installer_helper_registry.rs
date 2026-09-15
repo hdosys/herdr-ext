@@ -27,7 +27,8 @@ use super::installer_helper_files::{
 
 const DISPLAY_NAME: &str = "Herdr Extended";
 const PREVIOUS_DISPLAY_NAME: &str = "Herdr Win";
-const PUBLISHER: &str = "herdr-win";
+const PUBLISHER: &str = "Herdr Extended";
+const PREVIOUS_PUBLISHER: &str = "herdr-win";
 const ARP_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Herdr Win";
 const ENVIRONMENT_SUBKEY: &str = "Environment";
 
@@ -757,7 +758,7 @@ pub(crate) fn assert_arp_ownership(install_root: &Path) -> io::Result<()> {
     let versions_match = u32::from(display_parts[0]) == dword("VersionMajor")?
         && u32::from(display_parts[1]) == dword("VersionMinor")?;
     if (display_name != DISPLAY_NAME && display_name != PREVIOUS_DISPLAY_NAME)
-        || publisher != PUBLISHER
+        || (publisher != PUBLISHER && publisher != PREVIOUS_PUBLISHER)
         || !path_eq(Path::new(&registered_root), install_root)?
         || icon != format!("{},0", expected_launcher.display())
         || uninstall != format!("\"{}\"", expected_uninstaller.display())
