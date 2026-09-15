@@ -1,7 +1,7 @@
 From 56fc66564766f2daa4be6d8ee27715c3e33f349e Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:49:19 +0200
-Subject: [PATCH 21/27] fix(focus): project successful public agent focus to
+Subject: [PATCH 21/28] fix(focus): project successful public agent focus to
  clients
 
 Backport herdrdev/herdr@ec338ce01a1e8fa5217c0cfd46fcfb83d93257f2. Resolve the agent after pending events, use the shared public-focus path, and keep failed requests local to their error result.

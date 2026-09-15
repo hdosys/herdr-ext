@@ -4,6 +4,14 @@ This changelog records only user-visible changes released by Herdr Extended. For
 
 ## Unreleased
 
+## [2026.09.15.3] - 2026-09-15
+
+Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.
+
+### Fixed
+- Windows setup artwork now uses the **Herdr Extended** name consistently with
+  the installer title and text.
+
 ## [2026.09.15.2] - 2026-09-15
 
 Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.

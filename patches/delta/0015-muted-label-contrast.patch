@@ -1,7 +1,7 @@
 From 54c220d912364804e34766af0df4819dd3aab315 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 30 Aug 2026 17:21:35 +0200
-Subject: [PATCH 12/27] fix(ui): keep muted labels readable
+Subject: [PATCH 12/28] fix(ui): keep muted labels readable
 
 Refs herdrdev/herdr#2692
 ---

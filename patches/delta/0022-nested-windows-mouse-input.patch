@@ -1,7 +1,7 @@
 From 5666ad9079c2a6f35831572490118bb31112f7fc Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:33:41 +0200
-Subject: [PATCH 17/27] fix(input): keep nested Windows mouse reports
+Subject: [PATCH 17/28] fix(input): keep nested Windows mouse reports
  transactional
 
 Backport herdrdev/herdr@0ca7a8c3f28352eb5245a4307e7b9e8ef2d9f852 and herdrdev/herdr@b2218e8a9e24daed08e0c03c2f8c763a64b0964e, reviewed at head herdrdev/herdr@5af8d2fd05b2fbefd60ccdf08b9181e841e7c06b. Preserve client-local host observations and semantic-event flushing.
