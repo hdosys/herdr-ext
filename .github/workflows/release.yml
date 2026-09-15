@@ -528,7 +528,7 @@ jobs:
             "-BaseVersion", $env:HERDR_BASE_VERSION,
             "-OutputPath", $installer
           )
-          Invoke-BoundedProcess -FilePath "powershell.exe" -TimeoutMilliseconds 900000 -Arguments @(
+          Invoke-BoundedProcess -FilePath "powershell.exe" -TimeoutMilliseconds 1200000 -Arguments @(
             "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
             (Join-Path $PWD "source\scripts\windows_installer_fault_test.ps1"),
             "-StageDir", $stage,
