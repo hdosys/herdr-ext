@@ -412,3 +412,12 @@ configuration repository.
   composition drift before remote build and publication without adding OCR, a new
   test harness, or another package build. Owner: `CONTRIBUTING.md` and the existing
   Herdr Extended pre-release audit.
+
+- **Status: proposed. Provide one repository-compatible changed-file Rust formatter.**
+  Formatting the one-file updater transition with `cargo fmt --all` rewrote three
+  unrelated clean source files, while a direct `rustfmt` check produced a different
+  full-file result from the release environment. Add one repository command that
+  accepts the changed Rust paths, uses the project's compatible formatter contract,
+  and refuses unrelated rewrites. Expected benefit: satisfy the formatting gate
+  without cleanup churn or user interruption. Owner: `justfile` and the formatting
+  procedure in `CONTRIBUTING.md`.
