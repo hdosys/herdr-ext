@@ -1,7 +1,7 @@
 From 53b6eeacb2a8dd8169a7ecfb2faef324311694f1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 21:27:55 +0200
-Subject: [PATCH 29/29] feat(update): accept Herdr Extended asset names
+Subject: [PATCH 29/30] feat(update): accept Herdr Extended asset names
 
 ---
  src/update.rs | 78 +++++++++++++++++++++++++++++++++++++++------------

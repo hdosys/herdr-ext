@@ -1,7 +1,7 @@
 From d014d1ab3a16ae773230af425179ec37af7c7162 Mon Sep 17 00:00:00 2001
 From: akbash <akbash@herdr.dev>
 Date: Wed, 9 Sep 2026 12:44:42 +0200
-Subject: [PATCH 20/29] fix(navigation): preview workspaces across connected
+Subject: [PATCH 20/30] fix(navigation): preview workspaces across connected
  endpoints
 
 Backport herdrdev/herdr@b9ce96869e89937278d673d70ae4c135dd318469. Keep boot and connection identity on previews; require activation before foreign or stale workspace actions.

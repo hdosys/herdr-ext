@@ -1,7 +1,7 @@
 From c14f406bfca9d4915231e3d11560e125572ec4a8 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 26 Jul 2026 07:35:54 +0200
-Subject: [PATCH 1/29] feat(windows): preserve terminal appearance
+Subject: [PATCH 1/30] feat(windows): preserve terminal appearance
 
 Transport bounded host color and appearance events, keep software and native cursors visible with host and child-selected colors, and follow host appearance for otherwise unconfigured themes.
 

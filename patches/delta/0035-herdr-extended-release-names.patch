@@ -1,0 +1,165 @@
+From a8e061ee3995030ab8027adf62fba17396c6d91a Mon Sep 17 00:00:00 2001
+From: User-3090 <71881005+User-3090@users.noreply.github.com>
+Date: Tue, 15 Sep 2026 22:35:19 +0200
+Subject: [PATCH 30/30] feat(distribution): publish Herdr Extended asset names
+
+---
+ scripts/preview.py                            | 20 +++++++-------
+ scripts/test_preview.py                       | 26 +++++++++----------
+ .../windows/installer_helper_registry.rs      |  5 ++--
+ 3 files changed, 26 insertions(+), 25 deletions(-)
+
+diff --git a/scripts/preview.py b/scripts/preview.py
+index 964c9dd167bd59594f6ed08fd4187b4b9b85b7ff..898f0452348abd24eacbf275a4e1a8f319c0ace9 100644
+--- a/scripts/preview.py
++++ b/scripts/preview.py
+@@ -208,16 +208,16 @@ def parse_herdr_win_release_version(release_version: str) -> tuple[int, int, int
+     )
+ 
+ 
+-def herdr_win_asset_names(release_version: str) -> dict[str, str]:
++def herdr_ext_asset_names(release_version: str) -> dict[str, str]:
+     parse_herdr_win_release_version(release_version)
+     return {
+-        "linux-x86_64": f"herdr-win_v{release_version}_linux_amd64",
+-        "linux-aarch64": f"herdr-win_v{release_version}_linux_arm64",
+-        "macos-x86_64": f"herdr-win_v{release_version}_macos_amd64",
+-        "macos-aarch64": f"herdr-win_v{release_version}_macos_arm64",
+-        "windows-x86_64": f"herdr-win_v{release_version}_windows_amd64.zip",
++        "linux-x86_64": f"herdr-ext_v{release_version}_linux_amd64",
++        "linux-aarch64": f"herdr-ext_v{release_version}_linux_arm64",
++        "macos-x86_64": f"herdr-ext_v{release_version}_macos_amd64",
++        "macos-aarch64": f"herdr-ext_v{release_version}_macos_arm64",
++        "windows-x86_64": f"herdr-ext_v{release_version}_windows_amd64.zip",
+         "windows-x86_64-installer": (
+-            f"herdr-win_v{release_version}_windows_amd64_setup.exe"
++            f"herdr-ext_v{release_version}_windows_amd64_setup.exe"
+         ),
+     }
+ 
+@@ -258,7 +258,7 @@ def candidate_build_id(
+ 
+ 
+ def default_asset_urls(repo: str, tag: str, release_version: str) -> dict[str, str]:
+-    names = herdr_win_asset_names(release_version)
++    names = herdr_ext_asset_names(release_version)
+     expected_tag = f"v{release_version}"
+     if tag != expected_tag:
+         raise ValueError(
+@@ -411,7 +411,7 @@ def cmd_range_base(args: argparse.Namespace) -> int:
+ 
+ 
+ def cmd_asset_names(args: argparse.Namespace) -> int:
+-    print(json.dumps(herdr_win_asset_names(args.release_version), sort_keys=True))
++    print(json.dumps(herdr_ext_asset_names(args.release_version), sort_keys=True))
+     return 0
+ 
+ 
+@@ -469,7 +469,7 @@ def main() -> int:
+     endpoint_generation.add_argument("--source", default=str(ENDPOINT_PROTOCOL_SOURCE_PATH))
+     endpoint_generation.set_defaults(func=cmd_endpoint_generation)
+ 
+-    asset_names = sub.add_parser("herdr-win-asset-names")
++    asset_names = sub.add_parser("herdr-ext-asset-names")
+     asset_names.add_argument("--release-version", required=True)
+     asset_names.set_defaults(func=cmd_asset_names)
+ 
+diff --git a/scripts/test_preview.py b/scripts/test_preview.py
+index bf9b996b08797a209bb5834af8278da7afb65536..ee59ff7e06af8e2ea19f4e962e5570ae247c4a5a 100644
+--- a/scripts/test_preview.py
++++ b/scripts/test_preview.py
+@@ -65,7 +65,7 @@ class PreviewNotesTests(unittest.TestCase):
+             )
+             self.assertEqual(
+                 data["assets"]["linux-x86_64"]["url"],
+-                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_linux_amd64",
++                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-ext_v2026.06.02.1_linux_amd64",
+             )
+             self.assertEqual(
+                 data["assets"]["linux-x86_64"]["sha256"],
+@@ -73,7 +73,7 @@ class PreviewNotesTests(unittest.TestCase):
+             )
+             self.assertEqual(
+                 data["assets"]["windows-x86_64"]["url"],
+-                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64.zip",
++                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-ext_v2026.06.02.1_windows_amd64.zip",
+             )
+             self.assertEqual(
+                 data["assets"]["windows-x86_64"]["sha256"],
+@@ -82,7 +82,7 @@ class PreviewNotesTests(unittest.TestCase):
+             self.assertEqual(data["assets"]["windows-x86_64"]["format"], "zip")
+             self.assertEqual(
+                 data["assets"]["windows-x86_64-installer"]["url"],
+-                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64_setup.exe",
++                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-ext_v2026.06.02.1_windows_amd64_setup.exe",
+             )
+             self.assertEqual(
+                 data["assets"]["windows-x86_64-installer"]["format"], "nsis"
+@@ -101,23 +101,23 @@ class PreviewNotesTests(unittest.TestCase):
+                 False,
+             )
+ 
+-    def test_herdr_win_asset_names_require_real_calver(self):
++    def test_herdr_ext_asset_names_require_real_calver(self):
+         self.assertEqual(
+-            preview.herdr_win_asset_names("2026.07.31.1"),
++            preview.herdr_ext_asset_names("2026.07.31.1"),
+             {
+-                "linux-x86_64": "herdr-win_v2026.07.31.1_linux_amd64",
+-                "linux-aarch64": "herdr-win_v2026.07.31.1_linux_arm64",
+-                "macos-x86_64": "herdr-win_v2026.07.31.1_macos_amd64",
+-                "macos-aarch64": "herdr-win_v2026.07.31.1_macos_arm64",
+-                "windows-x86_64": "herdr-win_v2026.07.31.1_windows_amd64.zip",
++                "linux-x86_64": "herdr-ext_v2026.07.31.1_linux_amd64",
++                "linux-aarch64": "herdr-ext_v2026.07.31.1_linux_arm64",
++                "macos-x86_64": "herdr-ext_v2026.07.31.1_macos_amd64",
++                "macos-aarch64": "herdr-ext_v2026.07.31.1_macos_arm64",
++                "windows-x86_64": "herdr-ext_v2026.07.31.1_windows_amd64.zip",
+                 "windows-x86_64-installer": (
+-                    "herdr-win_v2026.07.31.1_windows_amd64_setup.exe"
++                    "herdr-ext_v2026.07.31.1_windows_amd64_setup.exe"
+                 ),
+             },
+         )
+         self.assertIn(
+             "65535",
+-            preview.herdr_win_asset_names("2026.07.31.65535")[
++            preview.herdr_ext_asset_names("2026.07.31.65535")[
+                 "windows-x86_64-installer"
+             ],
+         )
+@@ -131,7 +131,7 @@ class PreviewNotesTests(unittest.TestCase):
+             with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                 ValueError, "release_version"
+             ):
+-                preview.herdr_win_asset_names(invalid)
++                preview.herdr_ext_asset_names(invalid)
+ 
+     def test_endpoint_generation_reads_source_and_rejects_invalid_u32(self):
+         with tempfile.TemporaryDirectory() as tmp:
+diff --git a/src/platform/windows/installer_helper_registry.rs b/src/platform/windows/installer_helper_registry.rs
+index 0b889677f06849f174dd8cb9f573dd0296a8c774..d4dde7a6fbf8b0e6368d0b5b89f2c56b2edc8617 100644
+--- a/src/platform/windows/installer_helper_registry.rs
++++ b/src/platform/windows/installer_helper_registry.rs
+@@ -27,7 +27,8 @@ use super::installer_helper_files::{
+ 
+ const DISPLAY_NAME: &str = "Herdr Extended";
+ const PREVIOUS_DISPLAY_NAME: &str = "Herdr Win";
+-const PUBLISHER: &str = "herdr-win";
++const PUBLISHER: &str = "Herdr Extended";
++const PREVIOUS_PUBLISHER: &str = "herdr-win";
+ const ARP_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Herdr Win";
+ const ENVIRONMENT_SUBKEY: &str = "Environment";
+ 
+@@ -757,7 +758,7 @@ pub(crate) fn assert_arp_ownership(install_root: &Path) -> io::Result<()> {
+     let versions_match = u32::from(display_parts[0]) == dword("VersionMajor")?
+         && u32::from(display_parts[1]) == dword("VersionMinor")?;
+     if (display_name != DISPLAY_NAME && display_name != PREVIOUS_DISPLAY_NAME)
+-        || publisher != PUBLISHER
++        || (publisher != PUBLISHER && publisher != PREVIOUS_PUBLISHER)
+         || !path_eq(Path::new(&registered_root), install_root)?
+         || icon != format!("{},0", expected_launcher.display())
+         || uninstall != format!("\"{}\"", expected_uninstaller.display())
+-- 
+2.55.0.windows.3
+
