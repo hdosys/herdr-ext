@@ -508,7 +508,7 @@ pub(crate) fn uninstall(options: UninstallOptions) -> io::Result<String> {
             }
         }
         remove_fault_marker(options.fault.as_deref(), &options.fault_marker_prefix)?;
-        let mut output = String::from("Herdr Win uninstall cleanup is ready.");
+        let mut output = String::from("Herdr Extended uninstall cleanup is ready.");
         for path in preserved {
             output.push_str(&format!("\nPreserved Herdr skill: {}", path.display()));
         }
@@ -633,7 +633,7 @@ pub(crate) fn quiet_uninstall(options: QuietUninstallOptions) -> io::Result<Stri
                 remove_file_if_exists(&result_path)?;
                 return match status.as_slice() {
                     files::QUIET_UNINSTALL_SUCCESS => {
-                        Ok("Herdr Win quiet uninstall completed.".to_string())
+                        Ok("Herdr Extended quiet uninstall completed.".to_string())
                     }
                     files::QUIET_UNINSTALL_FAILURE => Err(files::invalid_data(
                         "native quiet uninstall reported failure",
@@ -698,12 +698,12 @@ pub(crate) fn skill_removal_default(options: SkillDefaultOptions) -> io::Result<
 
 pub(crate) fn complete_maintenance(options: MaintenanceOptions) -> io::Result<String> {
     if !files::wait_for_process(options.parent_process_id, LOCK_TIMEOUT)? {
-        return Ok("Herdr Win maintenance: Deferred".to_string());
+        return Ok("Herdr Extended maintenance: Deferred".to_string());
     }
     let install_root = files::full_path(&options.install_root)?;
     let _lifecycle = acquire_lifecycle_lock()?;
     if !files::path_exists(&install_root)? {
-        return Ok("Herdr Win maintenance: Missing".to_string());
+        return Ok("Herdr Extended maintenance: Missing".to_string());
     }
     repair_launcher_publication(&install_root)?;
     remove_stale_staging(&install_root);
@@ -711,12 +711,12 @@ pub(crate) fn complete_maintenance(options: MaintenanceOptions) -> io::Result<St
         classify_root(&install_root, false),
         Ok(RootKind::ManagedNative)
     ) {
-        return Ok("Herdr Win maintenance: Deferred".to_string());
+        return Ok("Herdr Extended maintenance: Deferred".to_string());
     }
     let _coordination =
         acquire_coordination(&ManagedInstall::new(install_root.clone()), LOCK_TIMEOUT)?;
     maintenance_locked(&install_root)?;
-    Ok("Herdr Win maintenance: Complete".to_string())
+    Ok("Herdr Extended maintenance: Complete".to_string())
 }
 
 fn install_layout(
@@ -836,11 +836,11 @@ fn install_layout(
         skills::install_skill_copies(&skill, agent_skills_root, claude_skills_root, &known)?;
     let mut output = if status == "Pending" {
         format!(
-            "Herdr Win {}: Pending; staged until old sessions exit.",
+            "Herdr Extended {}: Pending; staged until old sessions exit.",
             build_id.as_str()
         )
     } else {
-        format!("Herdr Win {}: {status}", build_id.as_str())
+        format!("Herdr Extended {}: {status}", build_id.as_str())
     };
     for path in preserved {
         output.push_str(&format!(

@@ -159,7 +159,7 @@ class PreviewNotesTests(unittest.TestCase):
                 ):
                     preview.build_manifest(
                         output=Path(tmp) / "preview.json",
-                        repo="hdosys/herdr-win",
+                        repo="hdosys/herdr-ext",
                         tag=VALID_RELEASE_TAG,
                         build_id="abcdef123456.7890abcdef12",
                         commit="abcdef",

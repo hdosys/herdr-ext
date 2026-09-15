@@ -120,10 +120,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # kitty_graphics = true
 
 [update]
-# The herdr-win update source is fixed by src/distribution.rs.
+# The Herdr Extended update source is fixed by src/distribution.rs.
 # User configuration cannot redirect the updater away from the fork release feed.
 
-# Check the configured herdr-win feed for new versions in the background.
+# Check the configured Herdr Extended feed for new versions in the background.
 # version_check = true
 
 # Check herdr.dev for remote agent-detection manifest updates in the background.

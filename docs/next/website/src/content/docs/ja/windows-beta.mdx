@@ -7,7 +7,7 @@ description: ネイティブ Windows 対応、サポートされるワークフ�
 
 Windows 上の Herdr は、Herdr が本来前提としていた Unix の PTY モデルではなく、ConPTY と Windows のプロセス/ランタイム挙動を使います。主要なワークフローの多くはサポートされていますが、一部の機能は Linux/macOS と異なるか、プラットフォームに依存します。残っている差を埋める間、Windows 固有の修正がより多く提供されることがあります。
 
-Windows ネイティブビルドは、[herdr-win のリリース](https://github.com/hdosys/herdr-win/releases) から最新の `herdr-win_v<version>_windows_amd64_setup.exe` をダウンロードしてインストールします。ユーザー単位の NSIS セットアップは管理者権限を必要とせず、インストールされているアプリに **Herdr Win** を登録し、`%LOCALAPPDATA%\Programs\Herdr\bin` をユーザーの `PATH` に追加します。1 つの安定したランチャーが `%LOCALAPPDATA%\Programs\Herdr\runtime` の不変ランタイムを選択するため、実行中のセッションは新しいランタイムが有効になる前に終了できます。
+Windows ネイティブビルドは、[Herdr Extended のリリース](https://github.com/hdosys/herdr-ext/releases) から最新の Windows インストーラーをダウンロードしてインストールします。ユーザー単位の NSIS セットアップは管理者権限を必要とせず、インストールされているアプリに **Herdr Extended** を登録し、`%LOCALAPPDATA%\Programs\Herdr\bin` をユーザーの `PATH` に追加します。1 つの安定したランチャーが `%LOCALAPPDATA%\Programs\Herdr\runtime` の不変ランタイムを選択するため、実行中のセッションは新しいランタイムが有効になる前に終了できます。
 
 インストール済みの Windows ディストリビューションはフォークの CalVer 更新フィードを所有し、設定で公式 Herdr や別のチャンネルへ切り替えることはできません。
 

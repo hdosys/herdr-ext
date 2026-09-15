@@ -76,7 +76,7 @@ pub(crate) fn invalid_data(message: impl Into<String>) -> io::Error {
 
 pub(crate) fn incompatible_installation() -> io::Error {
     invalid_data(
-        "An existing Herdr installation was created by an older setup and cannot be updated directly. Uninstall Herdr or Herdr Win from Windows Settings > Apps > Installed apps, then run this setup again. Your existing installation was not changed.",
+        "An existing Herdr installation was created by an older setup and cannot be updated directly. Uninstall Herdr or Herdr Extended from Windows Settings > Apps > Installed apps, then run this setup again. Your existing installation was not changed.",
     )
 }
 
@@ -751,21 +751,21 @@ fn parse_release_calver(display: &str) -> io::Result<[u16; 4]> {
         || components[3].starts_with('0')
     {
         return Err(invalid_data(format!(
-            "invalid herdr-win release version {display:?}"
+            "invalid Herdr Extended release version {display:?}"
         )));
     }
     let year = components[0]
         .parse::<u16>()
-        .map_err(|_| invalid_data("invalid herdr-win release year"))?;
+        .map_err(|_| invalid_data("invalid Herdr Extended release year"))?;
     let month = components[1]
         .parse::<u16>()
-        .map_err(|_| invalid_data("invalid herdr-win release month"))?;
+        .map_err(|_| invalid_data("invalid Herdr Extended release month"))?;
     let day = components[2]
         .parse::<u16>()
-        .map_err(|_| invalid_data("invalid herdr-win release day"))?;
+        .map_err(|_| invalid_data("invalid Herdr Extended release day"))?;
     let sequence = components[3]
         .parse::<u16>()
-        .map_err(|_| invalid_data("invalid herdr-win release sequence"))?;
+        .map_err(|_| invalid_data("invalid Herdr Extended release sequence"))?;
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let max_day = match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -776,7 +776,7 @@ fn parse_release_calver(display: &str) -> io::Result<[u16; 4]> {
     };
     if year == 0 || day == 0 || day > max_day || sequence == 0 {
         return Err(invalid_data(format!(
-            "invalid herdr-win release version {display:?}"
+            "invalid Herdr Extended release version {display:?}"
         )));
     }
     Ok([year, month, day, sequence])

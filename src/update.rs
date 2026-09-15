@@ -118,7 +118,7 @@ impl std::fmt::Display for Version {
     }
 }
 
-/// Parsed herdr-win CalVer used only for fork release ordering.
+/// Parsed Herdr Extended CalVer used only for distribution release ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct ReleaseVersion {
     year: u16,
@@ -399,7 +399,7 @@ fn published_release_should_install(
         return Ok(true);
     };
     let current = ReleaseVersion::parse(current)
-        .ok_or_else(|| format!("invalid compiled herdr-win release version: {current}"))?;
+        .ok_or_else(|| format!("invalid compiled Herdr Extended release version: {current}"))?;
     Ok(latest > current)
 }
 
@@ -426,7 +426,7 @@ fn release_info_from_preview_manifest(
     })?;
     let release_version = ReleaseVersion::parse(&manifest.release_version).ok_or_else(|| {
         format!(
-            "invalid herdr-win release_version in preview manifest: {}",
+            "invalid Herdr Extended release_version in preview manifest: {}",
             manifest.release_version
         )
     })?;
@@ -515,7 +515,7 @@ fn winget_catalog_command(release_version: &str) -> Command {
 fn winget_catalog_has_release(release_version: &str) -> Result<bool, String> {
     if ReleaseVersion::parse(release_version).is_none() {
         return Err(format!(
-            "cannot query WinGet for invalid herdr-win release version {release_version}"
+            "cannot query WinGet for invalid Herdr Extended release version {release_version}"
         ));
     }
 
@@ -2130,7 +2130,7 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         return Err("run `herdr update` outside herdr after detaching from the session".into());
     }
 
-    eprintln!("checking for herdr-win updates...");
+    eprintln!("checking for Herdr Extended updates...");
 
     let current = Version::current();
 
@@ -2251,14 +2251,14 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
 
     if is_homebrew_managed_install() {
         crate::logging::update_check_failed(
-            "herdr-win self-update is not available for Homebrew installs",
+            "Herdr Extended self-update is not available for Homebrew installs",
         );
         return;
     }
 
     if is_mise_managed_install() {
         crate::logging::update_check_failed(
-            "herdr-win self-update is not available for mise installs",
+            "Herdr Extended self-update is not available for mise installs",
         );
         return;
     }
@@ -2266,7 +2266,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
     let nix_managed_install = is_nix_managed_install();
     if nix_managed_install {
         crate::logging::update_check_failed(
-            "herdr-win self-update is not available for Nix installs",
+            "Herdr Extended self-update is not available for Nix installs",
         );
         return;
     }
@@ -2295,7 +2295,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
     if winget_managed_install {
         let Some(release_version) = release.release_version else {
             crate::logging::update_check_failed(
-                "preview feed did not identify the target herdr-win release version",
+                "preview feed did not identify the target Herdr Extended release version",
             );
             return;
         };
@@ -2323,7 +2323,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
     crate::logging::update_available(release.label());
     tracing::info!(
         release_version = ?release.release_version,
-        "new herdr-win build available at {}",
+        "new Herdr Extended build available at {}",
         release.download_url
     );
 
