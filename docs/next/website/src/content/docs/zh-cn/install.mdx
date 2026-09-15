@@ -109,7 +109,7 @@ herdr update
 
 `herdr update` 适用于由 Herdr 自带安装器管理的安装。Homebrew、mise 和 Nix 安装请改用那些包管理器更新。
 
-已安装的发行版拥有自己的更新源。官方 Herdr 直接安装使用官方 Herdr 发布。herdr-win 构建只使用该分支的 CalVer 发布源,不能通过配置切换到官方 Herdr 或其他通道。Homebrew、mise、Nix 和 WinGet 安装通过各自的包管理器更新。
+已安装的发行版拥有自己的更新源。官方 Herdr 直接安装使用官方 Herdr 发布。Herdr Extended 构建只使用该发行版的 CalVer 发布源,不能通过配置切换到官方 Herdr 或其他通道。Homebrew、mise、Nix 和 WinGet 安装通过各自的包管理器更新。
 
 默认情况下,`herdr update` 会安装新二进制文件,并让端点第 1 代服务器及其窗格进程继续运行。再次启动 Herdr 即可用更新后的客户端重新连接。纯客户端改动会立即生效。新的服务器端操作会保持不可用,直到对应服务器更新并重启;客户端会显示通知,而不会断开连接。只有早于端点第 1 代的服务器需要在更新时再停止最后一次。
 

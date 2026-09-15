@@ -88,7 +88,7 @@ herdr --remote workbox --handoff
 
 If you SSH into the server first and run `herdr` there, Herdr runs entirely on the server and cannot access your local desktop clipboard beyond normal terminal text paste.
 
-When local and remote platforms match, direct installs can copy their current executable. Otherwise herdr-win uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
+When local and remote platforms match, direct installs can copy their current executable. Otherwise Herdr Extended uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
 
 For local builds or custom binaries, set `HERDR_REMOTE_BINARY` to a local file path before running remote attach.
 

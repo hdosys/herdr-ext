@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BaseVersion,
     [Parameter(Mandatory = $true)][string]$OutputDir,
     [string]$ProductName = "Herdr",
-    [string]$PackageName = "Herdr Win",
+    [string]$PackageName = "Herdr Extended",
     [string]$AgentUserProfileRoot,
     [string[]]$Faults = @(
         "after-bin-directory",

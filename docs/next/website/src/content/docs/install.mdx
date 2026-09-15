@@ -87,7 +87,7 @@ mv herdr-linux-x86_64 ~/.local/bin/herdr
 
 ### Windows archive
 
-Use the herdr-win setup above for normal testing, or download the matching portable ZIP from the same herdr-win release:
+Use the Herdr Extended setup above for normal testing, or download the matching portable ZIP from the same Herdr Extended release:
 
 | System | Asset |
 | --- | --- |
@@ -115,7 +115,7 @@ herdr update
 
 Use `herdr update` only for installs managed by Herdr's own installer. Update Homebrew, mise, and Nix installs through those package managers instead.
 
-The installed distribution owns its update feed. Official Herdr direct installs use official Herdr releases. A herdr-win build uses only the fork's CalVer release feed and cannot be redirected to official Herdr or another channel through config. Homebrew, mise, Nix, and WinGet installs update through their package manager.
+The installed distribution owns its update feed. Official Herdr direct installs use official Herdr releases. A Herdr Extended build uses only the distribution's CalVer release feed and cannot be redirected to official Herdr or another channel through config. Homebrew, mise, Nix, and WinGet installs update through their package manager.
 
 By default, `herdr update` installs the new binary and leaves endpoint-generation-1 servers and their pane processes running. Start Herdr again to reconnect with the updated client. Client-only changes work immediately. A new server-side action stays unavailable until that server is updated and restarted; the client shows a notice instead of disconnecting. Servers from before endpoint generation 1 need one final stop during update.
 
