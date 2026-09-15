@@ -354,6 +354,9 @@ class WindowsInstallerStaticTests(unittest.TestCase):
     def test_real_fault_matrix_covers_retries_and_pending_activation(self) -> None:
         fault = text(FAULT_TEST)
         self.assertIn("[string]$InstallerHelperExe", fault)
+        self.assertIn('[string]$ArpKeyName = "Herdr Win"', fault)
+        self.assertIn("Uninstall\\$ArpKeyName", fault)
+        self.assertNotIn("Uninstall\\$PackageName", fault)
         for stage in (
             "after-bin-directory",
             "after-uninstall-pending",

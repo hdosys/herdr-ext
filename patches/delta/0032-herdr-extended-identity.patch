@@ -1,4 +1,4 @@
-From f572d89d1ff45bea4f02b6759a28a712e74e8ac7 Mon Sep 17 00:00:00 2001
+From 8769510c7217a3ce03eb028a73ebc6bcab065b21 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 18:24:37 +0200
 Subject: [PATCH 27/27] feat(distribution): rename fork to Herdr Extended
@@ -19,7 +19,7 @@ Subject: [PATCH 27/27] feat(distribution): rename fork to Herdr Extended
  .../windows/installer/validate-build.ps1      |  4 ++--
  scripts/package_windows_installer.ps1         | 10 +++++-----
  scripts/test_preview.py                       |  2 +-
- scripts/windows_installer_fault_test.ps1      |  2 +-
+ scripts/windows_installer_fault_test.ps1      |  4 ++--
  src/bin/herdr-installer-helper.rs             |  5 ++++-
  src/build_info.rs                             |  4 ++--
  src/distribution.rs                           |  8 ++++----
@@ -29,7 +29,7 @@ Subject: [PATCH 27/27] feat(distribution): rename fork to Herdr Extended
  .../windows/installer_helper_registry.rs      |  7 ++++---
  src/remote/attach.rs                          |  2 +-
  src/update.rs                                 | 20 +++++++++----------
- 25 files changed, 67 insertions(+), 63 deletions(-)
+ 25 files changed, 68 insertions(+), 64 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index 639c78a827c9520d6f23baa7401cc158ecf9badb..6bcd737b045ce138f371686f6d512d36b54b001f 100644
@@ -293,7 +293,7 @@ index 7f90fd060c2237cb7652f61c46d8cb192c34b290..bf9b996b08797a209bb5834af8278da7
                          build_id="abcdef123456.7890abcdef12",
                          commit="abcdef",
 diff --git a/scripts/windows_installer_fault_test.ps1 b/scripts/windows_installer_fault_test.ps1
-index 5d9c2cf3c838d58f3f8a446ffb1c618bd237c338..649fc755f599902fba18e083f0406e1eba9e2bda 100644
+index 5d9c2cf3c838d58f3f8a446ffb1c618bd237c338..6335a5baa4e014570673ac157a2b2d19bc47a92c 100644
 --- a/scripts/windows_installer_fault_test.ps1
 +++ b/scripts/windows_installer_fault_test.ps1
 @@ -9,7 +9,7 @@ param(
@@ -301,10 +301,19 @@ index 5d9c2cf3c838d58f3f8a446ffb1c618bd237c338..649fc755f599902fba18e083f0406e1e
      [Parameter(Mandatory = $true)][string]$OutputDir,
      [string]$ProductName = "Herdr",
 -    [string]$PackageName = "Herdr Win",
-+    [string]$PackageName = "Herdr Extended",
++    [string]$ArpKeyName = "Herdr Win",
      [string]$AgentUserProfileRoot,
      [string[]]$Faults = @(
          "after-bin-directory",
+@@ -230,7 +230,7 @@ if (-not (Test-Path -LiteralPath $env:XDG_CONFIG_HOME)) {
+     New-Item -ItemType Directory -Path $env:XDG_CONFIG_HOME -Force | Out-Null
+ }
+ $installRoot = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
+-$arpKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$PackageName"
++$arpKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$ArpKeyName"
+ $skillSource = Join-Path $projectRoot "skills\herdr\SKILL.md"
+ $skillRoot = Join-Path $env:USERPROFILE ".agents\skills\herdr"
+ $skillPath = Join-Path $skillRoot "SKILL.md"
 diff --git a/src/bin/herdr-installer-helper.rs b/src/bin/herdr-installer-helper.rs
 index 5014c1bd9965a960407bfb976de8ec4699d81941..fe7c96c9c23754b7dd5e6611996391246e74bfc9 100644
 --- a/src/bin/herdr-installer-helper.rs

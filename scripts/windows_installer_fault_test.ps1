@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory = $true)][string]$BaseVersion,
     [Parameter(Mandatory = $true)][string]$OutputDir,
     [string]$ProductName = "Herdr",
-    [string]$PackageName = "Herdr Extended",
+    [string]$ArpKeyName = "Herdr Win",
     [string]$AgentUserProfileRoot,
     [string[]]$Faults = @(
         "after-bin-directory",
@@ -210,7 +210,7 @@ if (-not (Test-Path -LiteralPath $env:LOCALAPPDATA)) {
     New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
 }
 $installRoot = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
-$arpKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$PackageName"
+$arpKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$ArpKeyName"
 $skillSource = Join-Path $projectRoot "skills\herdr\SKILL.md"
 $skillRoot = Join-Path $env:USERPROFILE ".agents\skills\herdr"
 $skillPath = Join-Path $skillRoot "SKILL.md"
