@@ -7,7 +7,7 @@ Windows 原生支持已正式发布。
 
 Windows 上的 Herdr 使用 ConPTY 和 Windows 的进程/运行时行为,而不是 Herdr 最初围绕构建的 Unix PTY 模型。大多数核心工作流已受支持,但部分能力与 Linux/macOS 不同或取决于平台。随着这些剩余差距逐步缩小,Windows 可能会收到更多平台专用修复。
 
-安装 Windows 原生构建时,从 [herdr-win 发布页](https://github.com/hdosys/herdr-win/releases) 下载最新的 `herdr-win_v<version>_windows_amd64_setup.exe`。按用户安装的 NSIS 安装程序无需管理员权限,在已安装的应用中注册 **Herdr Win**,并将 `%LOCALAPPDATA%\Programs\Herdr\bin` 添加到用户 `PATH`。一个稳定启动器会选择 `%LOCALAPPDATA%\Programs\Herdr\runtime` 下的不可变运行时,因此活动会话可以在启用新运行时之前正常结束。
+安装 Windows 原生构建时,从 [Herdr Extended 发布页](https://github.com/hdosys/herdr-ext/releases) 下载最新的 Windows 安装程序。按用户安装的 NSIS 安装程序无需管理员权限,在已安装的应用中注册 **Herdr Extended**,并将 `%LOCALAPPDATA%\Programs\Herdr\bin` 添加到用户 `PATH`。一个稳定启动器会选择 `%LOCALAPPDATA%\Programs\Herdr\runtime` 下的不可变运行时,因此活动会话可以在启用新运行时之前正常结束。
 
 已安装的 Windows 发行版拥有该分支的 CalVer 更新源,不能通过配置切换到官方 Herdr 或其他通道。
 

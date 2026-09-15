@@ -151,7 +151,7 @@ mod tests {
                 "0.8.0",
                 Some("0123456789ab.cdef01234567")
             ),
-            "herdr-win 2026.08.11.1 (Herdr 0.8.0)"
+            "herdr-ext 2026.08.11.1 (Herdr 0.8.0)"
         );
     }
 
@@ -164,7 +164,7 @@ mod tests {
                 "0.8.0",
                 Some("0123456789ab.cdef01234567")
             ),
-            "herdr-win 2026.08.28.1045Z (local, Herdr 0.8.0, build 0123456789ab.cdef01234567)"
+            "herdr-ext 2026.08.28.1045Z (local, Herdr 0.8.0, build 0123456789ab.cdef01234567)"
         );
     }
 }
