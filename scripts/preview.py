@@ -208,16 +208,16 @@ def parse_herdr_win_release_version(release_version: str) -> tuple[int, int, int
     )
 
 
-def herdr_win_asset_names(release_version: str) -> dict[str, str]:
+def herdr_ext_asset_names(release_version: str) -> dict[str, str]:
     parse_herdr_win_release_version(release_version)
     return {
-        "linux-x86_64": f"herdr-win_v{release_version}_linux_amd64",
-        "linux-aarch64": f"herdr-win_v{release_version}_linux_arm64",
-        "macos-x86_64": f"herdr-win_v{release_version}_macos_amd64",
-        "macos-aarch64": f"herdr-win_v{release_version}_macos_arm64",
-        "windows-x86_64": f"herdr-win_v{release_version}_windows_amd64.zip",
+        "linux-x86_64": f"herdr-ext_v{release_version}_linux_amd64",
+        "linux-aarch64": f"herdr-ext_v{release_version}_linux_arm64",
+        "macos-x86_64": f"herdr-ext_v{release_version}_macos_amd64",
+        "macos-aarch64": f"herdr-ext_v{release_version}_macos_arm64",
+        "windows-x86_64": f"herdr-ext_v{release_version}_windows_amd64.zip",
         "windows-x86_64-installer": (
-            f"herdr-win_v{release_version}_windows_amd64_setup.exe"
+            f"herdr-ext_v{release_version}_windows_amd64_setup.exe"
         ),
     }
 
@@ -258,7 +258,7 @@ def candidate_build_id(
 
 
 def default_asset_urls(repo: str, tag: str, release_version: str) -> dict[str, str]:
-    names = herdr_win_asset_names(release_version)
+    names = herdr_ext_asset_names(release_version)
     expected_tag = f"v{release_version}"
     if tag != expected_tag:
         raise ValueError(
@@ -411,7 +411,7 @@ def cmd_range_base(args: argparse.Namespace) -> int:
 
 
 def cmd_asset_names(args: argparse.Namespace) -> int:
-    print(json.dumps(herdr_win_asset_names(args.release_version), sort_keys=True))
+    print(json.dumps(herdr_ext_asset_names(args.release_version), sort_keys=True))
     return 0
 
 
@@ -469,7 +469,7 @@ def main() -> int:
     endpoint_generation.add_argument("--source", default=str(ENDPOINT_PROTOCOL_SOURCE_PATH))
     endpoint_generation.set_defaults(func=cmd_endpoint_generation)
 
-    asset_names = sub.add_parser("herdr-win-asset-names")
+    asset_names = sub.add_parser("herdr-ext-asset-names")
     asset_names.add_argument("--release-version", required=True)
     asset_names.set_defaults(func=cmd_asset_names)
 

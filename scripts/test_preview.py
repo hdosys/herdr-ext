@@ -65,7 +65,7 @@ class PreviewNotesTests(unittest.TestCase):
             )
             self.assertEqual(
                 data["assets"]["linux-x86_64"]["url"],
-                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_linux_amd64",
+                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-ext_v2026.06.02.1_linux_amd64",
             )
             self.assertEqual(
                 data["assets"]["linux-x86_64"]["sha256"],
@@ -73,7 +73,7 @@ class PreviewNotesTests(unittest.TestCase):
             )
             self.assertEqual(
                 data["assets"]["windows-x86_64"]["url"],
-                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64.zip",
+                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-ext_v2026.06.02.1_windows_amd64.zip",
             )
             self.assertEqual(
                 data["assets"]["windows-x86_64"]["sha256"],
@@ -82,7 +82,7 @@ class PreviewNotesTests(unittest.TestCase):
             self.assertEqual(data["assets"]["windows-x86_64"]["format"], "zip")
             self.assertEqual(
                 data["assets"]["windows-x86_64-installer"]["url"],
-                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64_setup.exe",
+                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-ext_v2026.06.02.1_windows_amd64_setup.exe",
             )
             self.assertEqual(
                 data["assets"]["windows-x86_64-installer"]["format"], "nsis"
@@ -101,23 +101,23 @@ class PreviewNotesTests(unittest.TestCase):
                 False,
             )
 
-    def test_herdr_win_asset_names_require_real_calver(self):
+    def test_herdr_ext_asset_names_require_real_calver(self):
         self.assertEqual(
-            preview.herdr_win_asset_names("2026.07.31.1"),
+            preview.herdr_ext_asset_names("2026.07.31.1"),
             {
-                "linux-x86_64": "herdr-win_v2026.07.31.1_linux_amd64",
-                "linux-aarch64": "herdr-win_v2026.07.31.1_linux_arm64",
-                "macos-x86_64": "herdr-win_v2026.07.31.1_macos_amd64",
-                "macos-aarch64": "herdr-win_v2026.07.31.1_macos_arm64",
-                "windows-x86_64": "herdr-win_v2026.07.31.1_windows_amd64.zip",
+                "linux-x86_64": "herdr-ext_v2026.07.31.1_linux_amd64",
+                "linux-aarch64": "herdr-ext_v2026.07.31.1_linux_arm64",
+                "macos-x86_64": "herdr-ext_v2026.07.31.1_macos_amd64",
+                "macos-aarch64": "herdr-ext_v2026.07.31.1_macos_arm64",
+                "windows-x86_64": "herdr-ext_v2026.07.31.1_windows_amd64.zip",
                 "windows-x86_64-installer": (
-                    "herdr-win_v2026.07.31.1_windows_amd64_setup.exe"
+                    "herdr-ext_v2026.07.31.1_windows_amd64_setup.exe"
                 ),
             },
         )
         self.assertIn(
             "65535",
-            preview.herdr_win_asset_names("2026.07.31.65535")[
+            preview.herdr_ext_asset_names("2026.07.31.65535")[
                 "windows-x86_64-installer"
             ],
         )
@@ -131,7 +131,7 @@ class PreviewNotesTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(
                 ValueError, "release_version"
             ):
-                preview.herdr_win_asset_names(invalid)
+                preview.herdr_ext_asset_names(invalid)
 
     def test_endpoint_generation_reads_source_and_rejects_invalid_u32(self):
         with tempfile.TemporaryDirectory() as tmp:
