@@ -92,7 +92,7 @@ Windows managed installations are per-user, require no administrator access, and
 Download the Windows setup from the [latest Herdr Extended release](https://github.com/hdosys/herdr-ext/releases/latest), verify its GitHub SHA-256 digest, and run it.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/hdosys/herdr-ext/master/docs/assets/herdr-extended-setup-welcome.png?v=2026.09.15.3" alt="Herdr Extended setup welcome page">
+  <img src="https://raw.githubusercontent.com/hdosys/herdr-ext/master/docs/assets/herdr-extended-setup-welcome.png?v=2026.09.15.4" alt="Herdr Extended setup welcome page">
 </p>
 
 The managed install lives under `%LOCALAPPDATA%\Programs\Herdr`, registers **Herdr Extended** in Installed Apps, installs Herdr's canonical agent skill, and preserves customized skill copies.
