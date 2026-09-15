@@ -1,4 +1,4 @@
-From 6daa60b26362d5c200363f8efc4a932982a73a13 Mon Sep 17 00:00:00 2001
+From 1deda9f36e12f441ff157a9800ffcd1f988413ec Mon Sep 17 00:00:00 2001
 From: hdosys <71881005+hdosys@users.noreply.github.com>
 Date: Wed, 29 Jul 2026 19:41:54 +0200
 Subject: [PATCH 4/26] fix(opencode): preserve truthful lifecycle state
@@ -8,12 +8,12 @@ Defer root-session errors until idle or a bounded fallback, cancel them when exp
  CHANGELOG.md                                  |    1 +
  src/agent_resume.rs                           |   23 +-
  src/app/agents.rs                             |   13 +-
- .../assets/opencode/herdr-agent-state.js      |  959 +++++++++--
- .../assets/opencode/herdr-agent-state.test.ts | 1431 ++++++++++++++++-
+ .../assets/opencode/herdr-agent-state.js      |  975 +++++++++--
+ .../assets/opencode/herdr-agent-state.test.ts | 1472 ++++++++++++++++-
  .../assets/opencode/herdr-tui-session.js      |  123 +-
  .../assets/opencode/herdr-tui-session.test.ts |  157 +-
  src/integration/mod.rs                        |    2 +-
- 8 files changed, 2489 insertions(+), 220 deletions(-)
+ 8 files changed, 2546 insertions(+), 220 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index 81f8791d30799c5da74ad53ea2fab855c058ef61..ba2ce0eddf76597aaa90354568f5fdf52eb731a7 100644
@@ -107,7 +107,7 @@ index 5033505dc4d65e60241ee947edfdabc1239b898b..e23c67fa84a16c431a10ad3f4ee804c0
              .ok_or(AgentStartError::InvalidArgument)?;
          let bytes = crate::app::api_helpers::encode_api_submission(runtime, &command);
 diff --git a/src/integration/assets/opencode/herdr-agent-state.js b/src/integration/assets/opencode/herdr-agent-state.js
-index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1bc679f36 100644
+index 45032335c15b9401f3eabf1868f6c80e0d9c8336..5e1a8fcf925194cf08357d90f5887d7aeff11c13 100644
 --- a/src/integration/assets/opencode/herdr-agent-state.js
 +++ b/src/integration/assets/opencode/herdr-agent-state.js
 @@ -2,19 +2,25 @@
@@ -115,7 +115,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
  // add custom hooks/plugins beside this file instead of editing it.
  // HERDR_INTEGRATION_ID=opencode
 -// HERDR_INTEGRATION_VERSION=11
-+// HERDR_INTEGRATION_VERSION=21
++// HERDR_INTEGRATION_VERSION=23
  
 +import { createHash } from "node:crypto";
  import net from "node:net";
@@ -268,7 +268,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
    if (
      process.env.HERDR_ENV !== "1" ||
      !process.env.HERDR_SOCKET_PATH ||
-@@ -127,51 +87,812 @@ export const HerdrAgentStatePlugin = async () => {
+@@ -127,51 +87,828 @@ export const HerdrAgentStatePlugin = async () => {
      return {};
    }
  
@@ -276,6 +276,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +  let paneRequestChain = Promise.resolve();
 +  let panePlacementChain = Promise.resolve();
 +  let currentRootSessionID;
++  let rootHeldWorkingForChildren = false;
 +  let unscopedErrorBlocked = false;
 +  let disposing = false;
 +  let disposed = false;
@@ -288,6 +289,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +
 +  const attachServerUrl = serverUrl instanceof URL ? serverUrl.toString() : undefined;
 +  const defaultDirectory = typeof directory === "string" && directory ? directory : undefined;
++  const attachedSessionID = process.env[SUBAGENT_SESSION_ENV] || undefined;
 +
 +  function requestOnce(method, params, allowWhileDisposing = false) {
 +    if (disposed || (disposing && !allowWhileDisposing)) {
@@ -866,6 +868,11 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +      !sessionID || rootSessionFor(sessionID) === currentRootSessionID);
 +  }
 +
++  function hasWorkingChildren() {
++    return [...children.entries()].some(([sessionID, child]) =>
++      child.working && rootSessionFor(sessionID) === currentRootSessionID);
++  }
++
 +  function markSessionContinuing(sessionID, status) {
 +    if (!sessionID) {
 +      return;
@@ -933,6 +940,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +  async function reportContinuing(state, sessionID, status) {
 +    markSessionContinuing(sessionID, status);
 +    if (sessionID && sessionID === currentRootSessionID) {
++      rootHeldWorkingForChildren = false;
 +      unscopedErrorBlocked = false;
 +    }
 +    if (!unscopedErrorBlocked && !hasActivePrompts()) {
@@ -953,7 +961,8 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +      return;
 +    }
 +    clearSessionLifecycle(sessionID);
-+    await reportState("idle", sessionID, suppressCompletion);
++    rootHeldWorkingForChildren = hasWorkingChildren();
++    await reportState(rootHeldWorkingForChildren ? "working" : "idle", sessionID, suppressCompletion);
 +  }
 +
 +  async function dispose() {
@@ -983,6 +992,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +    children.clear();
 +    deletedSessions.clear();
 +    currentRootSessionID = undefined;
++    rootHeldWorkingForChildren = false;
 +    unscopedErrorBlocked = false;
 +    reportRequestChain = Promise.resolve();
 +    paneRequestChain = Promise.resolve();
@@ -1038,7 +1048,8 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +        return;
 +      }
 +
-+      if ((type === "session.created" || type === "session.updated") && info?.id && info.parentID) {
++      if ((type === "session.created" || type === "session.updated") && info?.id &&
++          info.parentID && info.id !== attachedSessionID) {
 +        const child = children.get(info.id) ?? {
 +          info,
 +          working: false,
@@ -1076,6 +1087,11 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
 +        if (state && selectionKnown && rootSessionFor(sessionID) === currentRootSessionID &&
 +            !unscopedErrorBlocked) {
 +          await reportState(state, rootSessionFor(sessionID));
++        } else if (childStatus && selectionKnown && rootHeldWorkingForChildren &&
++                   rootSessionFor(sessionID) === currentRootSessionID &&
++                   !hasWorkingChildren()) {
++          rootHeldWorkingForChildren = false;
++          await reportIdleOrConfirmError(currentRootSessionID);
 +        }
 +        return;
 +      }
@@ -1109,7 +1125,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
            }
            break;
          }
-@@ -181,21 +902,35 @@ export const HerdrAgentStatePlugin = async () => {
+@@ -181,21 +918,35 @@ export const HerdrAgentStatePlugin = async () => {
          case "question.replied":
          case "question.rejected":
          case "session.compacted":
@@ -1151,7 +1167,7 @@ index 45032335c15b9401f3eabf1868f6c80e0d9c8336..24377b426e9aaeecc6af127e4cc093f1
    };
  };
 diff --git a/src/integration/assets/opencode/herdr-agent-state.test.ts b/src/integration/assets/opencode/herdr-agent-state.test.ts
-index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033c446ef48 100644
+index a3eea848433a557253f95f17710bf13d19acc4a3..a2aeee8e0ad5ee90009240d875316a903c9125f2 100644
 --- a/src/integration/assets/opencode/herdr-agent-state.test.ts
 +++ b/src/integration/assets/opencode/herdr-agent-state.test.ts
 @@ -1,37 +1,65 @@
@@ -1230,7 +1246,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
        queueMicrotask(onConnect);
        return client;
      },
-@@ -42,22 +70,124 @@ beforeEach(() => {
+@@ -42,22 +70,125 @@ beforeEach(() => {
    requests.length = 0;
    clients.length = 0;
    requestWaiters.length = 0;
@@ -1241,6 +1257,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    process.env.HERDR_ENV = "1";
    process.env.HERDR_SOCKET_PATH = "test.sock";
    process.env.HERDR_PANE_ID = "test:p1";
++  delete process.env.HERDR_OPENCODE_SUBAGENT_SESSION_ID;
 +  originalFetch = globalThis.fetch;
 +  globalThis.fetch = async () => new Response(null, { status: 200 });
 +});
@@ -1357,7 +1374,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
  test("serializes lifecycle reports", async () => {
    autoAcknowledge = false;
    const plugin = await loadPlugin();
-@@ -79,10 +209,10 @@ test("serializes lifecycle reports", async () => {
+@@ -79,10 +210,10 @@ test("serializes lifecycle reports", async () => {
    });
    expect(clients).toHaveLength(1);
  
@@ -1370,7 +1387,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    await Promise.all([working, idle]);
  
    expect(requests.map(requestState)).toEqual(["working", "idle"]);
-@@ -91,7 +221,7 @@ test("serializes lifecycle reports", async () => {
+@@ -91,7 +222,7 @@ test("serializes lifecycle reports", async () => {
    expect(sequences[1]).toBe((sequences[0] as number) + 1);
  });
  
@@ -1379,7 +1396,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    const plugin = await loadPlugin();
  
    await plugin.event({
-@@ -107,14 +237,12 @@ test("suppresses redundant same-session updates", async () => {
+@@ -107,14 +238,12 @@ test("suppresses redundant same-session updates", async () => {
      event: { type: "session.updated", properties: { sessionID: "replacement-session" } },
    });
  
@@ -1397,7 +1414,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    const plugin = await loadPlugin();
  
    await plugin["chat.message"]({ sessionID: "visible-session" });
-@@ -122,15 +250,14 @@ test("does not classify server activity in another root session as a selection",
+@@ -122,15 +251,14 @@ test("does not classify server activity in another root session as a selection",
  
    expect(requests.map(requestMethod)).toEqual([
      "pane.report_agent",
@@ -1414,7 +1431,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    const plugin = await loadPlugin();
  
    await plugin.event({
-@@ -141,6 +268,10 @@ test("does not classify server-global root creation as a local selection", async
+@@ -141,6 +269,10 @@ test("does not classify server-global root creation as a local selection", async
    });
    await plugin["chat.message"]({ sessionID: "attached-session" });
  
@@ -1425,7 +1442,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    expect(requests.map(requestMethod)).toEqual(["pane.report_agent"]);
    expect(requests.map(requestSessionID)).toEqual(["attached-session"]);
  });
-@@ -160,69 +291,1247 @@ test("reports retry status as working", async () => {
+@@ -160,69 +292,1287 @@ test("reports retry status as working", async () => {
    expect(requests.map(requestSessionID)).toEqual(["root-session"]);
  });
  
@@ -2052,6 +2069,46 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
 +  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
 +  expect(requests.map(requestMethod)).toEqual(["pane.close"]);
 +  expect(requestParam(requests[0], "pane_id")).toBe("test:p2");
++});
++
++test("keeps the root working while a direct child is busy", async () => {
++  const plugin = await loadPlugin();
++  await plugin["chat.message"]({ sessionID: "root-session" });
++  requests.length = 0;
++
++  await plugin.event({
++    event: {
++      type: "session.created",
++      properties: {
++        info: { id: "child-session", parentID: "root-session" },
++      },
++    },
++  });
++  await plugin.event(sessionStatusEvent("root-session", { type: "idle" }));
++  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
++
++  expect(requests.map(requestState)).toEqual(["working", "idle"]);
++  expect(requests.map(requestSessionID)).toEqual(["root-session", "root-session"]);
++});
++
++test("an attached child pane reports its own lifecycle", async () => {
++  process.env.HERDR_OPENCODE_SUBAGENT_SESSION_ID = "child-session";
++  selectedRootSessionID = "child-session";
++  const plugin = await loadPlugin();
++
++  await plugin.event({
++    event: {
++      type: "session.created",
++      properties: {
++        info: { id: "child-session", parentID: "root-session" },
++      },
++    },
++  });
++  await plugin.event(sessionStatusEvent("child-session", { type: "busy" }));
++  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
++
++  expect(requests.map(requestState)).toEqual(["working", "idle"]);
++  expect(requests.map(requestSessionID)).toEqual(["child-session", "child-session"]);
 +});
 +
 +test("reconciles child status changes while attach is starting", async () => {
@@ -2713,7 +2770,7 @@ index a3eea848433a557253f95f17710bf13d19acc4a3..d700858b04ddc73f2aaad54e71be2033
    return isRecord(request) ? request.method : undefined;
  }
 diff --git a/src/integration/assets/opencode/herdr-tui-session.js b/src/integration/assets/opencode/herdr-tui-session.js
-index f4f08d57a8b7f309f2e6d22ad70a8d189b03a59e..2f8906001e51a6345e697136f8a4377b1d16c7a8 100644
+index f4f08d57a8b7f309f2e6d22ad70a8d189b03a59e..916b41d1e440a6c70be20ca04de64028138f0e44 100644
 --- a/src/integration/assets/opencode/herdr-tui-session.js
 +++ b/src/integration/assets/opencode/herdr-tui-session.js
 @@ -1,7 +1,7 @@
@@ -2721,7 +2778,7 @@ index f4f08d57a8b7f309f2e6d22ad70a8d189b03a59e..2f8906001e51a6345e697136f8a4377b
  // managed by herdr; reinstalling or updating the integration overwrites this file.
  // HERDR_INTEGRATION_ID=opencode-tui
 -// HERDR_INTEGRATION_VERSION=11
-+// HERDR_INTEGRATION_VERSION=21
++// HERDR_INTEGRATION_VERSION=23
  
  import net from "node:net";
  
@@ -3148,7 +3205,7 @@ index 1bcb1f81e37a7ca5bf7e041f056708b02ce53258..46c94b09689092afe1cb13aadd679a54
    if (!isRecord(request) || !isRecord(request.params)) {
      return undefined;
 diff --git a/src/integration/mod.rs b/src/integration/mod.rs
-index 3f7176b3d822b37aaa59d215a7ac43a33adad900..00df1953c09d6fda6e7b29c7f91ab912fe56fafc 100644
+index 3f7176b3d822b37aaa59d215a7ac43a33adad900..88c90abc6ae52a68a4c5f186b6158925a28b05ad 100644
 --- a/src/integration/mod.rs
 +++ b/src/integration/mod.rs
 @@ -170,7 +170,7 @@ const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-agent-st
@@ -3156,7 +3213,7 @@ index 3f7176b3d822b37aaa59d215a7ac43a33adad900..00df1953c09d6fda6e7b29c7f91ab912
  const OPENCODE_TUI_PLUGIN_SPEC: &str = "./herdr-tui-session.js";
  const OPENCODE_TUI_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-tui-session.js");
 -const OPENCODE_INTEGRATION_VERSION: u32 = 11;
-+const OPENCODE_INTEGRATION_VERSION: u32 = 21;
++const OPENCODE_INTEGRATION_VERSION: u32 = 23;
  const KILO_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state.js";
  const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/herdr-agent-state.js");
  const KILO_INTEGRATION_VERSION: u32 = 4;

@@ -4,6 +4,14 @@ This changelog records only user-visible changes released by the `herdr-win` for
 
 ## Unreleased
 
+## [2026.09.15.1] - 2026-09-15
+
+Unofficial herdr-win snapshot based on Herdr v0.9.0 plus the maintained delta.
+
+### Fixed
+- OpenCode root panes stay busy while direct subagents run, while attached
+  subagent panes report their own lifecycle instead of appearing as nested work.
+
 ## [2026.09.10.2] - 2026-09-10
 
 Unofficial herdr-win snapshot based on Herdr v0.9.0 plus the maintained delta.
