@@ -5,7 +5,7 @@ the NSIS Welcome and Finish artwork. The source is not embedded in setup; only
 the five native-size BMP3 derivatives are packaged.
 
 The checked-in derivatives were rendered on Windows with ImageMagick
-7.1.2-29 Q16-HDRI. Each target is rendered directly from the source in linear
+7.1.2-31 Q16-HDRI. Each target is rendered directly from the source in linear
 RGB with Lanczos3, then converted back to 8-bit sRGB:
 
 ```powershell
