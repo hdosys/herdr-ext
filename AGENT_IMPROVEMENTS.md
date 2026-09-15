@@ -132,6 +132,17 @@ configuration repository.
   in 3.143 seconds, replacing a full checkout that exceeded 600 seconds. Owner:
   `CONTRIBUTING.md`.
 
+- **Status: proposed. Prepare WinGet contribution prerequisites before validation
+  and push.** The administrator-only Sandbox rejected the existing
+  `elevationProhibited` package even through a Limited task; the manifest must not
+  be weakened. Check the token first and distinguish direct `/S /WINGET` upgrade
+  evidence from Microsoft's non-elevated validation. A fresh shallow sparse fork
+  push also exceeded 120 seconds until the contribution branch was initialized
+  remotely at its exact upstream base; the unchanged push then took 3 seconds.
+  Extend the existing WinGet procedure with these two bounded preflights to avoid
+  unsuccessful local launch attempts and unnecessary object transfer. Owner:
+  `CONTRIBUTING.md`.
+
 - **Status: done. Make Windows worktree removal terminal before dropping its
   recovery metadata.** The Windows lifecycle now waits for the pane process and
   ConPTY master to exit, and fails before Git mutation if bounded shutdown does not
