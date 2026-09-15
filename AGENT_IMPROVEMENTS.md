@@ -401,3 +401,14 @@ configuration repository.
   prerequisite without adding a fallback packager or weakening binary validation.
   Owner: `scripts/local_windows_installer.py` and its focused packaging-tool discovery
   checks.
+
+- **Status: proposed. Inspect presentation changes in the local installer before
+  release dispatch.** The first immutable Herdr Extended release had correct setup
+  title and copy but retained the old name in raster artwork; the mismatch was found
+  only by launching the published installer and required a corrective release. For
+  installer identity, copy, or artwork changes, add one pre-dispatch step that opens
+  the already-built canonical installer at a representative supported DPI and checks
+  its caption, heading, copy, and artwork together. Expected benefit: catch visible
+  composition drift before remote build and publication without adding OCR, a new
+  test harness, or another package build. Owner: `CONTRIBUTING.md` and the existing
+  Herdr Extended pre-release audit.
