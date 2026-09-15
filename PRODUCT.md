@@ -84,7 +84,7 @@ tests remain the detailed implementation truth.
   distinct runtime build ID, including retries or independent builds from unchanged
   source, so byte-different payloads never compete for one immutable runtime path.
 - The repository exposes one current locally installable setup at
-  `target/x86_64-pc-windows-msvc/release/herdr-win_local_candidate_setup.exe`.
+  `target/x86_64-pc-windows-msvc/release/herdr-ext_local_candidate_setup.exe`.
   Successful replacement removes superseded local input bundles; topic candidate
   outputs are temporary and never become a second user-facing installer.
 - Setup updates only an exact current managed installation. Any other existing
@@ -289,8 +289,14 @@ tests remain the detailed implementation truth.
   lifecycle.
 - Each release has a manually selected Herdr Extended CalVer `YYYY.MM.DD.N` and is based
   on the exact latest upstream stable release selected during the most recent
-  explicit refresh. Updater-facing tags and assets retain
-  `herdr-win_v<CalVer>_<os>_<arch>.<ext>` and `_setup.exe` for updater compatibility; the GitHub release title,
+  explicit refresh. Releases through the one-year transition retain
+  `herdr-win_v<CalVer>_<os>_<arch>.<ext>` and `_setup.exe`. Every Herdr Extended
+  client released during that transition accepts both this name and
+  `herdr-ext_v<CalVer>_<os>_<arch>.<ext>`. The first release on or after
+  2027-09-15 switches its current assets to `herdr-ext_v...`; a direct-install
+  client that never received the transition support then requires one manual
+  setup download, which updates the same managed installation in place without
+  uninstalling it. The GitHub release title,
   notes, and installer metadata visibly pair that CalVer with `Herdr
   v<upstream-version>`. Source/control hashes remain exact provenance.
 - Candidate builds and release promotion are separate manual operations. A build

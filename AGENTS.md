@@ -106,7 +106,7 @@ active memory owner.
   ref after integration. This cleanup has standing user authorization when exact
   integration and ownership are proven. Never ask the user to manage these items.
 - The canonical local user-testable artifact is
-  `target/x86_64-pc-windows-msvc/release/herdr-win_local_candidate_setup.exe`.
+  `target/x86_64-pc-windows-msvc/release/herdr-ext_local_candidate_setup.exe`.
   Only the exact `candidate/development` source stack may replace it, and it
   contains the current replay plus every completed development change. Topic
   worktrees keep any required package output temporary and remove it after their

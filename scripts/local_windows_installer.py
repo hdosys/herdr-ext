@@ -39,7 +39,7 @@ except ModuleNotFoundError:
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TARGET_ROOT = PROJECT_ROOT / "target" / "x86_64-pc-windows-msvc"
 INPUT_ROOT = TARGET_ROOT / "installer-inputs"
-OUTPUT_PATH = TARGET_ROOT / "release" / "herdr-win_local_candidate_setup.exe"
+OUTPUT_PATH = TARGET_ROOT / "release" / "herdr-ext_local_candidate_setup.exe"
 FAULT_OUTPUT_ROOT = PROJECT_ROOT / "target" / "installer-faults"
 NSIS_CACHE = TARGET_ROOT / "tools" / "nsis-3.12"
 WINDOWS_TARGET = "x86_64-pc-windows-msvc"

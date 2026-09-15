@@ -443,10 +443,14 @@ behavior; code and tests remain the detailed implementation truth.
   retained artifacts and publishes the exact bytes; it contains no source replay,
   compile, or package path. Only the promotion job receives Actions read and
   repository write permissions.
-- The promoted release tag is `v<CalVer>`. Linux and macOS publish raw executables named
-  `herdr-win_v<CalVer>_{linux,macos}_{amd64,arm64}` for direct remote installation.
-  Windows keeps `herdr-win_v<CalVer>_windows_amd64.zip` and the corresponding
-  `_setup.exe`. The three packaged Rust executables statically link the MSVC runtime,
+- The promoted release tag is `v<CalVer>`. During the transition through
+  2027-09-14, Linux and macOS publish raw executables named
+  `herdr-win_v<CalVer>_{linux,macos}_{amd64,arm64}` for direct remote installation,
+  and Windows keeps `herdr-win_v<CalVer>_windows_amd64.zip` plus the corresponding
+  `_setup.exe`. Transition clients validate both that prefix and `herdr-ext_v...`.
+  The first release on or after 2027-09-15 makes `herdr-ext_v...` canonical without
+  changing target keys, digests, install ownership, or the WinGet package ID. The
+  three packaged Rust executables statically link the MSVC runtime,
   so the per-user setup and portable archive require no separately installed Visual
   C++ redistributable. The manifest's upstream-compatible target keys remain separate
   from these fork-presented filenames.
@@ -471,8 +475,9 @@ behavior; code and tests remain the detailed implementation truth.
 - Publication and the generated manifest proceed only when all six target assets
   have verified SHA-256 digests; retained historical manifest entries may remain
   Windows-only.
-- Machine-consumed tags and asset filenames remain CalVer-only for existing updater
-  compatibility. The GitHub release title is `Herdr Extended v<CalVer> (Herdr
+- Machine-consumed tags and asset filenames remain CalVer-only. The temporary
+  prefix transition above is the only filename compatibility path. The GitHub
+  release title is `Herdr Extended v<CalVer> (Herdr
   v<upstream-version>)`; release notes and installer metadata expose that same
   stable upstream version alongside the CalVer-bearing original filename.
 - Every published binary receives that same CalVer as compile-time release identity.

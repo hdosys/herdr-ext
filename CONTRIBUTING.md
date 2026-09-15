@@ -212,7 +212,7 @@ stable refresh proves equivalent behavior including necessary fork adaptations.
 The control checkout owns one thin local entrypoint that reuses the materialized
 source packager. It adds no installer implementation. Only the exact
 `candidate/development` branch writes
-`target/x86_64-pc-windows-msvc/release/herdr-win_local_candidate_setup.exe`, which
+`target/x86_64-pc-windows-msvc/release/herdr-ext_local_candidate_setup.exe`, which
 is the repository's canonical path named in `AGENTS.md`. It always contains the
 current replay plus every completed change integrated into the development branch.
 Topic branches keep package output temporary and remove it after their focused
@@ -378,7 +378,7 @@ Every invocation rechecks all bundle hashes, exact ConPTY stage contents, runtim
 and launcher identity, then delegates to the materialized source's existing NSIS
 packager. The exact development branch writes the setup to the one short
 replaceable path
-`target/x86_64-pc-windows-msvc/release/herdr-win_local_candidate_setup.exe` and
+`target/x86_64-pc-windows-msvc/release/herdr-ext_local_candidate_setup.exe` and
 reports its freshness label and new hash. After that publication, only its matching
 bundle remains. A topic branch selects isolated generated state that the completed
 candidate check removes; pass
@@ -536,13 +536,17 @@ separate dispatches:
    validated files as one normal, non-prerelease GitHub release and marks it Latest.
    If `master` has advanced or the candidate expired, dispatch a new build instead.
 
-Do not reuse one CalVer for different source. Linux and macOS publish raw
-`herdr-win_v<CalVer>_{linux,macos}_{amd64,arm64}` executables. Windows publishes
-`herdr-win_v<CalVer>_windows_amd64.zip` and appends `_setup.exe` for setup; upstream
-package versions and source/control hashes remain separate provenance. Preserve
-these machine-consumed names; show the stable Herdr version beside the CalVer in
-the GitHub release title, notes, and installer metadata instead of changing
-updater-facing filenames.
+Do not reuse one CalVer for different source. Through 2027-09-14, Linux and macOS
+publish raw `herdr-win_v<CalVer>_{linux,macos}_{amd64,arm64}` executables. Windows
+publishes `herdr-win_v<CalVer>_windows_amd64.zip` and appends `_setup.exe` for
+setup. Every release during this period must include the updater support that
+accepts both `herdr-win_v...` and `herdr-ext_v...`. For the first release on or
+after 2027-09-15, change the one canonical asset-name generator and its complete
+workflow, updater, remote-provisioning, documentation, and focused-test projection
+to `herdr-ext_v...`. Do not publish duplicate public aliases. Older direct clients
+that missed the transition use one manual setup download; setup updates their exact
+managed installation in place. Upstream package versions and source/control hashes
+remain separate provenance.
 
 The retained candidate compiles that CalVer into every platform binary.
 `herdr --version` must be `herdr-ext <CalVer> (Herdr <upstream-version>)`; Windows

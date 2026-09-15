@@ -1,7 +1,7 @@
 # Herdr agent guide
 
 > [!NOTE]
-> This is inherited official-upstream Herdr guidance. herdr-win-specific installation, release, and issue-routing information lives in the repository README.
+> This is inherited official-upstream Herdr guidance. Herdr Extended installation, release, and issue-routing information lives in the repository README.
 
 You are reading this because a human asked you to help them understand, set up, or troubleshoot Herdr. This file gives you the concept model, the setup path, and the diagnosis recipes so you can guide them accurately. Canonical documentation lives at https://herdr.dev/docs/ — link the human there for depth, and verify any command you are unsure about against those pages instead of guessing.
 

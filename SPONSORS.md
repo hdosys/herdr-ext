@@ -1,7 +1,7 @@
 # Sponsors
 
 > [!NOTE]
-> This file is inherited from official upstream Herdr. Sponsorships listed here support the upstream project and its maintainers, not the unofficial herdr-win distribution.
+> This file is inherited from official upstream Herdr. Sponsorships listed here support the upstream project and its maintainers, not the unofficial Herdr Extended distribution.
 
 herdr is independent, open source, and built full-time.
 Every sponsorship goes directly toward development, stability, and reaching herdr's

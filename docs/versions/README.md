@@ -1,7 +1,7 @@
 # Versioned documentation
 
 > [!NOTE]
-> These are inherited official-upstream Herdr snapshots. The herdr-win build/promote workflow does not create or publish versioned documentation.
+> These are inherited official-upstream Herdr snapshots. The Herdr Extended build/promote workflow does not create or publish versioned documentation.
 
 This directory contains immutable documentation snapshots for stable Herdr releases.
 

@@ -4,6 +4,16 @@ This changelog records only user-visible changes released by Herdr Extended. For
 
 ## Unreleased
 
+## [2026.09.15.4] - 2026-09-15
+
+Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.
+
+### Changed
+- Direct updates accept both the current `herdr-win_v...` release filenames and
+  the future `herdr-ext_v...` names during a one-year transition.
+- The unpublished local Windows setup now uses the `herdr-ext` filename while
+  preserving managed installation and package identifiers.
+
 ## [2026.09.15.3] - 2026-09-15
 
 Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.
