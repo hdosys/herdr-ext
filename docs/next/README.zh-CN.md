@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
 curl -fsSL https://herdr.dev/install.sh | sh
 ```
 
-或者 `brew install herdr` · `mise use -g herdr` · Windows：[Herdr Win 安装程序](https://github.com/hdosys/herdr-win/releases) · [二进制文件](https://github.com/herdrdev/herdr/releases)
+或者 `brew install herdr` · `mise use -g herdr` · Windows：[Herdr Extended 安装程序](https://github.com/hdosys/herdr-ext/releases) · [二进制文件](https://github.com/herdrdev/herdr/releases)
 
 然后在工作所在的目录启动它：
 

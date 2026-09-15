@@ -34,7 +34,10 @@ fn main() {
             }
         }
         Err(err) => {
-            let _ = writeln!(std::io::stderr().lock(), "Herdr Win installer error: {err}");
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "Herdr Extended installer error: {err}"
+            );
             std::process::exit(1);
         }
     }

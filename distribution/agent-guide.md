@@ -32,7 +32,7 @@ curl -fsSL https://herdr.dev/install.sh | sh
 herdr
 ```
 
-Windows: download and run the newest `herdr-win_v<version>_windows_amd64_setup.exe` from https://github.com/hdosys/herdr-win/releases, open a new terminal, then run `herdr`.
+Windows: download and run the newest installer from https://github.com/hdosys/herdr-ext/releases, open a new terminal, then run `herdr`.
 
 Homebrew, mise, and Nix installs, verification, and manual downloads: https://herdr.dev/docs/install/. Direct installs use the stable channel by default and update with `herdr update`; preview is opt-in. Package-manager installs update through that package manager. Check the version with `herdr --version`.
 

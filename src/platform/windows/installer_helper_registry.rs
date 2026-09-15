@@ -25,7 +25,8 @@ use super::installer_helper_files::{
     PATH_ADD_PENDING_EXISTING_VALUE,
 };
 
-const PRODUCT_NAME: &str = "Herdr Win";
+const DISPLAY_NAME: &str = "Herdr Extended";
+const PREVIOUS_DISPLAY_NAME: &str = "Herdr Win";
 const PUBLISHER: &str = "herdr-win";
 const ARP_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Herdr Win";
 const ENVIRONMENT_SUBKEY: &str = "Environment";
@@ -755,7 +756,7 @@ pub(crate) fn assert_arp_ownership(install_root: &Path) -> io::Result<()> {
     let display_parts = parse_display_version(&display_version)?;
     let versions_match = u32::from(display_parts[0]) == dword("VersionMajor")?
         && u32::from(display_parts[1]) == dword("VersionMinor")?;
-    if display_name != PRODUCT_NAME
+    if (display_name != DISPLAY_NAME && display_name != PREVIOUS_DISPLAY_NAME)
         || publisher != PUBLISHER
         || !path_eq(Path::new(&registered_root), install_root)?
         || icon != format!("{},0", expected_launcher.display())
@@ -830,7 +831,7 @@ where
         return Err(invalid_data("numeric version must have four parts"));
     }
     for (name, value) in [
-        ("DisplayName", PRODUCT_NAME.to_string()),
+        ("DisplayName", DISPLAY_NAME.to_string()),
         ("DisplayVersion", display_version.to_string()),
         ("Publisher", PUBLISHER.to_string()),
         ("InstallLocation", install_root.display().to_string()),

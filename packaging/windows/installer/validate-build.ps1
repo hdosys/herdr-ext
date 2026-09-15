@@ -144,7 +144,7 @@ if ([IO.Path]::GetFileName([string]$definition.OutputPath) -cne [string]$definit
     throw 'OriginalFilename must exactly match the .exe basename of OutputPath.'
 }
 if ([string]$definition.BuildId -cnotmatch '^[0-9a-f]{12}\.[0-9a-f]{12}$') {
-    throw 'BuildId is not the exact herdr-win build identity.'
+    throw 'BuildId is not the exact Herdr Extended build identity.'
 }
 if ([string]$definition.BaseVersion -cnotmatch '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$') {
     throw 'BaseVersion must be a canonical three-component semantic version.'
@@ -220,4 +220,4 @@ foreach ($asset in $expectedArtwork) {
         -Height $asset.Height
 }
 
-[Console]::Out.WriteLine('Herdr Win installer build inputs validated successfully.')
+[Console]::Out.WriteLine('Herdr Extended installer build inputs validated successfully.')
