@@ -78,16 +78,16 @@ class LocalWindowsInstallerTests(unittest.TestCase):
     def test_identity_parser_accepts_only_local_candidate_contract(self) -> None:
         self.assertEqual(
             parse_identity(
-                f"herdr-win {BUILD_FRESHNESS} (local, Herdr 0.8.0, build {BUILD_ID})",
+                f"herdr-ext {BUILD_FRESHNESS} (local, Herdr 0.8.0, build {BUILD_ID})",
                 BUILD_ID,
             ),
             InstallerIdentity(BUILD_ID, "0.8.0", BUILD_FRESHNESS),
         )
         with self.assertRaisesRegex(LocalInstallerError, "not an exact local build"):
-            parse_identity("herdr-win 2026.08.15.1 (Herdr 0.8.0)", BUILD_ID)
+            parse_identity("herdr-ext 2026.08.15.1 (Herdr 0.8.0)", BUILD_ID)
         with self.assertRaisesRegex(LocalInstallerError, "different local build"):
             parse_identity(
-                f"herdr-win {BUILD_FRESHNESS} (local, Herdr 0.8.0, build aaaaaaaaaaaa.bbbbbbbbbbbb)",
+                f"herdr-ext {BUILD_FRESHNESS} (local, Herdr 0.8.0, build aaaaaaaaaaaa.bbbbbbbbbbbb)",
                 BUILD_ID,
             )
 

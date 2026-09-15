@@ -1,9 +1,9 @@
-name: Build and promote herdr-win release
+name: Build and promote Herdr Extended release
 
 run-name: >-
   ${{ inputs.operation == 'build'
-      && format('Build herdr-win v{0}', inputs.release_version)
-      || format('Promote herdr-win build {0}', inputs.build_run_id) }}
+      && format('Build Herdr Extended v{0}', inputs.release_version)
+      || format('Promote Herdr Extended build {0}', inputs.build_run_id) }}
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ on:
           - build
           - promote
       release_version:
-        description: "Build only: herdr-win CalVer without v (YYYY.MM.DD.N)"
+        description: "Build only: Herdr Extended CalVer without v (YYYY.MM.DD.N)"
         required: false
         type: string
       build_run_id:
@@ -56,7 +56,7 @@ jobs:
       archive_asset_name: ${{ steps.release_identity.outputs.archive_asset_name }}
       installer_asset_name: ${{ steps.release_identity.outputs.installer_asset_name }}
     steps:
-      - name: Checkout herdr-win control repository
+      - name: Checkout Herdr Extended control repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: control
@@ -79,7 +79,7 @@ jobs:
           $assetJson = & python control\scripts\preview.py herdr-win-asset-names `
             --release-version $releaseVersion
           if ($LASTEXITCODE -ne 0) {
-            throw "invalid herdr-win release version '$releaseVersion'"
+            throw "invalid Herdr Extended release version '$releaseVersion'"
           }
           $assets = $assetJson | ConvertFrom-Json
           $archiveAssetName = [string] $assets.'windows-x86_64'
@@ -157,7 +157,7 @@ jobs:
               $control = (git rev-parse "${control}^").Trim()
             }
             if ($control -notmatch '^[0-9a-f]{40}$') {
-              throw "failed to select immutable herdr-win control revision"
+              throw "failed to select immutable Herdr Extended control revision"
             }
             & git checkout --detach $control
             if ($LASTEXITCODE -ne 0) {
@@ -188,7 +188,7 @@ jobs:
         id: replay
         shell: pwsh
         env:
-          GIT_COMMITTER_NAME: herdr-win replay
+          GIT_COMMITTER_NAME: Herdr Extended replay
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           $ErrorActionPreference = "Stop"
@@ -616,7 +616,7 @@ jobs:
           @(
             "## Release candidate ready after this workflow succeeds"
             ""
-            "Promote build run ID ``$env:GITHUB_RUN_ID`` from the **Build and promote herdr-win release** workflow."
+            "Promote build run ID ``$env:GITHUB_RUN_ID`` from the **Build and promote Herdr Extended release** workflow."
             "Candidate artifacts are retained for 14 days."
           ) -join "`n" >> $env:GITHUB_STEP_SUMMARY
 
@@ -673,7 +673,7 @@ jobs:
       LIBGHOSTTY_VT_OPTIMIZE: ReleaseFast
       LIBGHOSTTY_VT_SIMD: "true"
     steps:
-      - name: Checkout tested herdr-win control revision
+      - name: Checkout tested Herdr Extended control revision
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: control
@@ -689,7 +689,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Select herdr-win asset name
+      - name: Select release asset name
         id: asset
         shell: bash
         run: |
@@ -702,7 +702,7 @@ jobs:
           case "$asset_name" in
             "herdr-win_v${RELEASE_VERSION}_"*) ;;
             *)
-              echo "Invalid herdr-win asset name: ${asset_name}" >&2
+              echo "Invalid release asset name: ${asset_name}" >&2
               exit 1
               ;;
           esac
@@ -713,7 +713,7 @@ jobs:
         working-directory: control
         shell: bash
         env:
-          GIT_COMMITTER_NAME: herdr-win replay
+          GIT_COMMITTER_NAME: Herdr Extended replay
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           set -euo pipefail
@@ -1013,7 +1013,7 @@ jobs:
           expected_names="$(python3 control/scripts/preview.py herdr-win-asset-names \
             --release-version "$release_version" | jq -cS .)"
           if [[ "$asset_names_json" != "$expected_names" ]]; then
-            echo "Candidate asset names do not match the tested herdr-win naming owner." >&2
+            echo "Candidate asset names do not match the tested compatibility naming owner." >&2
             exit 1
           fi
 
@@ -1213,7 +1213,7 @@ jobs:
             if [[ "$(jq -r .draft <<<"$release_json")" != "false" || \
                   "$(jq -r .prerelease <<<"$release_json")" != "false" || \
                   "$(jq -r '.immutable // false' <<<"$release_json")" != "true" || \
-                  "$(jq -r .name <<<"$release_json")" != "herdr-win v${RELEASE_VERSION} (Herdr v${BASE_VERSION})" || \
+                  "$(jq -r .name <<<"$release_json")" != "Herdr Extended v${RELEASE_VERSION} (Herdr v${BASE_VERSION})" || \
                   "$(jq '.assets | length' <<<"$release_json")" != "6" ]]; then
               echo "Release ${tag} is not the expected immutable published stable release." >&2
               exit 1
@@ -1259,7 +1259,7 @@ jobs:
               "${portable_assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
-              --title "herdr-win v${RELEASE_VERSION} (Herdr v${BASE_VERSION})" \
+              --title "Herdr Extended v${RELEASE_VERSION} (Herdr v${BASE_VERSION})" \
               --notes-file RELEASE_NOTES.md \
               --latest
 
@@ -1762,7 +1762,7 @@ jobs:
             }
             $managed = Join-Path $installRoot "bin\herdr.exe"
             $version = Invoke-BoundedCaptured -FilePath $managed -Arguments @("--version")
-            if ($version -cne "herdr-win $env:RELEASE_VERSION (Herdr $env:BASE_VERSION)") {
+            if ($version -cne "herdr-ext $env:RELEASE_VERSION (Herdr $env:BASE_VERSION)") {
               throw "published installer returned unexpected managed version: $version"
             }
             $managedUpdate = Invoke-BoundedCaptured -FilePath $managed -Arguments @("update")

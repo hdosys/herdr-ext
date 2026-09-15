@@ -1,7 +1,7 @@
 From f19e02de913e33531d6221d290b868276558e3b6 Mon Sep 17 00:00:00 2001
 From: Can Celik <ogulcancelik@gmail.com>
 Date: Wed, 9 Sep 2026 12:40:39 +0200
-Subject: [PATCH 19/26] fix(worktree): focus newly created worktrees in the
+Subject: [PATCH 19/27] fix(worktree): focus newly created worktrees in the
  requesting client
 
 Backport herdrdev/herdr@8be4cf765afddfd9cf3206602ba4dab682a29fa1. Keep cancellation and endpoint-generation fences on the normal client-local TabFocus path.

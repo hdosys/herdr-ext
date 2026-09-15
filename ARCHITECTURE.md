@@ -2,7 +2,7 @@
 
 ## Purpose and Authority
 
-This file owns herdr-win's stable technical design: upstream/fork boundaries,
+This file owns Herdr Extended's stable technical design: upstream/distribution boundaries,
 source and patch ownership, Windows runtime and installer topology, durable state,
 release architecture, and verification lanes. `PRODUCT.md` owns user-visible
 behavior; code and tests remain the detailed implementation truth.
@@ -295,7 +295,7 @@ behavior; code and tests remain the detailed implementation truth.
   runtime product name remains a validated packager input, with `Herdr` only as the
   current default; packaging code must not hard-code it.
   runtime/install-root identity remains Herdr, while executable
-  metadata and Installed Apps consistently present **Herdr Win**. The NSIS presentation
+  metadata and Installed Apps consistently present **Herdr Extended**. The NSIS presentation
   uses standard MUI2 Welcome/License/Files/Finish pages plus the existing custom
   uninstall choice. Window, Welcome, progress, and Finish presentation reuse that
   one display name; Welcome and Finish titles reuse only the release CalVer or
@@ -351,7 +351,7 @@ behavior; code and tests remain the detailed implementation truth.
   action; there are no migration, compatibility, or backup branches. In particular,
   a runtime-local `herdr-launcher.exe` marks the former two-hop layout and is rejected
   before repair, PATH, or ARP mutation. The user removes its existing **Herdr** entry
-  before a fresh **Herdr Win** install, so setup never co-owns duplicate package
+  before a fresh **Herdr Extended** install, so setup never co-owns duplicate package
   registrations.
 - Exact ARP ownership plus the current bin sentinel and install manifest permit
   repair of the installer control filenames only: missing helper or uninstaller
@@ -422,7 +422,7 @@ behavior; code and tests remain the detailed implementation truth.
   explicit operations: build a retained cross-platform candidate, or promote one
   successful candidate run without rebuilding it. No event or schedule invokes
   either operation automatically.
-- A build dispatch requires a herdr-win CalVer `YYYY.MM.DD.N`. It runs Windows
+- A build dispatch requires a Herdr Extended CalVer `YYYY.MM.DD.N`. It runs Windows
   native/package tests and the four upstream-supported Linux/macOS executable
   builds. Every platform job independently replays recorded `BASE` and the queue;
   each source tree must match the tree tested by the Windows owner job, while one
@@ -472,14 +472,14 @@ behavior; code and tests remain the detailed implementation truth.
   have verified SHA-256 digests; retained historical manifest entries may remain
   Windows-only.
 - Machine-consumed tags and asset filenames remain CalVer-only for existing updater
-  compatibility. The GitHub release title is `herdr-win v<CalVer> (Herdr
+  compatibility. The GitHub release title is `Herdr Extended v<CalVer> (Herdr
   v<upstream-version>)`; release notes and installer metadata expose that same
   stable upstream version alongside the CalVer-bearing original filename.
 - Every published binary receives that same CalVer as compile-time release identity.
-  `herdr --version` renders `herdr-win <CalVer> (Herdr <upstream-version>)`, and
+  `herdr --version` renders `herdr-ext <CalVer> (Herdr <upstream-version>)`, and
   Windows setup, executable resources, and Installed Apps use the CalVer as their
   primary display version. Local builds carry one generated UTC
-  `YYYY.MM.DD.HHMMZ` freshness label and render `herdr-win <freshness> (local,
+  `YYYY.MM.DD.HHMMZ` freshness label and render `herdr-ext <freshness> (local,
   Herdr <upstream-version>, build <build-id>)`. The same label reaches runtime
   status, executable resources, setup UI, and Installed Apps.
 - The runtime build ID remains two lowercase 12-hex components because it owns
@@ -489,7 +489,7 @@ behavior; code and tests remain the detailed implementation truth.
   cannot share one immutable runtime key.
   Full upstream/control hashes and run/attempt metadata remain the exact provenance
   owners. CalVer owns the human fork release identity; the upstream Cargo version
-  remains compatibility/provenance metadata and does not define the herdr-win release.
+  remains compatibility/provenance metadata and does not define the Herdr Extended release.
 - The compiled CalVer also owns update ordering and release-note state. Runtime
   status and handoff use `<CalVer>+<build-id>` for published candidates and
   `<YYYY.MM.DD.HHMMZ>+<build-id>` for provenance-bearing local builds so exact

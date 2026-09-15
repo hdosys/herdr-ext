@@ -1,8 +1,20 @@
 # Changelog
 
-This changelog records only user-visible changes released by the `herdr-win` fork. For Herdr's general release history, see the [official upstream changelog](https://github.com/herdrdev/herdr/blob/master/CHANGELOG.md).
+This changelog records only user-visible changes released by Herdr Extended. For Herdr's general release history, see the [official upstream changelog](https://github.com/herdrdev/herdr/blob/master/CHANGELOG.md).
 
 ## Unreleased
+
+## [2026.09.15.2] - 2026-09-15
+
+Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.
+
+### Changed
+- The distribution now presents **Herdr Extended** consistently in runtime
+  versions, Windows setup, Installed Apps, documentation, and release pages while
+  preserving the `herdr` command, configuration, state, sessions, sockets, and
+  protocol.
+- Existing managed installations and package-manager ownership upgrade in place
+  through their current technical identifiers.
 
 ## [2026.09.15.1] - 2026-09-15
 

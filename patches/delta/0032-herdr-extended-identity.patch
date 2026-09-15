@@ -1,0 +1,636 @@
+From f572d89d1ff45bea4f02b6759a28a712e74e8ac7 Mon Sep 17 00:00:00 2001
+From: User-3090 <71881005+User-3090@users.noreply.github.com>
+Date: Tue, 15 Sep 2026 18:24:37 +0200
+Subject: [PATCH 27/27] feat(distribution): rename fork to Herdr Extended
+
+---
+ CHANGELOG.md                                  |  2 +-
+ README.zh-CN.md                               |  2 +-
+ distribution/agent-guide.md                   |  2 +-
+ docs/next/README.zh-CN.md                     |  2 +-
+ .../next/website/src/content/docs/install.mdx |  6 +++---
+ .../website/src/content/docs/ja/install.mdx   |  4 ++--
+ .../src/content/docs/ja/windows-beta.mdx      |  2 +-
+ .../src/content/docs/persistence-remote.mdx   |  2 +-
+ .../website/src/content/docs/windows-beta.mdx |  2 +-
+ .../src/content/docs/zh-cn/install.mdx        |  4 ++--
+ .../src/content/docs/zh-cn/windows-beta.mdx   |  2 +-
+ packaging/windows/installer/project.nsi       |  2 +-
+ .../windows/installer/validate-build.ps1      |  4 ++--
+ scripts/package_windows_installer.ps1         | 10 +++++-----
+ scripts/test_preview.py                       |  2 +-
+ scripts/windows_installer_fault_test.ps1      |  2 +-
+ src/bin/herdr-installer-helper.rs             |  5 ++++-
+ src/build_info.rs                             |  4 ++--
+ src/distribution.rs                           |  8 ++++----
+ src/main.rs                                   |  4 ++--
+ .../windows/installer_helper_files.rs         | 14 ++++++-------
+ .../windows/installer_helper_lifecycle.rs     | 16 +++++++--------
+ .../windows/installer_helper_registry.rs      |  7 ++++---
+ src/remote/attach.rs                          |  2 +-
+ src/update.rs                                 | 20 +++++++++----------
+ 25 files changed, 67 insertions(+), 63 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 639c78a827c9520d6f23baa7401cc158ecf9badb..6bcd737b045ce138f371686f6d512d36b54b001f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,7 +4,7 @@
+ 
+ ### Added
+ - Direct OpenCode subagents from Herdr-managed roots now open in adaptive unfocused splits that evenly tile the complete tab across both axes, then close when the child session becomes idle or is deleted.
+-- Local herdr-win binaries and Windows setup now lead with one sortable UTC `YYYY.MM.DD.HHMMZ` build label while retaining the exact build ID as secondary provenance.
++- Local Herdr Extended binaries and Windows setup now lead with one sortable UTC `YYYY.MM.DD.HHMMZ` build label while retaining the exact build ID as secondary provenance.
+ 
+ ### Fixed
+ - Windows Agent autostart now treats `nu` and `nu.exe` as the same Nushell executable, so either accepted shell spelling reaches the existing new-tab launch path.
+diff --git a/README.zh-CN.md b/README.zh-CN.md
+index b3ce316fa922c223a140fc97352441e85660ddc9..24a0fb1b2be743dc4e1a8ebae3cef76bc5139bcd 100644
+--- a/README.zh-CN.md
++++ b/README.zh-CN.md
+@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
+ curl -fsSL https://herdr.dev/install.sh | sh
+ ```
+ 
+-或者 `brew install herdr` · `mise use -g herdr` · Windows 测试版：[Herdr Win 安装程序](https://github.com/hdosys/herdr-win/releases) · [二进制文件](https://github.com/herdrdev/herdr/releases)
++或者 `brew install herdr` · `mise use -g herdr` · Windows 测试版：[Herdr Extended 安装程序](https://github.com/hdosys/herdr-ext/releases) · [二进制文件](https://github.com/herdrdev/herdr/releases)
+ 
+ 然后在工作所在的目录启动它：
+ 
+diff --git a/distribution/agent-guide.md b/distribution/agent-guide.md
+index 37c6048cd434143d6cae55c30fba662700626534..9d66c7dad2b7a02db0313761f32c6b5d3545542f 100644
+--- a/distribution/agent-guide.md
++++ b/distribution/agent-guide.md
+@@ -32,7 +32,7 @@ curl -fsSL https://herdr.dev/install.sh | sh
+ herdr
+ ```
+ 
+-Windows: download and run the newest `herdr-win_v<version>_windows_amd64_setup.exe` from https://github.com/hdosys/herdr-win/releases, open a new terminal, then run `herdr`.
++Windows: download and run the newest installer from https://github.com/hdosys/herdr-ext/releases, open a new terminal, then run `herdr`.
+ 
+ Homebrew, mise, and Nix installs, verification, and manual downloads: https://herdr.dev/docs/install/. Direct installs use the stable channel by default and update with `herdr update`; preview is opt-in. Package-manager installs update through that package manager. Check the version with `herdr --version`.
+ 
+diff --git a/docs/next/README.zh-CN.md b/docs/next/README.zh-CN.md
+index 8cc65d181044e4766d5a3f9de5c7aba18cfc8f7a..8a31fd4762f20401b94a5a430fbfda35a65cd08b 100644
+--- a/docs/next/README.zh-CN.md
++++ b/docs/next/README.zh-CN.md
+@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
+ curl -fsSL https://herdr.dev/install.sh | sh
+ ```
+ 
+-或者 `brew install herdr` · `mise use -g herdr` · Windows：[Herdr Win 安装程序](https://github.com/hdosys/herdr-win/releases) · [二进制文件](https://github.com/herdrdev/herdr/releases)
++或者 `brew install herdr` · `mise use -g herdr` · Windows：[Herdr Extended 安装程序](https://github.com/hdosys/herdr-ext/releases) · [二进制文件](https://github.com/herdrdev/herdr/releases)
+ 
+ 然后在工作所在的目录启动它：
+ 
+diff --git a/docs/next/website/src/content/docs/install.mdx b/docs/next/website/src/content/docs/install.mdx
+index 367bd8feb7c4da2e42ca2a1d204609611c12d1fe..d316c5c2e747ef9447a23069619af8d7df28ef4b 100644
+--- a/docs/next/website/src/content/docs/install.mdx
++++ b/docs/next/website/src/content/docs/install.mdx
+@@ -13,7 +13,7 @@ On Linux or macOS, run:
+ curl -fsSL https://herdr.dev/install.sh | sh
+ ```
+ 
+-On Windows, download the newest `herdr-win_v<version>_windows_amd64_setup.exe` from the [herdr-win releases](https://github.com/hdosys/herdr-win/releases) and run it. Setup installs for the current user without administrator access, adds `herdr` to the user `PATH`, and registers **Herdr Win** in Installed Apps. It keeps one stable launcher at `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` and immutable runtime directories for safe updates while sessions are active.
++On Windows, download the newest installer from the [Herdr Extended releases](https://github.com/hdosys/herdr-ext/releases) and run it. Setup installs for the current user without administrator access, adds `herdr` to the user `PATH`, and registers **Herdr Extended** in Installed Apps. It keeps one stable launcher at `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` and immutable runtime directories for safe updates while sessions are active.
+ 
+ ## Install with Homebrew
+ 
+@@ -87,7 +87,7 @@ mv herdr-linux-x86_64 ~/.local/bin/herdr
+ 
+ ### Windows archive
+ 
+-Use the herdr-win setup above for normal testing, or download the matching portable ZIP from the same herdr-win release:
++Use the Herdr Extended setup above for normal testing, or download the matching portable ZIP from the same Herdr Extended release:
+ 
+ | System | Asset |
+ | --- | --- |
+@@ -115,7 +115,7 @@ herdr update
+ 
+ Use `herdr update` only for installs managed by Herdr's own installer. Update Homebrew, mise, and Nix installs through those package managers instead.
+ 
+-The installed distribution owns its update feed. Official Herdr direct installs use official Herdr releases. A herdr-win build uses only the fork's CalVer release feed and cannot be redirected to official Herdr or another channel through config. Homebrew, mise, Nix, and WinGet installs update through their package manager.
++The installed distribution owns its update feed. Official Herdr direct installs use official Herdr releases. A Herdr Extended build uses only the distribution's CalVer release feed and cannot be redirected to official Herdr or another channel through config. Homebrew, mise, Nix, and WinGet installs update through their package manager.
+ 
+ By default, `herdr update` installs the new binary and leaves endpoint-generation-1 servers and their pane processes running. Start Herdr again to reconnect with the updated client. Client-only changes work immediately. A new server-side action stays unavailable until that server is updated and restarted; the client shows a notice instead of disconnecting. Servers from before endpoint generation 1 need one final stop during update.
+ 
+diff --git a/docs/next/website/src/content/docs/ja/install.mdx b/docs/next/website/src/content/docs/ja/install.mdx
+index c5c9527f61801bed14a2f9e5a229adc0aae56174..60e9605d892b178d5b8f49eec7e1fd86d4d1a9f8 100644
+--- a/docs/next/website/src/content/docs/ja/install.mdx
++++ b/docs/next/website/src/content/docs/ja/install.mdx
+@@ -13,7 +13,7 @@ Linux または macOS では次を実行します:
+ curl -fsSL https://herdr.dev/install.sh | sh
+ ```
+ 
+-Windows では、[herdr-win のリリース](https://github.com/hdosys/herdr-win/releases) から最新の `herdr-win_v<version>_windows_amd64_setup.exe` をダウンロードして実行します。セットアップは管理者権限なしで現在のユーザー向けにインストールし、`herdr` をユーザーの `PATH` に追加して、インストールされているアプリに **Herdr Win** を登録します。安全な更新のため、`%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` に 1 つの安定したランチャーを置き、セッションが実行中の間は不変のランタイムディレクトリを使用します。
++Windows では、[Herdr Extended のリリース](https://github.com/hdosys/herdr-ext/releases) から最新の Windows インストーラーをダウンロードして実行します。セットアップは管理者権限なしで現在のユーザー向けにインストールし、`herdr` をユーザーの `PATH` に追加して、インストールされているアプリに **Herdr Extended** を登録します。安全な更新のため、`%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` に 1 つの安定したランチャーを置き、セッションが実行中の間は不変のランタイムディレクトリを使用します。
+ 
+ ## Homebrew でインストール
+ 
+@@ -109,7 +109,7 @@ herdr update
+ 
+ `herdr update` は Herdr 自身のインストーラーで管理されているインストール向けです。Homebrew、mise、Nix のインストールは、それぞれのパッケージマネージャーでアップデートしてください。
+ 
+-インストール済みのディストリビューションが更新フィードを所有します。公式 Herdr の直接インストールは公式リリースを使用します。herdr-win ビルドはフォークの CalVer リリースフィードのみを使用し、設定で公式 Herdr や別のチャンネルへ切り替えることはできません。Homebrew、mise、Nix、WinGet のインストールは、それぞれのパッケージマネージャーで更新します。
++インストール済みのディストリビューションが更新フィードを所有します。公式 Herdr の直接インストールは公式リリースを使用します。Herdr Extended ビルドはディストリビューションの CalVer リリースフィードのみを使用し、設定で公式 Herdr や別のチャンネルへ切り替えることはできません。Homebrew、mise、Nix、WinGet のインストールは、それぞれのパッケージマネージャーで更新します。
+ 
+ デフォルトでは、`herdr update` は新しいバイナリをインストールし、エンドポイント世代 1 のサーバーとペインプロセスを動かしたままにします。再度 Herdr を起動すると、更新済みクライアントで再接続します。クライアントだけの変更はすぐに使えます。新しいサーバー側アクションは、そのサーバーを更新して再起動するまで利用できず、クライアントは切断せずに通知を表示します。エンドポイント世代 1 より前のサーバーだけは、更新時に最後の 1 回の停止が必要です。
+ 
+diff --git a/docs/next/website/src/content/docs/ja/windows-beta.mdx b/docs/next/website/src/content/docs/ja/windows-beta.mdx
+index 167a92a53ab79dd4188750ab6bb6389715ea03c8..db21d06216bec68d602639ccc4b42a07a746627b 100644
+--- a/docs/next/website/src/content/docs/ja/windows-beta.mdx
++++ b/docs/next/website/src/content/docs/ja/windows-beta.mdx
+@@ -7,7 +7,7 @@ description: ネイティブ Windows 対応、サポートされるワークフ
+ 
+ Windows 上の Herdr は、Herdr が本来前提としていた Unix の PTY モデルではなく、ConPTY と Windows のプロセス/ランタイム挙動を使います。主要なワークフローの多くはサポートされていますが、一部の機能は Linux/macOS と異なるか、プラットフォームに依存します。残っている差を埋める間、Windows 固有の修正がより多く提供されることがあります。
+ 
+-Windows ネイティブビルドは、[herdr-win のリリース](https://github.com/hdosys/herdr-win/releases) から最新の `herdr-win_v<version>_windows_amd64_setup.exe` をダウンロードしてインストールします。ユーザー単位の NSIS セットアップは管理者権限を必要とせず、インストールされているアプリに **Herdr Win** を登録し、`%LOCALAPPDATA%\Programs\Herdr\bin` をユーザーの `PATH` に追加します。1 つの安定したランチャーが `%LOCALAPPDATA%\Programs\Herdr\runtime` の不変ランタイムを選択するため、実行中のセッションは新しいランタイムが有効になる前に終了できます。
++Windows ネイティブビルドは、[Herdr Extended のリリース](https://github.com/hdosys/herdr-ext/releases) から最新の Windows インストーラーをダウンロードしてインストールします。ユーザー単位の NSIS セットアップは管理者権限を必要とせず、インストールされているアプリに **Herdr Extended** を登録し、`%LOCALAPPDATA%\Programs\Herdr\bin` をユーザーの `PATH` に追加します。1 つの安定したランチャーが `%LOCALAPPDATA%\Programs\Herdr\runtime` の不変ランタイムを選択するため、実行中のセッションは新しいランタイムが有効になる前に終了できます。
+ 
+ インストール済みの Windows ディストリビューションはフォークの CalVer 更新フィードを所有し、設定で公式 Herdr や別のチャンネルへ切り替えることはできません。
+ 
+diff --git a/docs/next/website/src/content/docs/persistence-remote.mdx b/docs/next/website/src/content/docs/persistence-remote.mdx
+index 667164fe3d8050bcd17dc280b6574adfc892cdb3..fcd3c8073546dccfbf35d8d9746018bf7acf5c47 100644
+--- a/docs/next/website/src/content/docs/persistence-remote.mdx
++++ b/docs/next/website/src/content/docs/persistence-remote.mdx
+@@ -88,7 +88,7 @@ herdr --remote workbox --handoff
+ 
+ If you SSH into the server first and run `herdr` there, Herdr runs entirely on the server and cannot access your local desktop clipboard beyond normal terminal text paste.
+ 
+-When local and remote platforms match, direct installs can copy their current executable. Otherwise herdr-win uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
++When local and remote platforms match, direct installs can copy their current executable. Otherwise Herdr Extended uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
+ 
+ For local builds or custom binaries, set `HERDR_REMOTE_BINARY` to a local file path before running remote attach.
+ 
+diff --git a/docs/next/website/src/content/docs/windows-beta.mdx b/docs/next/website/src/content/docs/windows-beta.mdx
+index 854624ab1f420b844f86a3014a773b65f919e4a8..239fd0a3092a4543a90fa8df5b620e640b4298c4 100644
+--- a/docs/next/website/src/content/docs/windows-beta.mdx
++++ b/docs/next/website/src/content/docs/windows-beta.mdx
+@@ -7,7 +7,7 @@ Native Windows support is generally available.
+ 
+ Herdr on Windows uses ConPTY and Windows process/runtime behavior instead of the Unix PTY model Herdr was originally built around. Most core workflows are supported, but some capabilities differ from Linux and macOS or remain platform-dependent. Windows may receive more platform-specific fixes as those remaining gaps close.
+ 
+-Install native Windows builds by downloading the newest `herdr-win_v<version>_windows_amd64_setup.exe` from the [herdr-win releases](https://github.com/hdosys/herdr-win/releases). The per-user NSIS setup requires no administrator access, registers **Herdr Win** in Installed Apps, and puts `%LOCALAPPDATA%\Programs\Herdr\bin` on the user `PATH`. One stable launcher selects immutable runtimes under `%LOCALAPPDATA%\Programs\Herdr\runtime` so active sessions can finish before a newer runtime is activated.
++Install native Windows builds by downloading the newest installer from the [Herdr Extended releases](https://github.com/hdosys/herdr-ext/releases). The per-user NSIS setup requires no administrator access, registers **Herdr Extended** in Installed Apps, and puts `%LOCALAPPDATA%\Programs\Herdr\bin` on the user `PATH`. One stable launcher selects immutable runtimes under `%LOCALAPPDATA%\Programs\Herdr\runtime` so active sessions can finish before a newer runtime is activated.
+ 
+ The installed Windows distribution owns its fork CalVer update feed and cannot be redirected to official Herdr or another channel through config.
+ 
+diff --git a/docs/next/website/src/content/docs/zh-cn/install.mdx b/docs/next/website/src/content/docs/zh-cn/install.mdx
+index 23917b2c5cd4adb35f10e5fa1cd4c6e4984c81d3..9ed356c627e6e73b0ecb60f106f9fd265598d0b1 100644
+--- a/docs/next/website/src/content/docs/zh-cn/install.mdx
++++ b/docs/next/website/src/content/docs/zh-cn/install.mdx
+@@ -13,7 +13,7 @@ Herdr 为 Linux、macOS 和 Windows 提供稳定通道二进制文件。Windows
+ curl -fsSL https://herdr.dev/install.sh | sh
+ ```
+ 
+-在 Windows 上,从 [herdr-win 发布页](https://github.com/hdosys/herdr-win/releases) 下载最新的 `herdr-win_v<version>_windows_amd64_setup.exe` 并运行。安装程序无需管理员权限,为当前用户安装,将 `herdr` 添加到用户 `PATH`,并在已安装的应用中注册 **Herdr Win**。为了安全更新,它在 `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` 保留一个稳定启动器,并在会话运行期间使用不可变运行时目录。
++在 Windows 上,从 [Herdr Extended 发布页](https://github.com/hdosys/herdr-ext/releases) 下载最新的 Windows 安装程序并运行。安装程序无需管理员权限,为当前用户安装,将 `herdr` 添加到用户 `PATH`,并在已安装的应用中注册 **Herdr Extended**。为了安全更新,它在 `%LOCALAPPDATA%\Programs\Herdr\bin\herdr.exe` 保留一个稳定启动器,并在会话运行期间使用不可变运行时目录。
+ 
+ ## 用 Homebrew 安装
+ 
+@@ -109,7 +109,7 @@ herdr update
+ 
+ `herdr update` 适用于由 Herdr 自带安装器管理的安装。Homebrew、mise 和 Nix 安装请改用那些包管理器更新。
+ 
+-已安装的发行版拥有自己的更新源。官方 Herdr 直接安装使用官方 Herdr 发布。herdr-win 构建只使用该分支的 CalVer 发布源,不能通过配置切换到官方 Herdr 或其他通道。Homebrew、mise、Nix 和 WinGet 安装通过各自的包管理器更新。
++已安装的发行版拥有自己的更新源。官方 Herdr 直接安装使用官方 Herdr 发布。Herdr Extended 构建只使用该发行版的 CalVer 发布源,不能通过配置切换到官方 Herdr 或其他通道。Homebrew、mise、Nix 和 WinGet 安装通过各自的包管理器更新。
+ 
+ 默认情况下,`herdr update` 会安装新二进制文件,并让端点第 1 代服务器及其窗格进程继续运行。再次启动 Herdr 即可用更新后的客户端重新连接。纯客户端改动会立即生效。新的服务器端操作会保持不可用,直到对应服务器更新并重启;客户端会显示通知,而不会断开连接。只有早于端点第 1 代的服务器需要在更新时再停止最后一次。
+ 
+diff --git a/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx b/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
+index 286dfec59ae893b15845bdb93f76edbb6acd0a9b..bccd57790188ba953e95160af18172ae2d62f52c 100644
+--- a/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
++++ b/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
+@@ -7,7 +7,7 @@ Windows 原生支持已正式发布。
+ 
+ Windows 上的 Herdr 使用 ConPTY 和 Windows 的进程/运行时行为,而不是 Herdr 最初围绕构建的 Unix PTY 模型。大多数核心工作流已受支持,但部分能力与 Linux/macOS 不同或取决于平台。随着这些剩余差距逐步缩小,Windows 可能会收到更多平台专用修复。
+ 
+-安装 Windows 原生构建时,从 [herdr-win 发布页](https://github.com/hdosys/herdr-win/releases) 下载最新的 `herdr-win_v<version>_windows_amd64_setup.exe`。按用户安装的 NSIS 安装程序无需管理员权限,在已安装的应用中注册 **Herdr Win**,并将 `%LOCALAPPDATA%\Programs\Herdr\bin` 添加到用户 `PATH`。一个稳定启动器会选择 `%LOCALAPPDATA%\Programs\Herdr\runtime` 下的不可变运行时,因此活动会话可以在启用新运行时之前正常结束。
++安装 Windows 原生构建时,从 [Herdr Extended 发布页](https://github.com/hdosys/herdr-ext/releases) 下载最新的 Windows 安装程序。按用户安装的 NSIS 安装程序无需管理员权限,在已安装的应用中注册 **Herdr Extended**,并将 `%LOCALAPPDATA%\Programs\Herdr\bin` 添加到用户 `PATH`。一个稳定启动器会选择 `%LOCALAPPDATA%\Programs\Herdr\runtime` 下的不可变运行时,因此活动会话可以在启用新运行时之前正常结束。
+ 
+ 已安装的 Windows 发行版拥有该分支的 CalVer 更新源,不能通过配置切换到官方 Herdr 或其他通道。
+ 
+diff --git a/packaging/windows/installer/project.nsi b/packaging/windows/installer/project.nsi
+index 0e39ca6305f82d5e06266df5d068bdfa1765e37c..56a0ee08168f565a6d3c203bdf606092194b515f 100644
+--- a/packaging/windows/installer/project.nsi
++++ b/packaging/windows/installer/project.nsi
+@@ -144,7 +144,7 @@ Var InstallMutationActive
+ !pragma verifyloadimage "${INSTALLER_WELCOME_BITMAP_175}"
+ !pragma verifyloadimage "${INSTALLER_WELCOME_BITMAP_200}"
+ !define MUI_WELCOMEPAGE_TITLE "Install ${INFO_DISTRIBUTIONNAME} ${INFO_PRODUCTVERSION_UI}"
+-!define MUI_WELCOMEPAGE_TEXT "This setup installs ${INFO_DISTRIBUTIONNAME}, an unofficial Windows distribution of ${INFO_PRODUCTNAME}. It advances Windows support by applying this fork's patches to the latest reviewed stable ${INFO_PRODUCTNAME} ${INFO_UPSTREAMVERSION} release.$\r$\n$\r$\nNo administrator access is required. Open a new terminal after setup so it can find ${INFO_COMMANDNAME} on PATH."
++!define MUI_WELCOMEPAGE_TEXT "This setup installs ${INFO_DISTRIBUTIONNAME}, an unofficial extended distribution of ${INFO_PRODUCTNAME}. It applies a focused set of maintained improvements to the latest reviewed stable ${INFO_PRODUCTNAME} ${INFO_UPSTREAMVERSION} release.$\r$\n$\r$\nNo administrator access is required. Open a new terminal after setup so it can find ${INFO_COMMANDNAME} on PATH."
+ !define MUI_FINISHPAGE_NOREBOOTSUPPORT
+ !define MUI_FINISHPAGE_TEXT_LARGE
+ !define MUI_FINISHPAGE_TITLE "${INFO_DISTRIBUTIONNAME} ${INFO_PRODUCTVERSION_UI} is installed"
+diff --git a/packaging/windows/installer/validate-build.ps1 b/packaging/windows/installer/validate-build.ps1
+index b2474524505ee34bb2742989a40301c3e316faba..402f4450fc339658a39e182e63f1411708a89a3a 100644
+--- a/packaging/windows/installer/validate-build.ps1
++++ b/packaging/windows/installer/validate-build.ps1
+@@ -144,7 +144,7 @@ if ([IO.Path]::GetFileName([string]$definition.OutputPath) -cne [string]$definit
+     throw 'OriginalFilename must exactly match the .exe basename of OutputPath.'
+ }
+ if ([string]$definition.BuildId -cnotmatch '^[0-9a-f]{12}\.[0-9a-f]{12}$') {
+-    throw 'BuildId is not the exact herdr-win build identity.'
++    throw 'BuildId is not the exact Herdr Extended build identity.'
+ }
+ if ([string]$definition.BaseVersion -cnotmatch '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$') {
+     throw 'BaseVersion must be a canonical three-component semantic version.'
+@@ -220,4 +220,4 @@ foreach ($asset in $expectedArtwork) {
+         -Height $asset.Height
+ }
+ 
+-[Console]::Out.WriteLine('Herdr Win installer build inputs validated successfully.')
++[Console]::Out.WriteLine('Herdr Extended installer build inputs validated successfully.')
+diff --git a/scripts/package_windows_installer.ps1 b/scripts/package_windows_installer.ps1
+index 25de34ebc8b870848da3eaea54b671cbb6bbe5a8..81a13f6ab9d4bd31de702c4f1e0fa162faf696b5 100644
+--- a/scripts/package_windows_installer.ps1
++++ b/scripts/package_windows_installer.ps1
+@@ -51,11 +51,11 @@ $NsisVersion = "3.12"
+ $NsisArchiveName = "nsis-$NsisVersion.zip"
+ $NsisArchiveUrl = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$NsisVersion/$NsisArchiveName"
+ $NsisArchiveSha256 = "56581f90db321581c5381193d796fffcf2d24b2f8fed2160a6c6a3baa67f2c4f"
+-$CompanyName = "herdr-win"
++$CompanyName = "Herdr Extended"
+ $Copyright = "Herdr contributors"
+ $CommandName = "herdr"
+-$DistributionName = "Herdr Win"
+-$ProductUrl = "https://github.com/hdosys/herdr-win"
++$DistributionName = "Herdr Extended"
++$ProductUrl = "https://github.com/hdosys/herdr-ext"
+ $UpstreamUrl = "https://github.com/herdrdev/herdr"
+ $InstallerStartGateEnvironmentVariable = "HERDR_INSTALLER_START_GATE_V1"
+ $InstallerTestMarkerPrefix = "herdr"
+@@ -295,7 +295,7 @@ function Get-VersionIdentity {
+             Display = "$BuildFreshness (local, build $BuildId)"
+             Numeric = "$([int]$freshnessMatch.Groups['year'].Value).$([int]$freshnessMatch.Groups['month'].Value).$([int]$freshnessMatch.Groups['day'].Value).$timeComponent"
+             Ui = $BuildFreshness
+-            ExpectedCli = "herdr-win $BuildFreshness (local, Herdr $BaseVersion, build $BuildId)"
++            ExpectedCli = "herdr-ext $BuildFreshness (local, Herdr $BaseVersion, build $BuildId)"
+         }
+     }
+     $match = [regex]::Match($ReleaseVersion, $ReleaseVersionPattern)
+@@ -322,7 +322,7 @@ function Get-VersionIdentity {
+         Display = $ReleaseVersion
+         Numeric = "$([int]$match.Groups['year'].Value).$([int]$match.Groups['month'].Value).$([int]$match.Groups['day'].Value).$sequence"
+         Ui = $ReleaseVersion
+-        ExpectedCli = "herdr-win $ReleaseVersion (Herdr $BaseVersion)"
++        ExpectedCli = "herdr-ext $ReleaseVersion (Herdr $BaseVersion)"
+     }
+ }
+ 
+diff --git a/scripts/test_preview.py b/scripts/test_preview.py
+index 7f90fd060c2237cb7652f61c46d8cb192c34b290..bf9b996b08797a209bb5834af8278da7afb65536 100644
+--- a/scripts/test_preview.py
++++ b/scripts/test_preview.py
+@@ -159,7 +159,7 @@ class PreviewNotesTests(unittest.TestCase):
+                 ):
+                     preview.build_manifest(
+                         output=Path(tmp) / "preview.json",
+-                        repo="hdosys/herdr-win",
++                        repo="hdosys/herdr-ext",
+                         tag=VALID_RELEASE_TAG,
+                         build_id="abcdef123456.7890abcdef12",
+                         commit="abcdef",
+diff --git a/scripts/windows_installer_fault_test.ps1 b/scripts/windows_installer_fault_test.ps1
+index 5d9c2cf3c838d58f3f8a446ffb1c618bd237c338..649fc755f599902fba18e083f0406e1eba9e2bda 100644
+--- a/scripts/windows_installer_fault_test.ps1
++++ b/scripts/windows_installer_fault_test.ps1
+@@ -9,7 +9,7 @@ param(
+     [Parameter(Mandatory = $true)][string]$BaseVersion,
+     [Parameter(Mandatory = $true)][string]$OutputDir,
+     [string]$ProductName = "Herdr",
+-    [string]$PackageName = "Herdr Win",
++    [string]$PackageName = "Herdr Extended",
+     [string]$AgentUserProfileRoot,
+     [string[]]$Faults = @(
+         "after-bin-directory",
+diff --git a/src/bin/herdr-installer-helper.rs b/src/bin/herdr-installer-helper.rs
+index 5014c1bd9965a960407bfb976de8ec4699d81941..fe7c96c9c23754b7dd5e6611996391246e74bfc9 100644
+--- a/src/bin/herdr-installer-helper.rs
++++ b/src/bin/herdr-installer-helper.rs
+@@ -34,7 +34,10 @@ fn main() {
+             }
+         }
+         Err(err) => {
+-            let _ = writeln!(std::io::stderr().lock(), "Herdr Win installer error: {err}");
++            let _ = writeln!(
++                std::io::stderr().lock(),
++                "Herdr Extended installer error: {err}"
++            );
+             std::process::exit(1);
+         }
+     }
+diff --git a/src/build_info.rs b/src/build_info.rs
+index 6454f88ae73649e2cbdf1cb231046c7c367d0231..7071c4ad52cccf136f013a9b91e3f6ca90cf846b 100644
+--- a/src/build_info.rs
++++ b/src/build_info.rs
+@@ -151,7 +151,7 @@ mod tests {
+                 "0.8.0",
+                 Some("0123456789ab.cdef01234567")
+             ),
+-            "herdr-win 2026.08.11.1 (Herdr 0.8.0)"
++            "herdr-ext 2026.08.11.1 (Herdr 0.8.0)"
+         );
+     }
+ 
+@@ -164,7 +164,7 @@ mod tests {
+                 "0.8.0",
+                 Some("0123456789ab.cdef01234567")
+             ),
+-            "herdr-win 2026.08.28.1045Z (local, Herdr 0.8.0, build 0123456789ab.cdef01234567)"
++            "herdr-ext 2026.08.28.1045Z (local, Herdr 0.8.0, build 0123456789ab.cdef01234567)"
+         );
+     }
+ }
+diff --git a/src/distribution.rs b/src/distribution.rs
+index b0eaaee535418503be2f0416d597eaa522512eed..0d767b7f0c2cb21a000903e0c2b4bcb87f8208bd 100644
+--- a/src/distribution.rs
++++ b/src/distribution.rs
+@@ -1,9 +1,9 @@
+-//! Compile-time distribution configuration for herdr-win.
++//! Compile-time distribution configuration for Herdr Extended.
+ 
+-pub(crate) const CLI_VERSION_NAME: &str = "herdr-win";
++pub(crate) const CLI_VERSION_NAME: &str = "herdr-ext";
+ pub(crate) const UPDATE_CHANNEL: &str = "preview";
+ pub(crate) const PREVIEW_MANIFEST_URL: &str =
+-    "https://raw.githubusercontent.com/hdosys/herdr-win/master/website/preview.json";
++    "https://raw.githubusercontent.com/hdosys/herdr-ext/master/website/preview.json";
+ 
+ pub(crate) const RELEASE_DOWNLOAD_PREFIX: &str =
+-    "https://github.com/hdosys/herdr-win/releases/download/";
++    "https://github.com/hdosys/herdr-ext/releases/download/";
+diff --git a/src/main.rs b/src/main.rs
+index cd870f070e64f7c3b3a0a8593ddfc4a6b666c605..017912747b44dfb477cc54bf480d4d0616b13d35 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -120,10 +120,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+ # kitty_graphics = true
+ 
+ [update]
+-# The herdr-win update source is fixed by src/distribution.rs.
++# The Herdr Extended update source is fixed by src/distribution.rs.
+ # User configuration cannot redirect the updater away from the fork release feed.
+ 
+-# Check the configured herdr-win feed for new versions in the background.
++# Check the configured Herdr Extended feed for new versions in the background.
+ # version_check = true
+ 
+ # Check herdr.dev for remote agent-detection manifest updates in the background.
+diff --git a/src/platform/windows/installer_helper_files.rs b/src/platform/windows/installer_helper_files.rs
+index 2ef2fb129faa64898c0fd0c8b2b595f2cb548559..5d0f4fa74ef28b08b66d2bc8ff4bdeecf3965733 100644
+--- a/src/platform/windows/installer_helper_files.rs
++++ b/src/platform/windows/installer_helper_files.rs
+@@ -76,7 +76,7 @@ pub(crate) fn invalid_data(message: impl Into<String>) -> io::Error {
+ 
+ pub(crate) fn incompatible_installation() -> io::Error {
+     invalid_data(
+-        "An existing Herdr installation was created by an older setup and cannot be updated directly. Uninstall Herdr or Herdr Win from Windows Settings > Apps > Installed apps, then run this setup again. Your existing installation was not changed.",
++        "An existing Herdr installation was created by an older setup and cannot be updated directly. Uninstall Herdr or Herdr Extended from Windows Settings > Apps > Installed apps, then run this setup again. Your existing installation was not changed.",
+     )
+ }
+ 
+@@ -751,21 +751,21 @@ fn parse_release_calver(display: &str) -> io::Result<[u16; 4]> {
+         || components[3].starts_with('0')
+     {
+         return Err(invalid_data(format!(
+-            "invalid herdr-win release version {display:?}"
++            "invalid Herdr Extended release version {display:?}"
+         )));
+     }
+     let year = components[0]
+         .parse::<u16>()
+-        .map_err(|_| invalid_data("invalid herdr-win release year"))?;
++        .map_err(|_| invalid_data("invalid Herdr Extended release year"))?;
+     let month = components[1]
+         .parse::<u16>()
+-        .map_err(|_| invalid_data("invalid herdr-win release month"))?;
++        .map_err(|_| invalid_data("invalid Herdr Extended release month"))?;
+     let day = components[2]
+         .parse::<u16>()
+-        .map_err(|_| invalid_data("invalid herdr-win release day"))?;
++        .map_err(|_| invalid_data("invalid Herdr Extended release day"))?;
+     let sequence = components[3]
+         .parse::<u16>()
+-        .map_err(|_| invalid_data("invalid herdr-win release sequence"))?;
++        .map_err(|_| invalid_data("invalid Herdr Extended release sequence"))?;
+     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+     let max_day = match month {
+         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+@@ -776,7 +776,7 @@ fn parse_release_calver(display: &str) -> io::Result<[u16; 4]> {
+     };
+     if year == 0 || day == 0 || day > max_day || sequence == 0 {
+         return Err(invalid_data(format!(
+-            "invalid herdr-win release version {display:?}"
++            "invalid Herdr Extended release version {display:?}"
+         )));
+     }
+     Ok([year, month, day, sequence])
+diff --git a/src/platform/windows/installer_helper_lifecycle.rs b/src/platform/windows/installer_helper_lifecycle.rs
+index e66ceadf0dc6374f88c311cd91e5ddaa993bf97b..5392f73281d3f2fed0924cb290c46ccfd87fe6f1 100644
+--- a/src/platform/windows/installer_helper_lifecycle.rs
++++ b/src/platform/windows/installer_helper_lifecycle.rs
+@@ -508,7 +508,7 @@ pub(crate) fn uninstall(options: UninstallOptions) -> io::Result<String> {
+             }
+         }
+         remove_fault_marker(options.fault.as_deref(), &options.fault_marker_prefix)?;
+-        let mut output = String::from("Herdr Win uninstall cleanup is ready.");
++        let mut output = String::from("Herdr Extended uninstall cleanup is ready.");
+         for path in preserved {
+             output.push_str(&format!("\nPreserved Herdr skill: {}", path.display()));
+         }
+@@ -633,7 +633,7 @@ pub(crate) fn quiet_uninstall(options: QuietUninstallOptions) -> io::Result<Stri
+                 remove_file_if_exists(&result_path)?;
+                 return match status.as_slice() {
+                     files::QUIET_UNINSTALL_SUCCESS => {
+-                        Ok("Herdr Win quiet uninstall completed.".to_string())
++                        Ok("Herdr Extended quiet uninstall completed.".to_string())
+                     }
+                     files::QUIET_UNINSTALL_FAILURE => Err(files::invalid_data(
+                         "native quiet uninstall reported failure",
+@@ -698,12 +698,12 @@ pub(crate) fn skill_removal_default(options: SkillDefaultOptions) -> io::Result<
+ 
+ pub(crate) fn complete_maintenance(options: MaintenanceOptions) -> io::Result<String> {
+     if !files::wait_for_process(options.parent_process_id, LOCK_TIMEOUT)? {
+-        return Ok("Herdr Win maintenance: Deferred".to_string());
++        return Ok("Herdr Extended maintenance: Deferred".to_string());
+     }
+     let install_root = files::full_path(&options.install_root)?;
+     let _lifecycle = acquire_lifecycle_lock()?;
+     if !files::path_exists(&install_root)? {
+-        return Ok("Herdr Win maintenance: Missing".to_string());
++        return Ok("Herdr Extended maintenance: Missing".to_string());
+     }
+     repair_launcher_publication(&install_root)?;
+     remove_stale_staging(&install_root);
+@@ -711,12 +711,12 @@ pub(crate) fn complete_maintenance(options: MaintenanceOptions) -> io::Result<St
+         classify_root(&install_root, false),
+         Ok(RootKind::ManagedNative)
+     ) {
+-        return Ok("Herdr Win maintenance: Deferred".to_string());
++        return Ok("Herdr Extended maintenance: Deferred".to_string());
+     }
+     let _coordination =
+         acquire_coordination(&ManagedInstall::new(install_root.clone()), LOCK_TIMEOUT)?;
+     maintenance_locked(&install_root)?;
+-    Ok("Herdr Win maintenance: Complete".to_string())
++    Ok("Herdr Extended maintenance: Complete".to_string())
+ }
+ 
+ fn install_layout(
+@@ -836,11 +836,11 @@ fn install_layout(
+         skills::install_skill_copies(&skill, agent_skills_root, claude_skills_root, &known)?;
+     let mut output = if status == "Pending" {
+         format!(
+-            "Herdr Win {}: Pending; staged until old sessions exit.",
++            "Herdr Extended {}: Pending; staged until old sessions exit.",
+             build_id.as_str()
+         )
+     } else {
+-        format!("Herdr Win {}: {status}", build_id.as_str())
++        format!("Herdr Extended {}: {status}", build_id.as_str())
+     };
+     for path in preserved {
+         output.push_str(&format!(
+diff --git a/src/platform/windows/installer_helper_registry.rs b/src/platform/windows/installer_helper_registry.rs
+index 9de898edd53c8627a49711b3ad59f7e557fc94df..0b889677f06849f174dd8cb9f573dd0296a8c774 100644
+--- a/src/platform/windows/installer_helper_registry.rs
++++ b/src/platform/windows/installer_helper_registry.rs
+@@ -25,7 +25,8 @@ use super::installer_helper_files::{
+     PATH_ADD_PENDING_EXISTING_VALUE,
+ };
+ 
+-const PRODUCT_NAME: &str = "Herdr Win";
++const DISPLAY_NAME: &str = "Herdr Extended";
++const PREVIOUS_DISPLAY_NAME: &str = "Herdr Win";
+ const PUBLISHER: &str = "herdr-win";
+ const ARP_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Herdr Win";
+ const ENVIRONMENT_SUBKEY: &str = "Environment";
+@@ -755,7 +756,7 @@ pub(crate) fn assert_arp_ownership(install_root: &Path) -> io::Result<()> {
+     let display_parts = parse_display_version(&display_version)?;
+     let versions_match = u32::from(display_parts[0]) == dword("VersionMajor")?
+         && u32::from(display_parts[1]) == dword("VersionMinor")?;
+-    if display_name != PRODUCT_NAME
++    if (display_name != DISPLAY_NAME && display_name != PREVIOUS_DISPLAY_NAME)
+         || publisher != PUBLISHER
+         || !path_eq(Path::new(&registered_root), install_root)?
+         || icon != format!("{},0", expected_launcher.display())
+@@ -830,7 +831,7 @@ where
+         return Err(invalid_data("numeric version must have four parts"));
+     }
+     for (name, value) in [
+-        ("DisplayName", PRODUCT_NAME.to_string()),
++        ("DisplayName", DISPLAY_NAME.to_string()),
+         ("DisplayVersion", display_version.to_string()),
+         ("Publisher", PUBLISHER.to_string()),
+         ("InstallLocation", install_root.display().to_string()),
+diff --git a/src/remote/attach.rs b/src/remote/attach.rs
+index c7c754d62199c1b065992339b30990215caca2da..c5c743801e5fd8306b2b1ce7615e6e80ad197d8d 100644
+--- a/src/remote/attach.rs
++++ b/src/remote/attach.rs
+@@ -3185,7 +3185,7 @@ fn preview_assets_for_build<'a>(
+ 
+ fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
+     let build_id = crate::build_info::build_id().ok_or_else(|| {
+-        io::Error::other("herdr-win client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
++        io::Error::other("Herdr Extended client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
+     })?;
+     let manifest_bytes = fetch_remote_manifest(preview_update_manifest_url())?;
+     let manifest: RemotePreviewManifest = serde_json::from_slice(&manifest_bytes)
+diff --git a/src/update.rs b/src/update.rs
+index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a38675289 100644
+--- a/src/update.rs
++++ b/src/update.rs
+@@ -118,7 +118,7 @@ impl std::fmt::Display for Version {
+     }
+ }
+ 
+-/// Parsed herdr-win CalVer used only for fork release ordering.
++/// Parsed Herdr Extended CalVer used only for distribution release ordering.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+ pub(crate) struct ReleaseVersion {
+     year: u16,
+@@ -399,7 +399,7 @@ fn published_release_should_install(
+         return Ok(true);
+     };
+     let current = ReleaseVersion::parse(current)
+-        .ok_or_else(|| format!("invalid compiled herdr-win release version: {current}"))?;
++        .ok_or_else(|| format!("invalid compiled Herdr Extended release version: {current}"))?;
+     Ok(latest > current)
+ }
+ 
+@@ -426,7 +426,7 @@ fn release_info_from_preview_manifest(
+     })?;
+     let release_version = ReleaseVersion::parse(&manifest.release_version).ok_or_else(|| {
+         format!(
+-            "invalid herdr-win release_version in preview manifest: {}",
++            "invalid Herdr Extended release_version in preview manifest: {}",
+             manifest.release_version
+         )
+     })?;
+@@ -515,7 +515,7 @@ fn winget_catalog_command(release_version: &str) -> Command {
+ fn winget_catalog_has_release(release_version: &str) -> Result<bool, String> {
+     if ReleaseVersion::parse(release_version).is_none() {
+         return Err(format!(
+-            "cannot query WinGet for invalid herdr-win release version {release_version}"
++            "cannot query WinGet for invalid Herdr Extended release version {release_version}"
+         ));
+     }
+ 
+@@ -2130,7 +2130,7 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+         return Err("run `herdr update` outside herdr after detaching from the session".into());
+     }
+ 
+-    eprintln!("checking for herdr-win updates...");
++    eprintln!("checking for Herdr Extended updates...");
+ 
+     let current = Version::current();
+ 
+@@ -2251,14 +2251,14 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+ 
+     if is_homebrew_managed_install() {
+         crate::logging::update_check_failed(
+-            "herdr-win self-update is not available for Homebrew installs",
++            "Herdr Extended self-update is not available for Homebrew installs",
+         );
+         return;
+     }
+ 
+     if is_mise_managed_install() {
+         crate::logging::update_check_failed(
+-            "herdr-win self-update is not available for mise installs",
++            "Herdr Extended self-update is not available for mise installs",
+         );
+         return;
+     }
+@@ -2266,7 +2266,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+     let nix_managed_install = is_nix_managed_install();
+     if nix_managed_install {
+         crate::logging::update_check_failed(
+-            "herdr-win self-update is not available for Nix installs",
++            "Herdr Extended self-update is not available for Nix installs",
+         );
+         return;
+     }
+@@ -2295,7 +2295,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+     if winget_managed_install {
+         let Some(release_version) = release.release_version else {
+             crate::logging::update_check_failed(
+-                "preview feed did not identify the target herdr-win release version",
++                "preview feed did not identify the target Herdr Extended release version",
+             );
+             return;
+         };
+@@ -2323,7 +2323,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+     crate::logging::update_available(release.label());
+     tracing::info!(
+         release_version = ?release.release_version,
+-        "new herdr-win build available at {}",
++        "new Herdr Extended build available at {}",
+         release.download_url
+     );
+ 
+-- 
+2.55.0.windows.3
+

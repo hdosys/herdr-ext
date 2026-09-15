@@ -1,7 +1,7 @@
 From 61a53d74410dd6992e3432b3e64a474d50958aa4 Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:30:03 +0200
-Subject: [PATCH 16/26] fix(input): preserve matching control-key reports
+Subject: [PATCH 16/27] fix(input): preserve matching control-key reports
 
 Backport herdrdev/herdr@c88edf316d0c7718b9ce45724dd68a84f159298b. Include the reporter's later captured Tab and Escape pairs, retaining strict rejection of mismatched control text.
 

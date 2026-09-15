@@ -1,11 +1,11 @@
 # AGENT_IMPROVEMENTS.md
 
-Evidence-backed proposals for making future herdr-win agent work faster, cheaper,
+Evidence-backed proposals for making future Herdr Extended agent work faster, cheaper,
 safer, or more reliable.
 
 This is not product backlog or task history. Product work belongs in `BACKLOG.md`;
 user-visible behavior in `PRODUCT.md`; repository-specific technical design in
-`ARCHITECTURE.md`; accepted herdr-win-specific agent rules in `AGENTS.md` or
+`ARCHITECTURE.md`; accepted Herdr Extended-specific agent rules in `AGENTS.md` or
 procedure in `CONTRIBUTING.md`; cross-project workflow in the global OpenCode
 configuration repository.
 

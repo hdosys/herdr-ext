@@ -14,6 +14,7 @@ PATCH_NAME = re.compile(r"^[0-9]{4}-[a-z0-9-]+\.patch$")
 MAILBOX_FROM = re.compile(r"^From [0-9a-f]{40} Mon Sep 17 00:00:00 2001$")
 DIFF_PATH = re.compile(r"^diff --git a/(.+?) b/(.+)$", re.MULTILINE)
 FORK_RELEASE_PREFIXES = (
+    "https://github.com/hdosys/herdr-ext/releases/download/",
     "https://github.com/hdosys/herdr-win/releases/download/",
     "https://github.com/User-3090/herdr-win/releases/download/",
 )

@@ -1,7 +1,7 @@
 From 7c4be99bd8d4b89beffc8104b77de585af09369a Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:59:19 +0200
-Subject: [PATCH 22/26] fix(view): preserve focused geometry during background
+Subject: [PATCH 22/27] fix(view): preserve focused geometry during background
  activation
 
 Backport herdrdev/herdr@8c5208cd1e7362bfb9eb2899f9d3c10d7270e0a8 and herdrdev/herdr@c2d200eda162c58d021fd96114831f57b72593d7. Retain deferred startup initialization and normal focus/input authority transfers.

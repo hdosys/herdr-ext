@@ -1,8 +1,8 @@
-# Contributing to herdr-win
+# Contributing to Herdr Extended
 
 Thanks for helping keep Herdr useful on Windows.
 
-herdr-win is an upstream-first distribution, not an independent product fork.
+Herdr Extended is an upstream-first distribution, not an independent product fork.
 Changes should either reduce the Windows delta, keep it replayable, or improve
 the small control plane that validates and publishes it.
 
@@ -39,11 +39,11 @@ Before editing, classify the change:
 Open an issue only when a substantial change still needs product or architecture
 scope alignment before implementation. A bounded change whose scope is already
 accepted does not wait on issue ceremony. A useful bug report includes the
-herdr-win release tag, Windows version, terminal, shell, exact reproduction,
+Herdr Extended release tag, Windows version, terminal, shell, exact reproduction,
 current behavior, and expected behavior.
 
-When offering herdr-win builds in an upstream discussion, link to the
-[current releases page](https://github.com/hdosys/herdr-win/releases) rather than
+When offering Herdr Extended builds in an upstream discussion, link to the
+[current releases page](https://github.com/hdosys/herdr-ext/releases) rather than
 to a version-specific release so the guidance remains current.
 
 ## Developing the maintained delta
@@ -156,8 +156,8 @@ topic. One session owns the complete path:
    only after a complete candidate replay matches the tested tree. A conflict or
    mismatch leaves the checked-in mailbox unchanged.
    For an explicitly approved new responsibility, append one higher-numbered
-   mailbox from a candidate containing exactly one WIP commit over the current
-   queue:
+   mailbox from a candidate containing one or more linear WIP commits over the
+   current queue. The first WIP commit owns the mailbox metadata:
 
    ```powershell
    python scripts/delta_workflow.py finalize `
@@ -520,10 +520,10 @@ workflow must still verify the actual release is immutable, generate the manifes
 with the candidate's tested replay generator, commit only `website/preview.json`,
 and fail closed if `master` advances beyond the candidate's control revision.
 
-Use the single manual **Build and promote herdr-win release** workflow in two
+Use the single manual **Build and promote Herdr Extended release** workflow in two
 separate dispatches:
 
-1. Choose `build` and supply one unused herdr-win CalVer in `YYYY.MM.DD.N` format.
+1. Choose `build` and supply one unused Herdr Extended CalVer in `YYYY.MM.DD.N` format.
    Use the intended UTC release date and increment `N` for another release that
    day. The successful run retains the complete candidate and its provenance for
    14 days but does not publish a release. Record its workflow run ID. The workflow
@@ -545,7 +545,7 @@ the GitHub release title, notes, and installer metadata instead of changing
 updater-facing filenames.
 
 The retained candidate compiles that CalVer into every platform binary.
-`herdr --version` must be `herdr-win <CalVer> (Herdr <upstream-version>)`; Windows
+`herdr --version` must be `herdr-ext <CalVer> (Herdr <upstream-version>)`; Windows
 setup and Installed Apps use the same CalVer as their primary display version.
 Separately built local artifacts use one UTC `YYYY.MM.DD.HHMMZ` freshness label plus
 their secondary build ID and must never claim a release CalVer.
@@ -575,7 +575,7 @@ for GitHub's branch-content cache. If only that post-publication job fails, keep
 same release and CalVer and rerun only the failed jobs from the original promotion:
 
 ```powershell
-gh run rerun <promotion-run-id> --failed --repo hdosys/herdr-win
+gh run rerun <promotion-run-id> --failed --repo hdosys/herdr-ext
 ```
 
 Never dispatch promotion again for that candidate. The existing immutable release
@@ -606,7 +606,7 @@ changes, a pull request, or release publication.
 ## Verification
 
 The **Fork verification policy** in `AGENTS.md` is the admission gate for every
-new or retained herdr-win check. Change evidence must identify its stable contract,
+new or retained Herdr Extended check. Change evidence must identify its stable contract,
 unique realistic failure, cheapest reliable layer, and observed runtime. Remove or
 retier a check when those facts no longer justify its maintenance or wait cost.
 Workflow review rejects software provisioned only to satisfy a test.
@@ -671,7 +671,7 @@ development candidate section in the same milestone. List only fixes actually on
 `origin/candidate/development`, link the fully qualified upstream report, and state
 that they remain unpublished. At explicit patch promotion or release, move each
 entry into its normal capability or changelog owner instead of retaining a stale
-candidate list. Root `CHANGELOG.md` records only herdr-win CalVer releases and
+candidate list. Root `CHANGELOG.md` records only Herdr Extended CalVer releases and
 user-visible fork changes; link the official upstream Herdr changelog instead of
 copying upstream release entries. Do not edit changelog, release notes, website,
 or broad docs unless changed behavior requires it, and never edit generated

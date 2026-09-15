@@ -1,7 +1,7 @@
 From 9ff923800beaf0a7ee0e4f472f69f2dbe7a85a58 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 17:49:01 +0200
-Subject: [PATCH 6/26] fix(worktree): scope Git trust to selected paths
+Subject: [PATCH 6/27] fix(worktree): scope Git trust to selected paths
 
 Refs herdrdev/herdr#3044
 ---

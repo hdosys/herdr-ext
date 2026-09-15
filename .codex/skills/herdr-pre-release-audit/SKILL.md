@@ -1,11 +1,11 @@
 ---
 name: herdr-pre-release-audit
-description: Audit herdr-win candidate and release readiness against recorded BASE, the maintained queue, public docs, and the manual build/promote workflow.
+description: Audit Herdr Extended candidate and release readiness against recorded BASE, the maintained queue, public docs, and the manual build/promote workflow.
 ---
 
-# herdr-win pre-release audit
+# Herdr Extended pre-release audit
 
-Use this skill only inside the `hdosys/herdr-win` repository.
+Use this skill only inside the `hdosys/herdr-ext` repository.
 
 Read `references/pre-release-audit.md` and follow its workflow. Treat it as the source of truth for:
 

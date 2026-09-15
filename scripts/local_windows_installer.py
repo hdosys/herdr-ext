@@ -63,7 +63,7 @@ NEXTEST_SUMMARY_RE = re.compile(
     r"(?P<passed>[0-9]+) passed(?:,|$)"
 )
 LOCAL_VERSION_RE = re.compile(
-    r"^herdr-win (?P<freshness>[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{4}Z) "
+    r"^herdr-ext (?P<freshness>[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{4}Z) "
     r"\(local, Herdr (?P<base>[0-9]+\.[0-9]+\.[0-9]+), "
     r"build (?P<build>[0-9a-f]{12}\.[0-9a-f]{12})\)$"
 )

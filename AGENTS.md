@@ -1,7 +1,7 @@
-# herdr-win repository overlay
+# Herdr Extended repository overlay
 
 The global OpenCode working agreement owns reusable personal workflow. This file
-owns only herdr-win repository invariants and must not restate or silently
+owns only Herdr Extended repository invariants and must not restate or silently
 override generic delivery procedure. Project-specific commands select exact
 owners and unsafe boundaries while the global interactive ordering remains
 authoritative. Do not copy global workflow or create project `.opencode/`
@@ -18,7 +18,7 @@ configuration.
   verification, documentation projection, commit, and upstream-engagement
   procedure.
 - `BACKLOG.md` owns only current-user-selected future product outcomes.
-- `AGENT_IMPROVEMENTS.md` owns evidence-backed herdr-win-specific workflow,
+- `AGENT_IMPROVEMENTS.md` owns evidence-backed Herdr Extended-specific workflow,
   tooling, test, and skill improvement proposals.
 
 After system and current-user instructions, local precedence is this file,
@@ -32,7 +32,7 @@ active memory owner.
 ## Identity and source invariants
 
 - Official upstream: `herdrdev/herdr`.
-- This repository: `hdosys/herdr-win`, an unofficial Windows-focused
+- This repository: `hdosys/herdr-ext`, an unofficial extended
   distribution fork.
 - Release source is replayed upstream source plus the maintained delta, not an
   independently developed product line.
@@ -78,7 +78,7 @@ active memory owner.
 - `.github/workflows/ci.yml` owns cheap PR/manual replay validation.
 - `.github/workflows/release.yml` owns the manually dispatched candidate build and
   exact-artifact promotion path. It has no scheduled trigger. A build requires an
-  explicit herdr-win CalVer and always replays recorded `BASE`; promotion requires
+  explicit Herdr Extended CalVer and always replays recorded `BASE`; promotion requires
   the successful build run ID and never rebuilds or repackages its retained
   candidates.
 - `website/preview.json` is generated channel state; the release workflow's

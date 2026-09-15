@@ -1,6 +1,6 @@
 # BACKLOG.md
 
-Current-user-selected future herdr-win product outcomes only. User-visible product
+Current-user-selected future Herdr Extended product outcomes only. User-visible product
 rules belong in `PRODUCT.md`; stable technical design belongs in
 `ARCHITECTURE.md`; workflow/tooling/test/skill proposals belong in
 `AGENT_IMPROVEMENTS.md`.

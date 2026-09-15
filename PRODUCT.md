@@ -2,35 +2,35 @@
 
 ## Purpose
 
-This file is the short durable user-perspective truth for herdr-win: the fork's
+This file is the short durable user-perspective truth for Herdr Extended: the distribution's
 product promise, visible fork-specific behavior, terminology, supported choices,
 and acceptance outcomes. Upstream Herdr owns general product behavior; code and
 tests remain the detailed implementation truth.
 
 ## Product Shape and Identity
 
-- herdr-win is an unofficial, upstream-first extended cross-platform distribution
+- Herdr Extended is an unofficial, upstream-first cross-platform distribution
   for developers who need extended Herdr capabilities today. It makes practical
   bug fixes and extensions available through a small, reviewable patch set designed
   for upstream adoption. Its strongest focus areas are multi-Agent workflows,
   terminal experience, OpenCode reliability, and Windows support; it complements
   upstream Herdr rather than presenting a competing product.
 - Fork identity appears in repository, release, update-feed, Windows setup, and
-  Installed Apps presentation. The Windows package entry is **Herdr Win**; the
+  Installed Apps presentation. The Windows package entry is **Herdr Extended**; the
   executable, command, configuration, state, sessions, sockets, and protocol remain
   `herdr`. Herdr v0.9.0's frozen binary protocol and negotiated endpoint compatibility
   are preserved. Optional fork capabilities use named extensions rather than a
   second wire protocol or an exact-version requirement for compatible attachment.
-- A published `herdr --version` reports `herdr-win <CalVer> (Herdr
+- A published `herdr --version` reports `herdr-ext <CalVer> (Herdr
   <upstream-version>)`. A separately built local binary instead reports
-  `herdr-win <YYYY.MM.DD.HHMMZ> (local, Herdr <upstream-version>, build
+  `herdr-ext <YYYY.MM.DD.HHMMZ> (local, Herdr <upstream-version>, build
   <build-id>)` when build provenance is available. The UTC label is generated once
   for the coherent local build and leads local runtime status and Windows setup
   presentation; Welcome and Finish headings omit the build ID, which remains
   secondary exact provenance in technical metadata. Integrations can
-  require the stable `herdr-win ` prefix without changing the executable, command,
+  require the stable `herdr-ext ` prefix without changing the executable, command,
   state, or protocol identity.
-- Every herdr-win snapshot is a cross-platform release for Windows x86_64, Linux
+- Every Herdr Extended snapshot is a cross-platform release for Windows x86_64, Linux
   amd64/arm64, and macOS amd64/arm64. Windows additionally ships the managed
   per-user setup and portable archive; Linux and macOS ship raw executables from
   the same retained candidate. Supported clients and remote endpoints therefore
@@ -53,11 +53,11 @@ tests remain the detailed implementation truth.
   `%LOCALAPPDATA%\Programs\Herdr`, places its stable `bin` directory first on user
   `PATH` when no effective equivalent is already present, never claims or rewrites
   an equivalent user-owned entry, and otherwise shadows without changing any
-  existing upstream/native `herdr`. It registers **Herdr Win** in Windows Installed
+  existing upstream/native `herdr`. It registers **Herdr Extended** in Windows Installed
   Apps without requiring administrator
   privileges. The installer interface is English-only. Its branded,
-  keyboard-operable Windows setup uses the human-facing display name **Herdr Win**
-  consistently while the repository and release slug remains `herdr-win`. The
+  keyboard-operable Windows setup uses the human-facing display name **Herdr Extended**
+  consistently while the repository slug is `herdr-ext`. The
   Welcome description derives and displays the current reviewed Herdr base version
   from the canonical package input. Setup identifies the
   fork as an unofficial distribution built from the latest reviewed stable Herdr
@@ -140,7 +140,7 @@ tests remain the detailed implementation truth.
   except Active and optional Pending. Busy or ambiguous content is preserved and
   reported. A hard process-tree kill leaves pending state recoverable for the next
   safe launch or setup. Update never terminates active Herdr sessions.
-- The installed distribution owns its update feed. A herdr-win binary has no
+- The installed distribution owns its update feed. A Herdr Extended binary has no
   user-selectable stable/preview channel or `update.channel` setting and cannot be
   redirected to official Herdr update sources. CalVer `YYYY.MM.DD.N` orders fork
   releases: a published binary accepts only a newer feed CalVer, while a local
@@ -162,7 +162,7 @@ tests remain the detailed implementation truth.
   graceful server API under one bounded deadline. If any session remains
   reachable, uninstall preserves the managed installation and reports the
   required action. After sessions stop, it removes the managed program, only
-  literal spellings of its own user `PATH` path, **Herdr Win** Installed Apps
+  literal spellings of its own user `PATH` path, **Herdr Extended** Installed Apps
   registration, and installer-known `SKILL.md` copies at its managed universal
   and Claude locations. Its single skill-removal checkbox covers both locations and
   starts selected only when every existing copy is installer-known or absent; any
@@ -287,10 +287,10 @@ tests remain the detailed implementation truth.
   candidate. Every asset is a supported client or remote endpoint on the matching
   wire protocol; only Windows currently has the managed installer and update
   lifecycle.
-- Each release has a manually selected herdr-win CalVer `YYYY.MM.DD.N` and is based
+- Each release has a manually selected Herdr Extended CalVer `YYYY.MM.DD.N` and is based
   on the exact latest upstream stable release selected during the most recent
   explicit refresh. Updater-facing tags and assets retain
-  `herdr-win_v<CalVer>_<os>_<arch>.<ext>` and `_setup.exe`; the GitHub release title,
+  `herdr-win_v<CalVer>_<os>_<arch>.<ext>` and `_setup.exe` for updater compatibility; the GitHub release title,
   notes, and installer metadata visibly pair that CalVer with `Herdr
   v<upstream-version>`. Source/control hashes remain exact provenance.
 - Candidate builds and release promotion are separate manual operations. A build

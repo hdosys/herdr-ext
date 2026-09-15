@@ -1,8 +1,8 @@
 ---
-description: Audit herdr-win candidate and release readiness
+description: Audit Herdr Extended candidate and release readiness
 ---
 
-# herdr-win pre-release audit
+# Herdr Extended pre-release audit
 
 Audit this fork against its recorded stable source and manual build/promote model. `CONTRIBUTING.md` owns the procedure; this prompt is a concise operator checklist.
 
@@ -33,7 +33,7 @@ Optional context: `$1 ${@:2}`
 
 ## 4. Build and promote
 
-- Choose one unused herdr-win CalVer `YYYY.MM.DD.N`.
+- Choose one unused Herdr Extended CalVer `YYYY.MM.DD.N`.
 - Push the verified control commit, then dispatch `release.yml` with `operation=build` and that CalVer.
 - Require the successful retained candidate to contain the Windows ZIP/setup plus matching Linux and macOS amd64/arm64 binaries, coherent source/control identities, and verified digests.
 - Promote only that successful build run ID with `operation=promote`. Promotion must publish the retained bytes without replaying, rebuilding, or repackaging them.

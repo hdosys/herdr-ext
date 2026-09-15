@@ -1,13 +1,13 @@
 name: Bug report
-description: Report a reproducible problem in a herdr-win snapshot.
+description: Report a reproducible problem in a Herdr Extended snapshot.
 title: "[bug] "
 body:
   - type: markdown
     attributes:
       value: |
-        **Before you start:** Read [CONTRIBUTING.md](https://github.com/hdosys/herdr-win/blob/master/CONTRIBUTING.md).
+        **Before you start:** Read [CONTRIBUTING.md](https://github.com/hdosys/herdr-ext/blob/master/CONTRIBUTING.md).
 
-        Use this form for a problem observed in a herdr-win Windows snapshot. If practical, try the same workflow with upstream Herdr and report the result below. Do not report a fork-only failure to upstream.
+        Use this form for a problem observed in a Herdr Extended Windows snapshot. If practical, try the same workflow with upstream Herdr and report the result below. Do not report a distribution-only failure to upstream.
 
         Keep the report factual and include only the smallest relevant logs. For general Herdr questions and product feature requests, use the upstream project links shown on the new-issue page.
 
@@ -15,9 +15,9 @@ body:
     id: bug-confirmation
     attributes:
       label: Is this a reproducible bug?
-      description: Confirm that the problem occurs in a herdr-win snapshot and has exact reproduction steps.
+      description: Confirm that the problem occurs in a Herdr Extended snapshot and has exact reproduction steps.
       options:
-        - label: I confirm this is a reproducible herdr-win bug, not a general Herdr question or feature request.
+        - label: I confirm this is a reproducible Herdr Extended bug, not a general Herdr question or feature request.
           required: true
 
   - type: textarea
@@ -56,9 +56,9 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Copy the release tag and upstream revision from the herdr-win release notes.
+      description: Copy the release tag and upstream revision from the Herdr Extended release notes.
       value: |
-        - herdr-win release tag:
+        - Herdr Extended release tag:
         - Upstream revision:
         - Windows version:
         - Terminal:

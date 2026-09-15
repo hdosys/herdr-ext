@@ -348,7 +348,7 @@ class WindowsInstallerStaticTests(unittest.TestCase):
         self.assertIn("[string]$ReleaseVersion", packager)
         self.assertIn("[string]$BaseVersion", packager)
         self.assertIn('$ReleaseVersion -ceq "local"', packager)
-        self.assertIn('ExpectedCli = "herdr-win $ReleaseVersion (Herdr $BaseVersion)"', packager)
+        self.assertIn('ExpectedCli = "herdr-ext $ReleaseVersion (Herdr $BaseVersion)"', packager)
         self.assertIn("-ExpectedOutput $ExpectedCliVersion", packager)
 
     def test_real_fault_matrix_covers_retries_and_pending_activation(self) -> None:

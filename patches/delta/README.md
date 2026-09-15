@@ -1,6 +1,6 @@
-# herdr-win maintained delta
+# Herdr Extended maintained delta
 
-This is the canonical product delta applied by the manually dispatched herdr-win
+This is the canonical product delta applied by the manually dispatched Herdr Extended
 release workflow on top of the reviewed [`herdrdev/herdr`](https://github.com/herdrdev/herdr)
 stable-release commit recorded in `BASE`.
 
@@ -22,6 +22,7 @@ The current queue targets Herdr v0.9.0 and retains these logical slots:
 - 0013: repeated terminal-history rows.
 - 0015: muted-label contrast in client presentation.
 - 0016: section-aware integration settings hints.
+- 0032: Herdr Extended runtime, installer, update-source, and documentation identity.
 
 Slots 0007, 0014, 0017, and 0018 are absent because v0.9.0 already owns the
 equivalent native-path docs assertion, plugin-root resolution, Devin configuration,
@@ -31,7 +32,7 @@ remaining responsibility.
 ## Reviewed v0.9.0 corrections
 
 The following 13 logical mailboxes extend the reviewed 13-mailbox foundation
-without advancing `BASE`. They are included in herdr-win v2026.09.10.2. An
+without advancing `BASE`. They are included in Herdr Extended v2026.09.10.2. An
 upstream PR reference records provenance, not that its changes have shipped in an
 upstream stable release.
 

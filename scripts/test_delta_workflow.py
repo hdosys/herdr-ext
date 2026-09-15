@@ -548,7 +548,44 @@ class DeltaWorkflowTests(unittest.TestCase):
                 source_tree,
             )
 
-    def test_finalize_appends_one_new_mailbox_and_renumbers_series(self) -> None:
+    def test_finalize_accepts_cumulative_merge_history_at_replay_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = DeltaFixture(Path(temp_dir))
+            worktrees = Path(temp_dir) / "worktrees"
+            worktrees.mkdir()
+            worktree = worktrees / "finalize-merged"
+            start_delta_worktree("finalize-merged", worktree, fixture.control)
+
+            queue_head = run_git(worktree, ["rev-parse", "HEAD"])
+            merge_head = run_git(
+                worktree,
+                [
+                    "commit-tree",
+                    fixture.source_tree,
+                    "-p",
+                    queue_head,
+                    "-p",
+                    fixture.base,
+                    "-m",
+                    "merge cumulative development history",
+                ],
+            )
+            run_git(worktree, ["update-ref", "HEAD", merge_head])
+            (worktree / "value.txt").write_bytes(b"final\n")
+            run_git(worktree, ["add", "value.txt"])
+            run_git(worktree, ["commit", "-m", "fix: finalize merged value"])
+            source_tree = run_git(worktree, ["rev-parse", "HEAD^{tree}"])
+
+            result = finalize_delta_mailbox(
+                worktree,
+                "0001-first.patch",
+                source_tree,
+                fixture.control,
+            )
+
+            self.assertEqual(result.replay_tree, source_tree)
+
+    def test_finalize_appends_one_new_mailbox_from_linear_wip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture = DeltaFixture(Path(temp_dir))
             worktrees = Path(temp_dir) / "worktrees"
@@ -562,6 +599,9 @@ class DeltaWorkflowTests(unittest.TestCase):
                 worktree,
                 ["commit", "-m", "feat: third", "-m", "Refs example/repo#123"],
             )
+            (worktree / "fourth.txt").write_bytes(b"fourth\n")
+            run_git(worktree, ["add", "fourth.txt"])
+            run_git(worktree, ["commit", "-m", "docs: explain third"])
             source_head = run_git(worktree, ["rev-parse", "HEAD"])
             source_tree = run_git(worktree, ["rev-parse", "HEAD^{tree}"])
 

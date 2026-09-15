@@ -507,7 +507,7 @@ def compile_delta_prefixes(
     base = _read_base(project_root)
     mailboxes = _read_series(project_root)
     replay_environment = {
-        "GIT_COMMITTER_NAME": "herdr-win replay",
+        "GIT_COMMITTER_NAME": "Herdr Extended replay",
         "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
     }
     with _prefix_replay_directory(work_dir) as temporary:
@@ -890,6 +890,25 @@ def _require_clean_delta_worktree(
     return worktree, branch
 
 
+def _first_parent_commit_with_tree(
+    worktree: Path, base: str, tree: str
+) -> str | None:
+    first_parent = _run_git(
+        worktree,
+        ["log", "--first-parent", "--format=%H %T", f"{base}..HEAD"],
+        cwd=worktree,
+    ).stdout.splitlines()
+    return next(
+        (
+            commit
+            for line in first_parent
+            for commit, commit_tree in [line.split()]
+            if commit_tree == tree
+        ),
+        None,
+    )
+
+
 def _require_source_worktree(
     project_root: Path,
     worktree: Path,
@@ -906,31 +925,20 @@ def _require_source_worktree(
     )
     if ancestor.returncode != 0:
         raise DeltaWorkflowError("recorded BASE is not an ancestor of source HEAD")
-    merges = _run_git(
-        worktree,
-        ["rev-list", "--merges", f"{replay.base}..HEAD"],
-        cwd=worktree,
-    ).stdout.strip()
-    if merges:
-        raise DeltaWorkflowError("source worktree history must be linear")
-
-    commits = _run_git(
-        worktree,
-        ["rev-list", "--reverse", f"{replay.base}..HEAD"],
-        cwd=worktree,
-    ).stdout.splitlines()
-    if len(commits) <= len(replay.mailboxes):
-        raise DeltaWorkflowError("source worktree has no committed WIP change")
-    queue_head = commits[len(replay.mailboxes) - 1]
-    queue_tree = _run_git(
-        worktree, ["rev-parse", f"{queue_head}^{{tree}}"], cwd=worktree
-    ).stdout.strip()
-    if queue_tree != replay.tree:
+    source_head = _run_git(worktree, ["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+    queue_head = _first_parent_commit_with_tree(worktree, replay.base, replay.tree)
+    if queue_head is None:
         raise DeltaWorkflowError(
             "source worktree was not started from the current checked-in queue"
         )
+    wip_commits = _run_git(
+        worktree,
+        ["rev-list", f"{queue_head}..{source_head}"],
+        cwd=worktree,
+    ).stdout.strip()
+    if not wip_commits:
+        raise DeltaWorkflowError("source worktree has no committed WIP change")
 
-    source_head = _run_git(worktree, ["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
     source_tree = _run_git(
         worktree, ["rev-parse", "HEAD^{tree}"], cwd=worktree
     ).stdout.strip()
@@ -1031,16 +1039,16 @@ def _candidate_mailbox(
     mailbox_count: int,
 ) -> str:
     replay_identity = {
-        "GIT_AUTHOR_NAME": "herdr-win replay",
+        "GIT_AUTHOR_NAME": "Herdr Extended replay",
         "GIT_AUTHOR_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
-        "GIT_COMMITTER_NAME": "herdr-win replay",
+        "GIT_COMMITTER_NAME": "Herdr Extended replay",
         "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
     }
     prefix_commit = _commit_tree(
         project_root,
         prefix_tree,
         _read_base(project_root),
-        "herdr-win delta prefix\n",
+        "Herdr Extended delta prefix\n",
         replay_identity,
     )
     owner_environment = {
@@ -1130,26 +1138,29 @@ def _finalize_new_delta_mailbox(
         expected_tree,
         replay,
     )
-    source_parents = _run_git(
+    queue_head = _first_parent_commit_with_tree(worktree, replay.base, replay.tree)
+    if queue_head is None:
+        raise DeltaWorkflowError(
+            "new mailbox source was not started from the current checked-in queue"
+        )
+    merges = _run_git(
         worktree,
-        ["rev-list", "--parents", "-n", "1", source_head],
-        cwd=worktree,
-    ).stdout.split()
-    if len(source_parents) != 2:
-        raise DeltaWorkflowError("new mailbox source must contain exactly one WIP commit")
-    source_parent_tree = _run_git(
-        worktree,
-        ["rev-parse", f"{source_parents[1]}^{{tree}}"],
+        ["rev-list", "--merges", f"{queue_head}..{source_head}"],
         cwd=worktree,
     ).stdout.strip()
-    if source_parent_tree != replay.tree:
-        raise DeltaWorkflowError(
-            "new mailbox source must be one WIP commit over the current queue"
-        )
+    if merges:
+        raise DeltaWorkflowError("new mailbox WIP commits must be linear")
+    wip_commits = _run_git(
+        worktree,
+        ["rev-list", "--first-parent", "--reverse", f"{queue_head}..{source_head}"],
+        cwd=worktree,
+    ).stdout.splitlines()
+    if not wip_commits:
+        raise DeltaWorkflowError("new mailbox source must contain committed WIP changes")
 
     old_count = len(replay.mailboxes)
     new_count = old_count + 1
-    metadata = _read_commit_metadata(worktree, source_head)
+    metadata = _read_commit_metadata(worktree, wip_commits[0])
     candidate = _candidate_mailbox(
         project_root,
         replay.tree,
@@ -1377,7 +1388,7 @@ def materialize_delta_worktree(
         )
 
     replay_environment = {
-        "GIT_COMMITTER_NAME": "herdr-win replay",
+        "GIT_COMMITTER_NAME": "Herdr Extended replay",
         "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
     }
     try:
@@ -1557,7 +1568,7 @@ def start_delta_worktree(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Materialize, finalize, and verify the herdr-win delta."
+        description="Materialize, finalize, and verify the Herdr Extended delta."
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
