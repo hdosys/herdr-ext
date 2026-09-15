@@ -3576,7 +3576,7 @@ fn preview_assets_for_build<'a>(
 
 fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
     let build_id = crate::build_info::build_id().ok_or_else(|| {
-        io::Error::other("herdr-win client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
+        io::Error::other("Herdr Extended client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
     })?;
     let manifest_bytes = fetch_remote_manifest(preview_update_manifest_url())?;
     let manifest: RemotePreviewManifest = serde_json::from_slice(&manifest_bytes)

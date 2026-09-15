@@ -7,7 +7,7 @@ Native Windows support is generally available.
 
 Herdr on Windows uses ConPTY and Windows process/runtime behavior instead of the Unix PTY model Herdr was originally built around. Most core workflows are supported, but some capabilities differ from Linux and macOS or remain platform-dependent. Windows may receive more platform-specific fixes as those remaining gaps close.
 
-Install native Windows builds by downloading the newest `herdr-win_v<version>_windows_amd64_setup.exe` from the [herdr-win releases](https://github.com/hdosys/herdr-win/releases). The per-user NSIS setup requires no administrator access, registers **Herdr Win** in Installed Apps, and puts `%LOCALAPPDATA%\Programs\Herdr\bin` on the user `PATH`. One stable launcher selects immutable runtimes under `%LOCALAPPDATA%\Programs\Herdr\runtime` so active sessions can finish before a newer runtime is activated.
+Install native Windows builds by downloading the newest installer from the [Herdr Extended releases](https://github.com/hdosys/herdr-ext/releases). The per-user NSIS setup requires no administrator access, registers **Herdr Extended** in Installed Apps, and puts `%LOCALAPPDATA%\Programs\Herdr\bin` on the user `PATH`. One stable launcher selects immutable runtimes under `%LOCALAPPDATA%\Programs\Herdr\runtime` so active sessions can finish before a newer runtime is activated.
 
 The installed Windows distribution owns its fork CalVer update feed and cannot be redirected to official Herdr or another channel through config.
 

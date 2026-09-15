@@ -51,11 +51,11 @@ $NsisVersion = "3.12"
 $NsisArchiveName = "nsis-$NsisVersion.zip"
 $NsisArchiveUrl = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$NsisVersion/$NsisArchiveName"
 $NsisArchiveSha256 = "56581f90db321581c5381193d796fffcf2d24b2f8fed2160a6c6a3baa67f2c4f"
-$CompanyName = "herdr-win"
+$CompanyName = "Herdr Extended"
 $Copyright = "Herdr contributors"
 $CommandName = "herdr"
-$DistributionName = "Herdr Win"
-$ProductUrl = "https://github.com/hdosys/herdr-win"
+$DistributionName = "Herdr Extended"
+$ProductUrl = "https://github.com/hdosys/herdr-ext"
 $UpstreamUrl = "https://github.com/herdrdev/herdr"
 $InstallerStartGateEnvironmentVariable = "HERDR_INSTALLER_START_GATE_V1"
 $InstallerTestMarkerPrefix = "herdr"
@@ -295,7 +295,7 @@ function Get-VersionIdentity {
             Display = "$BuildFreshness (local, build $BuildId)"
             Numeric = "$([int]$freshnessMatch.Groups['year'].Value).$([int]$freshnessMatch.Groups['month'].Value).$([int]$freshnessMatch.Groups['day'].Value).$timeComponent"
             Ui = $BuildFreshness
-            ExpectedCli = "herdr-win $BuildFreshness (local, Herdr $BaseVersion, build $BuildId)"
+            ExpectedCli = "herdr-ext $BuildFreshness (local, Herdr $BaseVersion, build $BuildId)"
         }
     }
     $match = [regex]::Match($ReleaseVersion, $ReleaseVersionPattern)
@@ -322,7 +322,7 @@ function Get-VersionIdentity {
         Display = $ReleaseVersion
         Numeric = "$([int]$match.Groups['year'].Value).$([int]$match.Groups['month'].Value).$([int]$match.Groups['day'].Value).$sequence"
         Ui = $ReleaseVersion
-        ExpectedCli = "herdr-win $ReleaseVersion (Herdr $BaseVersion)"
+        ExpectedCli = "herdr-ext $ReleaseVersion (Herdr $BaseVersion)"
     }
 }
 

@@ -144,7 +144,7 @@ Var InstallMutationActive
 !pragma verifyloadimage "${INSTALLER_WELCOME_BITMAP_175}"
 !pragma verifyloadimage "${INSTALLER_WELCOME_BITMAP_200}"
 !define MUI_WELCOMEPAGE_TITLE "Install ${INFO_DISTRIBUTIONNAME} ${INFO_PRODUCTVERSION_UI}"
-!define MUI_WELCOMEPAGE_TEXT "This setup installs ${INFO_DISTRIBUTIONNAME}, an unofficial Windows distribution of ${INFO_PRODUCTNAME}. It advances Windows support by applying this fork's patches to the latest reviewed stable ${INFO_PRODUCTNAME} ${INFO_UPSTREAMVERSION} release.$\r$\n$\r$\nNo administrator access is required. Open a new terminal after setup so it can find ${INFO_COMMANDNAME} on PATH."
+!define MUI_WELCOMEPAGE_TEXT "This setup installs ${INFO_DISTRIBUTIONNAME}, an unofficial extended distribution of ${INFO_PRODUCTNAME}. It applies a focused set of maintained improvements to the latest reviewed stable ${INFO_PRODUCTNAME} ${INFO_UPSTREAMVERSION} release.$\r$\n$\r$\nNo administrator access is required. Open a new terminal after setup so it can find ${INFO_COMMANDNAME} on PATH."
 !define MUI_FINISHPAGE_NOREBOOTSUPPORT
 !define MUI_FINISHPAGE_TEXT_LARGE
 !define MUI_FINISHPAGE_TITLE "${INFO_DISTRIBUTIONNAME} ${INFO_PRODUCTVERSION_UI} is installed"
