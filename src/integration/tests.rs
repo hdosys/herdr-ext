@@ -2378,10 +2378,7 @@ fn uninstall_opencode_removes_plugins_and_managed_tui_config_entry() {
     assert!(result.updated_tui_config);
     assert!(!result.plugin_path.exists());
     assert!(!result.tui_plugin_path.exists());
-    assert!(result.tui_config_path.exists());
-    let tui_config: Value =
-        serde_json::from_str(&fs::read_to_string(&result.tui_config_path).unwrap()).unwrap();
-    assert_eq!(tui_config, json!({}));
+    assert!(!result.tui_config_path.exists());
     assert_eq!(installed.plugin_path, result.plugin_path);
 
     std::env::remove_var("HOME");

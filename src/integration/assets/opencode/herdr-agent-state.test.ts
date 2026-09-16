@@ -474,6 +474,9 @@ test("owned busy clears an unscoped error but not an outstanding question", asyn
   requests.length = 0;
 
   await plugin.event(apiErrorEvent());
+  // Herdr clears a session when a lifecycle report omits its identity. Assert
+  // the real input contract, rather than relying on pane.get's fixed fixture.
+  expect(requestSessionID(requests.at(-1))).toBe("root-session");
   await plugin.event(sessionStatusEvent("foreign-root", { type: "busy" }));
   expect(requests.map(requestState)).toEqual(["blocked"]);
   await plugin.event(sessionStatusEvent("root-session", { type: "busy" }));
@@ -916,6 +919,24 @@ test("an attached child pane reports its own lifecycle", async () => {
 
   expect(requests.map(requestState)).toEqual(["working", "idle"]);
   expect(requests.map(requestSessionID)).toEqual(["child-session", "child-session"]);
+});
+
+test("late child work wakes an idle root and finishes without clearing a prompt", async () => {
+  const plugin = await loadPlugin();
+  await plugin.event(sessionStatusEvent("root-session", { type: "idle" }));
+  await plugin.event({ event: { type: "session.created", properties: {
+    info: { id: "child-session", parentID: "root-session" },
+  } } });
+  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
+  await plugin.event(sessionStatusEvent("child-session", { type: "busy" }));
+  expect(requests.map(requestState)).toEqual(["idle", "working", "idle", "working"]);
+  await plugin.event({ event: { type: "question.asked", properties: {
+    id: "pending", sessionID: "root-session",
+  } } });
+  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
+  expect(requestState(requests.at(-1))).toBe("blocked");
+  expect(requests.every((request) => requestSessionID(request) === "root-session")).toBe(true);
+  await plugin.dispose();
 });
 
 test("reconciles child status changes while attach is starting", async () => {

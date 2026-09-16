@@ -9,11 +9,23 @@ use serde_json::Value;
 const TUI_CONFIG_NAME: &str = "tui.jsonc";
 
 pub(crate) fn tui_config_path(config_dir: &Path) -> PathBuf {
-    config_dir.join(TUI_CONFIG_NAME)
+    let json = config_dir.join("tui.json");
+    let jsonc = config_dir.join(TUI_CONFIG_NAME);
+    if !jsonc.exists() && json.exists() {
+        json
+    } else {
+        jsonc
+    }
 }
 
 pub(crate) fn validate_tui_plugin_config(config_dir: &Path) -> io::Result<()> {
-    let config_path = tui_config_path(config_dir);
+    for name in ["tui.json", TUI_CONFIG_NAME] {
+        validate_tui_config(&config_dir.join(name))?;
+    }
+    Ok(())
+}
+
+fn validate_tui_config(config_path: &Path) -> io::Result<()> {
     if !config_path.is_file() {
         return Ok(());
     }
@@ -31,6 +43,13 @@ pub(crate) fn validate_tui_plugin_config(config_dir: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn add_tui_plugin(config_dir: &Path, plugin_spec: &str) -> io::Result<PathBuf> {
+    validate_tui_plugin_config(config_dir)?;
+    for name in ["tui.json", TUI_CONFIG_NAME] {
+        let path = config_dir.join(name);
+        if tui_plugin_is_configured_at(&path, plugin_spec) {
+            return Ok(path);
+        }
+    }
     let config_path = tui_config_path(config_dir);
     let content = if config_path.is_file() {
         fs::read_to_string(&config_path)?
@@ -45,13 +64,6 @@ pub(crate) fn add_tui_plugin(config_dir: &Path, plugin_spec: &str) -> io::Result
             let plugins = property
                 .array_value()
                 .ok_or_else(|| invalid_plugin_list(&config_path))?;
-            if plugins.elements().iter().any(|entry| {
-                entry
-                    .to_serde_value()
-                    .is_some_and(|entry| plugin_entry_matches(&entry, plugin_spec))
-            }) {
-                return Ok(config_path);
-            }
             plugins.append(CstInputValue::String(plugin_spec.to_string()));
         }
         None => {
@@ -67,7 +79,15 @@ pub(crate) fn add_tui_plugin(config_dir: &Path, plugin_spec: &str) -> io::Result
 }
 
 pub(crate) fn remove_tui_plugin(config_dir: &Path, plugin_spec: &str) -> io::Result<bool> {
-    let config_path = tui_config_path(config_dir);
+    validate_tui_plugin_config(config_dir)?;
+    let mut removed = false;
+    for name in ["tui.json", TUI_CONFIG_NAME] {
+        removed |= remove_tui_plugin_at(&config_dir.join(name), plugin_spec)?;
+    }
+    Ok(removed)
+}
+
+fn remove_tui_plugin_at(config_path: &Path, plugin_spec: &str) -> io::Result<bool> {
     if !config_path.is_file() {
         return Ok(false);
     }
@@ -98,12 +118,28 @@ pub(crate) fn remove_tui_plugin(config_dir: &Path, plugin_spec: &str) -> io::Res
         property.remove();
     }
 
-    fs::write(&config_path, root.to_string())?;
+    let remaining = root.to_string();
+    // Remove an integration-only document, but retain comments, preferences,
+    // and unrelated plugin entries even when no Herdr registration remains.
+    if remaining
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .eq("{}".chars())
+    {
+        fs::remove_file(config_path)?;
+    } else {
+        fs::write(config_path, remaining)?;
+    }
     Ok(true)
 }
 
 pub(crate) fn tui_plugin_is_configured(config_dir: &Path, plugin_spec: &str) -> bool {
-    let config_path = tui_config_path(config_dir);
+    ["tui.json", TUI_CONFIG_NAME]
+        .iter()
+        .any(|name| tui_plugin_is_configured_at(&config_dir.join(name), plugin_spec))
+}
+
+fn tui_plugin_is_configured_at(config_path: &Path, plugin_spec: &str) -> bool {
     let Ok(content) = fs::read_to_string(&config_path) else {
         return false;
     };
@@ -270,13 +306,12 @@ mod tests {
     }
 
     #[test]
-    fn remove_tui_plugin_leaves_empty_managed_config() {
+    fn remove_tui_plugin_removes_empty_managed_config() {
         let dir = unique_dir();
         let config_path = add_tui_plugin(&dir, "./herdr-tui-state.js").unwrap();
 
         assert!(remove_tui_plugin(&dir, "./herdr-tui-state.js").unwrap());
-        assert!(config_path.is_file());
-        assert_eq!(parse_config(&config_path), json!({}));
+        assert!(!config_path.exists());
 
         fs::remove_dir_all(dir).unwrap();
     }
@@ -293,6 +328,59 @@ mod tests {
         assert!(tui_plugin_is_configured(&dir, "./herdr-tui-state.js"));
         assert!(remove_tui_plugin(&dir, "./herdr-tui-state.js").unwrap());
 
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tui_json_registration_is_reused_without_creating_jsonc() {
+        let dir = unique_dir();
+        let path = dir.join("tui.json");
+        let content = r#"{"theme":"system","plugin":[["./herdr-tui-state.js",{"enabled":true}]]}"#;
+        fs::write(&path, content).unwrap();
+        assert!(tui_plugin_is_configured(&dir, "./herdr-tui-state.js"));
+        assert_eq!(add_tui_plugin(&dir, "./herdr-tui-state.js").unwrap(), path);
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        assert!(!dir.join(TUI_CONFIG_NAME).exists());
+        assert!(remove_tui_plugin(&dir, "./herdr-tui-state.js").unwrap());
+        assert_eq!(parse_config(&path), json!({"theme":"system"}));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tui_registration_spans_both_files_without_duplication_or_comment_loss() {
+        let dir = unique_dir();
+        let json = dir.join("tui.json");
+        let jsonc = dir.join(TUI_CONFIG_NAME);
+        fs::write(&json, r#"{"plugin":["./herdr-tui-state.js"]}"#).unwrap();
+        fs::write(&jsonc, "{\n// Keep this comment.\n}\n").unwrap();
+        assert_eq!(add_tui_plugin(&dir, "./herdr-tui-state.js").unwrap(), json);
+        fs::write(
+            &jsonc,
+            "{\n// Keep this comment.\n\"plugin\":[\"./herdr-tui-state.js\"]\n}\n",
+        )
+        .unwrap();
+        assert!(remove_tui_plugin(&dir, "./herdr-tui-state.js").unwrap());
+        assert!(!json.exists());
+        assert!(fs::read_to_string(&jsonc)
+            .unwrap()
+            .contains("// Keep this comment."));
+        assert!(!tui_plugin_is_configured(&dir, "./herdr-tui-state.js"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn existing_tui_json_receives_registration_and_invalid_json_blocks_install() {
+        let dir = unique_dir();
+        let path = dir.join("tui.json");
+        fs::write(&path, r#"{"theme":"system"}"#).unwrap();
+        assert_eq!(add_tui_plugin(&dir, "./herdr-tui-state.js").unwrap(), path);
+        assert_eq!(
+            parse_config(&path),
+            json!({"theme":"system","plugin":["./herdr-tui-state.js"]})
+        );
+        assert!(!dir.join(TUI_CONFIG_NAME).exists());
+        fs::write(&path, r#"{"plugin":{}}"#).unwrap();
+        assert!(validate_tui_plugin_config(&dir).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 }

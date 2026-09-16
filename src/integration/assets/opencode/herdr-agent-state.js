@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=23
+// HERDR_INTEGRATION_VERSION=24
 
 import { createHash } from "node:crypto";
 import net from "node:net";
@@ -91,7 +91,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
   let paneRequestChain = Promise.resolve();
   let panePlacementChain = Promise.resolve();
   let currentRootSessionID;
-  let rootHeldWorkingForChildren = false;
+  let rootIsIdle = false;
   let unscopedErrorBlocked = false;
   let disposing = false;
   let disposed = false;
@@ -656,6 +656,8 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
       clearSessionLifecycle(currentRootSessionID);
     }
     currentRootSessionID = sessionID;
+    rootIsIdle = false;
+    unscopedErrorBlocked = false;
     if (hasActivePrompts()) void reportState("blocked", sessionID);
     for (const childSessionID of children.keys()) {
       void reconcileChildPane(childSessionID);
@@ -755,7 +757,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
   async function reportContinuing(state, sessionID, status) {
     markSessionContinuing(sessionID, status);
     if (sessionID && sessionID === currentRootSessionID) {
-      rootHeldWorkingForChildren = false;
+      rootIsIdle = false;
       unscopedErrorBlocked = false;
     }
     if (!unscopedErrorBlocked && !hasActivePrompts()) {
@@ -776,8 +778,8 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
       return;
     }
     clearSessionLifecycle(sessionID);
-    rootHeldWorkingForChildren = hasWorkingChildren();
-    await reportState(rootHeldWorkingForChildren ? "working" : "idle", sessionID, suppressCompletion);
+    rootIsIdle = true;
+    await reportState(hasWorkingChildren() ? "working" : "idle", sessionID, suppressCompletion);
   }
 
   async function dispose() {
@@ -807,7 +809,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
     children.clear();
     deletedSessions.clear();
     currentRootSessionID = undefined;
-    rootHeldWorkingForChildren = false;
+    rootIsIdle = false;
     unscopedErrorBlocked = false;
     reportRequestChain = Promise.resolve();
     paneRequestChain = Promise.resolve();
@@ -866,6 +868,9 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
         }
         if (await syncRootSelection()) {
           await reconcileChildPane(info.id);
+          if (rootIsIdle && rootSessionFor(info.id) === currentRootSessionID) {
+            await reportIdleOrConfirmError(currentRootSessionID);
+          }
         }
         return;
       }
@@ -888,10 +893,8 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
         if (state && selectionKnown && rootSessionFor(sessionID) === currentRootSessionID &&
             !unscopedErrorBlocked) {
           await reportState(state, rootSessionFor(sessionID));
-        } else if (childStatus && selectionKnown && rootHeldWorkingForChildren &&
-                   rootSessionFor(sessionID) === currentRootSessionID &&
-                   !hasWorkingChildren()) {
-          rootHeldWorkingForChildren = false;
+        } else if (childStatus && selectionKnown && rootIsIdle &&
+                   rootSessionFor(sessionID) === currentRootSessionID) {
           await reportIdleOrConfirmError(currentRootSessionID);
         }
         return;
@@ -935,7 +938,9 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
           }
           if (!sessionID) {
             unscopedErrorBlocked = true;
-            await reportState("blocked");
+            // A global error does not clear the pane's TUI-selected session.
+            // Keep that authority so later activity can leave the blocked state.
+            await reportState("blocked", currentRootSessionID);
             break;
           }
           deferSessionError(sessionID);
