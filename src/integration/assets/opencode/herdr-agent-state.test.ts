@@ -1252,7 +1252,7 @@ test("an accepted same-root turn clears an unscoped error block", async () => {
   await plugin["chat.message"]({ sessionID: "root-session" });
 
   expect(requests.map(requestState)).toEqual(["blocked", "working"]);
-  expect(requests.map(requestSessionID)).toEqual([undefined, "root-session"]);
+  expect(requests.map(requestSessionID)).toEqual(["root-session", "root-session"]);
 });
 
 test("old child reply is dropped after root replacement", async () => {
