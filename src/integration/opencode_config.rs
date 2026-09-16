@@ -30,14 +30,14 @@ fn validate_tui_config(config_path: &Path) -> io::Result<()> {
         return Ok(());
     }
 
-    let content = fs::read_to_string(&config_path)?;
-    let root = parse_root(&content, &config_path)?;
-    let object = root_object(&root, &config_path)?;
+    let content = fs::read_to_string(config_path)?;
+    let root = parse_root(&content, config_path)?;
+    let object = root_object(&root, config_path)?;
     if object
         .get("plugin")
         .is_some_and(|property| property.array_value().is_none())
     {
-        return Err(invalid_plugin_list(&config_path));
+        return Err(invalid_plugin_list(config_path));
     }
     Ok(())
 }
@@ -92,15 +92,15 @@ fn remove_tui_plugin_at(config_path: &Path, plugin_spec: &str) -> io::Result<boo
         return Ok(false);
     }
 
-    let content = fs::read_to_string(&config_path)?;
-    let root = parse_root(&content, &config_path)?;
-    let object = root_object(&root, &config_path)?;
+    let content = fs::read_to_string(config_path)?;
+    let root = parse_root(&content, config_path)?;
+    let object = root_object(&root, config_path)?;
     let Some(property) = object.get("plugin") else {
         return Ok(false);
     };
     let plugins = property
         .array_value()
-        .ok_or_else(|| invalid_plugin_list(&config_path))?;
+        .ok_or_else(|| invalid_plugin_list(config_path))?;
     let mut removed = false;
     for entry in plugins.elements() {
         if entry
@@ -140,13 +140,13 @@ pub(crate) fn tui_plugin_is_configured(config_dir: &Path, plugin_spec: &str) -> 
 }
 
 fn tui_plugin_is_configured_at(config_path: &Path, plugin_spec: &str) -> bool {
-    let Ok(content) = fs::read_to_string(&config_path) else {
+    let Ok(content) = fs::read_to_string(config_path) else {
         return false;
     };
-    let Ok(root) = parse_root(&content, &config_path) else {
+    let Ok(root) = parse_root(&content, config_path) else {
         return false;
     };
-    let Ok(object) = root_object(&root, &config_path) else {
+    let Ok(object) = root_object(&root, config_path) else {
         return false;
     };
     object
