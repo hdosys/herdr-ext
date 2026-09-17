@@ -663,7 +663,7 @@ impl TerminalState {
             });
             self.managed_agent_launch_session = None;
             return Some(TerminalStateMutation {
-                effective_state_change: self.unchanged_effective_state_change_at(now),
+                effective_state_change: Some(self.unchanged_effective_state_change_at(now)),
                 session_ref_changed: false,
                 agent_released: false,
             });
