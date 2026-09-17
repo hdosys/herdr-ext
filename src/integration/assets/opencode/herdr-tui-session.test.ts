@@ -9,6 +9,7 @@ let accepted = true;
 let reportedSessionID: unknown;
 let readbacks = 0;
 let inFlight = 0;
+let promptReady = false;
 
 mock.module("node:net", () => ({
   default: {
@@ -19,6 +20,13 @@ mock.module("node:net", () => ({
       const client = {
         write(input: string) {
           const request = JSON.parse(input.trim());
+          if (request.method === "agent.get") {
+            queueMicrotask(() => client.emit("data", `${JSON.stringify({ id: request.id, result: {
+              type: "agent_info", agent: { pane_id: "test:p1", agent: "opencode",
+                launch_pending: !promptReady, interactive_ready: promptReady },
+            } })}\n`));
+            return;
+          }
           if (request.method === "pane.get") {
             readbacks += 1;
             queueMicrotask(() => client.emit("data", `${JSON.stringify({ id: request.id, result: {
@@ -31,6 +39,7 @@ mock.module("node:net", () => ({
           }
           reportedSessionID = request.params.agent_session_id;
           requests.push(request);
+          if (request.params.source === "herdr:opencode:ready") promptReady = true;
           requestWaiters.shift()?.();
           queueMicrotask(() => {
             if (["close", "end", "error"].includes(acknowledgement)) {
@@ -73,6 +82,7 @@ beforeEach(() => {
   acknowledgement = "ok";
   accepted = true;
   readbacks = 0;
+  promptReady = false;
   process.env.HERDR_ENV = "1";
   process.env.HERDR_SOCKET_PATH = "test.sock";
   process.env.HERDR_PANE_ID = "test:p1";
@@ -102,6 +112,10 @@ function fakeApi() {
 
   return {
     api: {
+      renderer: { currentFocusedRenderable: undefined as undefined | {
+        focused: boolean; isDestroyed: boolean; traits: { owner: string; role: string };
+      } },
+      ui: { dialog: { open: false } },
       route: {
         get current() {
           return current;
@@ -170,6 +184,30 @@ test("reports a root session when only the local route changes", async () => {
   expect(requestParam(requests[0], "agent_session_id")).toBe("session-a");
   expect(requestParam(requests[0], "session_start_source")).toBe("select");
   expect(requestParam(requests[0], "seq")).toBeUndefined();
+});
+
+test("managed startup reports readiness only for a mounted focused OpenCode prompt", async () => {
+  const plugin = await loadPlugin();
+  const tui = fakeApi();
+  await plugin.tui(tui.api);
+  expect(requests).toHaveLength(0);
+  tui.api.renderer.currentFocusedRenderable = {
+    focused: true, isDestroyed: false, traits: { owner: "other", role: "prompt" },
+  };
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requests).toHaveLength(0);
+  tui.api.renderer.currentFocusedRenderable.traits.owner = "opencode";
+  tui.api.ui.dialog.open = true;
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requests).toHaveLength(0);
+  tui.api.ui.dialog.open = false;
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requests).toHaveLength(1);
+  expect(requestParam(requests[0], "source")).toBe("herdr:opencode:ready");
+  expect(requestParam(requests[0], "agent_session_id")).toBeUndefined();
+  expect(requestParam(requests[0], "suppress_completion")).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requests).toHaveLength(1);
 });
 
 test("receipt alone retries until the selected session is read back", async () => {

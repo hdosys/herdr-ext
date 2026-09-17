@@ -643,6 +643,31 @@ impl TerminalState {
         seq: Option<u64>,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
+        if source == "herdr:opencode:ready" {
+            // Readiness is not lifecycle authority. Keep its sequence separate
+            // from the server plugin so this one TUI signal cannot drop reports.
+            if agent_label != "opencode"
+                || state != AgentState::Idle
+                || self.detected_agent != Some(Agent::OpenCode)
+                || self.recent_agent_process_exit.is_some()
+                || self.managed_agent_kind() != Some(Agent::OpenCode)
+                || !self.managed_agent_launch_pending()
+                || seq.is_none()
+                || !self.accept_hook_report(&source, seq)
+            {
+                return None;
+            }
+            self.managed_agent = Some(ManagedAgent {
+                kind: Agent::OpenCode,
+                phase: ManagedAgentPhase::Active,
+            });
+            self.managed_agent_launch_session = None;
+            return Some(TerminalStateMutation {
+                effective_state_change: self.unchanged_effective_state_change_at(now),
+                session_ref_changed: false,
+                agent_released: false,
+            });
+        }
         if crate::detect::session_identity_only_integration(&source, &agent_label) {
             return None;
         }
@@ -1989,7 +2014,10 @@ impl TerminalState {
             return true;
         }
         if managed.phase == ManagedAgentPhase::Blocked {
-            if known_agent == Some(managed.kind) && self.state == AgentState::Idle {
+            if managed.kind != Agent::OpenCode
+                && known_agent == Some(managed.kind)
+                && self.state == AgentState::Idle
+            {
                 self.managed_agent = Some(ManagedAgent {
                     kind: managed.kind,
                     phase: ManagedAgentPhase::Active,
@@ -2017,7 +2045,10 @@ impl TerminalState {
                 return true;
             }
             if ready_after.is_none_or(|ready_after| now >= ready_after) {
-                if known_agent == Some(managed.kind) && self.state == AgentState::Idle {
+                if managed.kind != Agent::OpenCode
+                    && known_agent == Some(managed.kind)
+                    && self.state == AgentState::Idle
+                {
                     self.managed_agent = Some(ManagedAgent {
                         kind: managed.kind,
                         phase: ManagedAgentPhase::Active,
@@ -2275,6 +2306,72 @@ mod tests {
         assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
         assert!(terminal.reconcile_managed_agent_at(now + Duration::from_secs(2), true));
         assert_eq!(terminal.agent_name, None);
+    }
+
+    #[test]
+    fn managed_opencode_requires_prompt_ready_without_claiming_lifecycle() {
+        let mut terminal = test_terminal();
+        let now = Instant::now();
+        terminal.begin_managed_agent(
+            "opencode-test".into(),
+            Agent::OpenCode,
+            now,
+            Duration::ZERO,
+            Duration::from_secs(30),
+        );
+        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
+        terminal.reconcile_managed_agent_at(now, false);
+        assert!(!terminal.managed_agent_interactive_ready());
+        assert!(terminal.managed_agent_launch_pending());
+
+        assert!(terminal
+            .set_hook_authority_at(
+                "herdr:opencode:ready".into(),
+                "opencode".into(),
+                AgentState::Idle,
+                None,
+                None,
+                Some(1),
+                now
+            )
+            .is_some());
+        assert!(terminal.managed_agent_interactive_ready());
+        assert!(terminal.hook_authority.is_none());
+        assert!(terminal
+            .current_session_identity_for_persistence()
+            .is_none());
+        assert!(terminal
+            .set_hook_authority_at(
+                "herdr:opencode:ready".into(),
+                "opencode".into(),
+                AgentState::Idle,
+                None,
+                None,
+                Some(2),
+                now
+            )
+            .is_none());
+
+        let session = crate::agent_resume::AgentSessionRef::id("root").unwrap();
+        anchor_full_lifecycle_session(
+            &mut terminal,
+            Agent::OpenCode,
+            "herdr:opencode",
+            "opencode",
+            session.clone(),
+        );
+        assert!(terminal
+            .set_hook_authority_at(
+                "herdr:opencode".into(),
+                "opencode".into(),
+                AgentState::Working,
+                None,
+                Some(session),
+                Some(1),
+                now
+            )
+            .is_some());
+        assert_eq!(terminal.state, AgentState::Working);
     }
 
     #[test]
@@ -5083,6 +5180,17 @@ mod tests {
         );
         terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
         assert!(terminal.reconcile_managed_agent_at(now, false));
+        terminal
+            .set_hook_authority_at(
+                "herdr:opencode:ready".into(),
+                "opencode".into(),
+                AgentState::Idle,
+                None,
+                None,
+                Some(1),
+                now,
+            )
+            .expect("mounted prompt should complete startup");
 
         for session in ["opencode-old", "opencode-new"] {
             terminal

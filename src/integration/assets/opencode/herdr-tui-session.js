@@ -1,7 +1,7 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // HERDR_INTEGRATION_ID=opencode-tui
-// HERDR_INTEGRATION_VERSION=26
+// HERDR_INTEGRATION_VERSION=27
 
 import net from "node:net";
 
@@ -86,7 +86,38 @@ export default {
     let retryIndex = 0;
     let nextReportAt = 0;
     let reportPending = false;
+    let readinessReported = false;
     const controller = new AbortController();
+    const reportPromptReady = async () => {
+      const input = api.renderer?.currentFocusedRenderable;
+      if (readinessReported || reportPending || process.env[SUBAGENT_SESSION_ENV] ||
+          !api.state.ready || api.ui?.dialog.open || !input?.focused || input.isDestroyed ||
+          input.traits?.owner !== "opencode" || input.traits?.role !== "prompt") return;
+      reportPending = true;
+      try {
+        const target = process.env.HERDR_PANE_ID;
+        const observed = await requestOnce("agent.get", { target }, controller.signal);
+        const agent = observed?.result?.agent;
+        if (agent?.pane_id !== target || agent.agent !== AGENT) return;
+        if (!agent.launch_pending) {
+          readinessReported = true;
+          return;
+        }
+        // A process/idle fallback does not prove an input widget exists. This
+        // separate source admits startup without changing lifecycle/session state.
+        const response = await requestOnce("pane.report_agent", {
+          pane_id: target, source: "herdr:opencode:ready", agent: AGENT,
+          state: "idle", suppress_completion: true, seq: ++reportSeq,
+        }, controller.signal);
+        if (response?.result?.type === "ok") {
+          const confirmed = await requestOnce("agent.get", { target }, controller.signal);
+          readinessReported = confirmed?.result?.agent?.pane_id === target &&
+            confirmed.result.agent.interactive_ready === true;
+        }
+      } finally {
+        reportPending = false;
+      }
+    };
     const syncSelectedSession = async () => {
       if (controller.signal.aborted) return;
       const route = api.route.current;
@@ -99,6 +130,7 @@ export default {
       const ownsSession = subagentSessionID
         ? sessionID === subagentSessionID
         : !session?.parentID;
+      if (route?.name === "home") await reportPromptReady();
       if (!session || !ownsSession) {
         selectedSessionID = undefined;
         confirmedSessionID = undefined;
@@ -116,7 +148,11 @@ export default {
       }
       if (reportPending) return;
       if (confirmedSessionID === sessionID) {
-        if (!subagentSessionID || !api.state.ready) return;
+        if (!subagentSessionID) {
+          await reportPromptReady();
+          return;
+        }
+        if (!api.state.ready) return;
         // Attach loads the TUI plugin, not a server lifecycle plugin. Reuse its
         // synchronized snapshot after selection is accepted, including activity
         // that began before this pane attached. The existing route check owns it.
