@@ -1,12 +1,77 @@
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use jsonc_parser::cst::{CstInputValue, CstRootNode};
 use jsonc_parser::ParseOptions;
 use serde_json::Value;
 
 const TUI_CONFIG_NAME: &str = "tui.jsonc";
+static NEXT_CONFIG_WRITE: AtomicU64 = AtomicU64::new(0);
+
+fn write_config(path: &Path, content: &str) -> io::Result<()> {
+    // Resolve an existing file link so replacement preserves the user's link.
+    // A dangling link is an error, not permission to replace it with a file.
+    let target = match fs::symlink_metadata(path) {
+        Ok(_) => fs::canonicalize(path)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_path_buf(),
+        Err(error) => return Err(error),
+    };
+    let existing = match fs::metadata(&target) {
+        Ok(metadata) => {
+            if metadata.permissions().readonly() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "OpenCode TUI config is read-only",
+                ));
+            }
+            true
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error),
+    };
+    let parent = target.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "OpenCode TUI config has no parent directory",
+        )
+    })?;
+    let sequence = NEXT_CONFIG_WRITE.fetch_add(1, Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".herdr-opencode-{}-{sequence}.tmp",
+        std::process::id()
+    ));
+    drop(crate::platform::create_private_state_file(&temporary)?);
+    let result = (|| {
+        if existing {
+            // Copy the existing permissions, including Windows security metadata,
+            // before truncating only our own stage, never the user's config.
+            fs::copy(&target, &temporary)?;
+        }
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&temporary)?;
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        crate::platform::replace_file(&temporary, &target)?;
+        crate::platform::sync_parent_directory(parent)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.map_err(|error: io::Error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "failed to replace OpenCode TUI config at {}: {error}",
+                path.display()
+            ),
+        )
+    })
+}
 
 pub(crate) fn tui_config_path(config_dir: &Path) -> PathBuf {
     let json = config_dir.join("tui.json");
@@ -74,7 +139,7 @@ pub(crate) fn add_tui_plugin(config_dir: &Path, plugin_spec: &str) -> io::Result
         }
     }
 
-    fs::write(&config_path, root.to_string())?;
+    write_config(&config_path, &root.to_string())?;
     Ok(config_path)
 }
 
@@ -128,7 +193,7 @@ fn remove_tui_plugin_at(config_path: &Path, plugin_spec: &str) -> io::Result<boo
     {
         fs::remove_file(config_path)?;
     } else {
-        fs::write(config_path, remaining)?;
+        write_config(config_path, &remaining)?;
     }
     Ok(true)
 }
@@ -279,6 +344,35 @@ mod tests {
             json!(["example", ["configured", {"enabled": true}]])
         );
 
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejected_config_replacement_preserves_user_bytes_and_cleans_stage() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+
+        let dir = unique_dir();
+        let path = dir.join(TUI_CONFIG_NAME);
+        let original = "{\n// Keep my settings.\n\"theme\":\"system\"\n}\n";
+        fs::write(&path, original).unwrap();
+        // An editor permits ordinary writes but holds replacement/deletion closed.
+        // The old in-place writer would alter the file under this same handle.
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&path)
+            .unwrap();
+        assert!(add_tui_plugin(&dir, "./herdr-tui-session.js").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        drop(held);
+        add_tui_plugin(&dir, "./herdr-tui-session.js").unwrap();
+        assert_eq!(parse_config(&path)["theme"], "system");
+        assert!(fs::read_to_string(&path)
+            .unwrap()
+            .contains("// Keep my settings."));
         fs::remove_dir_all(dir).unwrap();
     }
 
