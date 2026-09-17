@@ -906,6 +906,8 @@ test("keeps the root working while a direct child is busy", async () => {
 
 test("the parent server reports lifecycle to its attached child pane", async () => {
   const plugin = await loadPlugin({ serverUrl: new URL("http://127.0.0.1:4096") });
+  await plugin["chat.message"]({ sessionID: "root-session" });
+  requests.length = 0;
   await openDirectChild(plugin);
   await plugin.event({ event: { type: "question.asked", properties: {
     id: "child-question", sessionID: "child-session",
