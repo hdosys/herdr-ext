@@ -439,8 +439,23 @@ impl Workspace {
         self.tabs.get_mut(self.active_tab)
     }
 
-    pub fn active_tab_display_name(&self) -> Option<String> {
-        self.tab_display_name(self.active_tab)
+    pub fn tab_display_name_from_terminals(
+        &self,
+        tab_idx: usize,
+        terminals: &HashMap<TerminalId, TerminalState>,
+    ) -> Option<String> {
+        let tab = self.tabs.get(tab_idx)?;
+        if let Some(name) = &tab.custom_name {
+            return Some(name.clone());
+        }
+        // The stable root owns automatic tab presentation, never the focused
+        // pane or an attached child. Explicit tab names remain untouched.
+        let title = tab
+            .panes
+            .get(&tab.root_pane)
+            .and_then(|pane| terminals.get(&pane.attached_terminal_id))
+            .and_then(TerminalState::effective_title);
+        title.or_else(|| self.tab_display_name(tab_idx))
     }
 
     pub fn tab_display_name(&self, tab_idx: usize) -> Option<String> {
@@ -1645,6 +1660,97 @@ mod tests {
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
             Some(PathBuf::from("/herdr-test/pion"))
+        );
+    }
+
+    #[test]
+    fn opencode_task_titles_follow_root_without_overwriting_explicit_labels() {
+        let mut ws = Workspace::test_new("titles");
+        let root = ws.tabs[0].root_pane;
+        let child = ws.test_split(Direction::Horizontal);
+        let root_id = ws.terminal_id(root).unwrap().clone();
+        let child_id = ws.terminal_id(child).unwrap().clone();
+        let mut terminals = HashMap::new();
+        for (id, title) in [(&root_id, "Root task"), (&child_id, "Child analysis")] {
+            let mut terminal = TerminalState::new(id.clone(), PathBuf::from("/tmp"));
+            terminal.set_hook_authority(
+                "herdr:opencode".into(),
+                "opencode".into(),
+                crate::detect::AgentState::Working,
+                None,
+                None,
+            );
+            terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
+                source: "herdr:opencode:title".into(),
+                agent_label: Some("opencode".into()),
+                applies_to_source: Some("herdr:opencode".into()),
+                title: Some(title.into()),
+                display_agent: None,
+                state_labels: HashMap::new(),
+                clear_title: false,
+                clear_display_agent: false,
+                clear_state_labels: false,
+                ttl: None,
+                seq: None,
+            });
+            terminals.insert(id.clone(), terminal);
+        }
+        assert_eq!(
+            ws.tab_display_name_from_terminals(0, &terminals).as_deref(),
+            Some("Root task")
+        );
+        assert_eq!(
+            terminals[&child_id].border_label(true).as_deref(),
+            Some("Child analysis")
+        );
+        terminals
+            .get_mut(&root_id)
+            .unwrap()
+            .set_manual_label("My pane".into());
+        assert_eq!(
+            terminals[&root_id].border_label(true).as_deref(),
+            Some("My pane")
+        );
+        ws.tabs[0].set_custom_name("My tab".into());
+        assert_eq!(
+            ws.tab_display_name_from_terminals(0, &terminals).as_deref(),
+            Some("My tab")
+        );
+        terminals.get_mut(&root_id).unwrap().set_agent_metadata(
+            crate::terminal::AgentMetadataReport {
+                source: "user:title".into(),
+                agent_label: None,
+                applies_to_source: None,
+                title: Some("Explicit presentation".into()),
+                display_agent: None,
+                state_labels: HashMap::new(),
+                clear_title: false,
+                clear_display_agent: false,
+                clear_state_labels: false,
+                ttl: None,
+                seq: None,
+            },
+        );
+        let mut update = terminals[&root_id].agent_metadata["herdr:opencode:title"].clone();
+        update.title = Some("Next task".into());
+        terminals.get_mut(&root_id).unwrap().set_agent_metadata(
+            crate::terminal::AgentMetadataReport {
+                source: update.source,
+                agent_label: update.agent_label,
+                applies_to_source: update.applies_to_source,
+                title: update.title,
+                display_agent: None,
+                state_labels: HashMap::new(),
+                clear_title: false,
+                clear_display_agent: false,
+                clear_state_labels: false,
+                ttl: None,
+                seq: None,
+            },
+        );
+        assert_eq!(
+            terminals[&root_id].border_label(true).as_deref(),
+            Some("Explicit presentation")
         );
     }
 

@@ -340,6 +340,38 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
 }
 
 #[test]
+fn opencode_task_titles_replace_redundant_sidebar_agent_labels() {
+    let mut projected = snapshot();
+    projected.agents.push(ClientShellAgent {
+        pane_id: "pane_1".into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_1".into(),
+        name: Some("opencode-p1".into()),
+        display_agent: None,
+        agent: Some("opencode".into()),
+        title: Some("Repair task titles".into()),
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent_status: AgentStatus::Working,
+        state_change_seq: 1,
+        state_labels: Vec::new(),
+        tokens: Vec::new(),
+        focused: true,
+    });
+    let config = ClientShellConfig::from_config(&Config::default());
+    let rows = super::super::agent_sidebar::agent_rows(&projected, &config, None);
+    assert!(rows[0].rows.iter().flatten().any(|token| matches!(
+        &token.kind, crate::ui::ResolvedTokenKind::Agent(text) if text == "Repair task titles"
+    )));
+    assert_eq!(projected.agents[0].name.as_deref(), Some("opencode-p1"));
+    projected.agents[0].display_agent = Some("My display label".into());
+    let rows = super::super::agent_sidebar::agent_rows(&projected, &config, None);
+    assert!(rows[0].rows.iter().flatten().any(|token| matches!(
+        &token.kind, crate::ui::ResolvedTokenKind::Agent(text) if text == "My display label"
+    )));
+}
+
+#[test]
 fn pane_cycle_last_and_agent_actions_resolve_to_stable_pane_ids() {
     let mut initial = snapshot();
     let mut second = initial.panes[0].clone();

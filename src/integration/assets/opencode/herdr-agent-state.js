@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=27
+// HERDR_INTEGRATION_VERSION=28
 
 import { createHash } from "node:crypto";
 import net from "node:net";

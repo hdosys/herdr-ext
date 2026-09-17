@@ -37,7 +37,9 @@ mock.module("node:net", () => ({
             } })}\n`));
             return;
           }
-          reportedSessionID = request.params.agent_session_id;
+          if (request.method === "pane.report_agent_session") {
+            reportedSessionID = request.params.agent_session_id;
+          }
           requests.push(request);
           if (request.params.source === "herdr:opencode:ready") promptReady = true;
           requestWaiters.shift()?.();
@@ -102,7 +104,7 @@ async function loadPlugin() {
 }
 
 function fakeApi() {
-  const sessions = new Map<string, { id: string; parentID?: string }>();
+  const sessions = new Map<string, { id: string; parentID?: string; title?: string }>();
   const statuses = new Map<string, { type: string }>();
   const questions = new Set<string>();
   let current: { name: string; params?: { sessionID: string } } = { name: "home" };
@@ -145,7 +147,7 @@ function fakeApi() {
         },
       },
     },
-    addSession(session: { id: string; parentID?: string }) {
+    addSession(session: { id: string; parentID?: string; title?: string }) {
       sessions.set(session.id, session);
     },
     setStatus(sessionID: string, type: string) {
@@ -169,6 +171,44 @@ function fakeApi() {
 function waitForNextRequest(): Promise<void> {
   return new Promise((resolve) => requestWaiters.push(resolve));
 }
+
+test("opencode task titles follow the selected root and same-session title changes", async () => {
+  const plugin = await loadPlugin();
+  const tui = fakeApi();
+  tui.addSession({ id: "root", title: "Erste Aufgabe" });
+  tui.addSession({ id: "child", parentID: "root", title: "Analyse" });
+  tui.select("root");
+  await plugin.tui(tui.api);
+  const titles = () => requests.filter((request: any) => request.method === "pane.report_metadata");
+  expect(requestParam(titles()[0], "title")).toBe("Erste Aufgabe");
+  tui.addSession({ id: "root", title: "Nächste Aufgabe" });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(requestParam(titles().at(-1), "title")).toBe("Nächste Aufgabe");
+  tui.select("child");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(titles()).toHaveLength(2);
+  tui.select("root");
+  tui.addSession({ id: "root", title: "" });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(requestParam(titles().at(-1), "clear_title")).toBe(true);
+});
+
+test("opencode task titles in attached child panes use only their bound session", async () => {
+  process.env.HERDR_OPENCODE_SUBAGENT_SESSION_ID = "child";
+  const plugin = await loadPlugin();
+  const tui = fakeApi();
+  tui.addSession({ id: "root", title: "Root" });
+  tui.addSession({ id: "child", parentID: "root", title: "Analyse" });
+  tui.select("child");
+  await plugin.tui(tui.api);
+  const titles = () => requests.filter((request: any) => request.method === "pane.report_metadata");
+  expect(titles()).toHaveLength(1);
+  expect(requestParam(titles()[0], "title")).toBe("Analyse");
+  expect(requestParam(titles()[0], "source")).toBe("herdr:opencode:title");
+  tui.select("root");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(titles()).toHaveLength(1);
+});
 
 test("reports a root session when only the local route changes", async () => {
   const plugin = await loadPlugin();

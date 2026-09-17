@@ -65,7 +65,12 @@ impl App {
                     }
                 }
                 WindowTitlePart::Token(WindowTitleToken::Tab) => {
-                    if let Some(name) = workspace.and_then(|ws| ws.active_tab_display_name()) {
+                    if let Some(name) = workspace.and_then(|ws| {
+                        ws.tab_display_name_from_terminals(
+                            ws.active_tab_index(),
+                            &self.state.terminals,
+                        )
+                    }) {
                         title.push_str(&name);
                     }
                 }

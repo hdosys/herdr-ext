@@ -1,7 +1,7 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // HERDR_INTEGRATION_ID=opencode-tui
-// HERDR_INTEGRATION_VERSION=27
+// HERDR_INTEGRATION_VERSION=28
 
 import net from "node:net";
 
@@ -82,6 +82,7 @@ export default {
     let selectedSessionID;
     let confirmedSessionID;
     let reportedChildState;
+    let reportedTitle = "";
     let reportSeq = Date.now() * 1000;
     let retryIndex = 0;
     let nextReportAt = 0;
@@ -147,6 +148,12 @@ export default {
         nextReportAt = 0;
       }
       if (reportPending) return;
+      const title = typeof session.title === "string" ? session.title.trim() : "";
+      if (confirmedSessionID === sessionID && title !== reportedTitle) {
+        confirmedSessionID = undefined;
+        retryIndex = 0;
+        nextReportAt = 0;
+      }
       if (confirmedSessionID === sessionID) {
         if (!subagentSessionID) {
           await reportPromptReady();
@@ -204,6 +211,18 @@ export default {
             session?.agent === AGENT && session?.kind === "id" &&
             session?.value === reportingSessionID;
         }
+        if (confirmed && title !== reportedTitle &&
+            api.route.current?.params?.sessionID === reportingSessionID) {
+          // Only this pane's selected TUI publishes its synchronized title.
+          // Reuse selection acknowledgement and bounded retries, not a new poller.
+          const metadata = await requestOnce("pane.report_metadata", {
+            pane_id: paneID, source: "herdr:opencode:title",
+            agent: AGENT, applies_to_source: SOURCE,
+            ...(title ? { title } : { clear_title: true }), seq: ++reportSeq,
+          }, controller.signal);
+          confirmed = metadata?.result?.type === "ok";
+          if (confirmed) reportedTitle = title;
+        }
       } catch {
         // Best-effort reporting retries below while the selected route remains active.
       } finally {
@@ -239,6 +258,7 @@ export default {
     const stopConnected = api.event.on("server.connected", () => {
       confirmedSessionID = undefined;
       reportedChildState = undefined;
+      reportedTitle = undefined;
       retryIndex = 0;
       nextReportAt = 0;
       void syncSelectedSession();
