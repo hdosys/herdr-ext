@@ -45,9 +45,11 @@ fn write_config(path: &Path, content: &str) -> io::Result<()> {
     drop(crate::platform::create_private_state_file(&temporary)?);
     let result = (|| {
         if existing {
-            // Copy the existing permissions, including Windows security metadata,
-            // before truncating only our own stage, never the user's config.
+            // Stage the existing file metadata before truncating only our own
+            // copy. CopyFileEx does not preserve a custom Windows DACL.
             fs::copy(&target, &temporary)?;
+            #[cfg(windows)]
+            crate::platform::copy_file_dacl(&target, &temporary)?;
         }
         let mut file = fs::OpenOptions::new()
             .write(true)
