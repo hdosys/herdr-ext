@@ -1,7 +1,7 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // HERDR_INTEGRATION_ID=opencode-tui
-// HERDR_INTEGRATION_VERSION=25
+// HERDR_INTEGRATION_VERSION=26
 
 import net from "node:net";
 
@@ -80,6 +80,9 @@ export default {
     }
 
     let selectedSessionID;
+    let confirmedSessionID;
+    let reportedChildState;
+    let reportSeq = Date.now() * 1000;
     let retryIndex = 0;
     let nextReportAt = 0;
     let reportPending = false;
@@ -98,16 +101,48 @@ export default {
         : !session?.parentID;
       if (!session || !ownsSession) {
         selectedSessionID = undefined;
+        confirmedSessionID = undefined;
+        reportedChildState = undefined;
         retryIndex = 0;
         nextReportAt = 0;
         return;
       }
       if (sessionID !== selectedSessionID) {
         selectedSessionID = sessionID;
+        confirmedSessionID = undefined;
+        reportedChildState = undefined;
         retryIndex = 0;
         nextReportAt = 0;
       }
-      if (reportPending || Date.now() < nextReportAt) {
+      if (reportPending) return;
+      if (confirmedSessionID === sessionID) {
+        if (!subagentSessionID || !api.state.ready) return;
+        // Attach loads the TUI plugin, not a server lifecycle plugin. Reuse its
+        // synchronized snapshot after selection is accepted, including activity
+        // that began before this pane attached. The existing route check owns it.
+        const status = api.state.session.status(sessionID)?.type;
+        const blocked = api.state.session.permission(sessionID).length > 0 ||
+          api.state.session.question(sessionID).length > 0;
+        const state = blocked ? "blocked" : status === "busy" || status === "retry"
+          ? "working" : status === "idle" || status === undefined ? "idle" : "unknown";
+        if (state === reportedChildState) return;
+        reportedChildState = state;
+        reportPending = true;
+        try {
+          await requestOnce("pane.report_agent", {
+            pane_id: process.env.HERDR_PANE_ID,
+            source: SOURCE,
+            agent: AGENT,
+            agent_session_id: sessionID,
+            state,
+            seq: ++reportSeq,
+          }, controller.signal);
+        } finally {
+          reportPending = false;
+        }
+        return;
+      }
+      if (Date.now() < nextReportAt) {
         return;
       }
 
@@ -146,8 +181,10 @@ export default {
         return;
       }
       if (confirmed) {
+        confirmedSessionID = reportingSessionID;
         retryIndex = 0;
         nextReportAt = Number.POSITIVE_INFINITY;
+        await syncSelectedSession();
         return;
       }
       const retryDelay = SELECTION_RETRY_DELAYS_MS[retryIndex];
@@ -164,6 +201,8 @@ export default {
       }
     });
     const stopConnected = api.event.on("server.connected", () => {
+      confirmedSessionID = undefined;
+      reportedChildState = undefined;
       retryIndex = 0;
       nextReportAt = 0;
       void syncSelectedSession();

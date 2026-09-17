@@ -93,6 +93,8 @@ async function loadPlugin() {
 
 function fakeApi() {
   const sessions = new Map<string, { id: string; parentID?: string }>();
+  const statuses = new Map<string, { type: string }>();
+  const questions = new Set<string>();
   let current: { name: string; params?: { sessionID: string } } = { name: "home" };
   let dispose: (() => void) | undefined;
   const listeners = new Map<string, (event: unknown) => void>();
@@ -106,10 +108,14 @@ function fakeApi() {
         },
       },
       state: {
+        ready: true,
         session: {
           get(sessionID: string) {
             return sessions.get(sessionID);
           },
+          status: (sessionID: string) => statuses.get(sessionID),
+          permission: () => [],
+          question: (sessionID: string) => questions.has(sessionID) ? [{ id: "question" }] : [],
         },
       },
       lifecycle: {
@@ -127,6 +133,12 @@ function fakeApi() {
     },
     addSession(session: { id: string; parentID?: string }) {
       sessions.set(session.id, session);
+    },
+    setStatus(sessionID: string, type: string) {
+      statuses.set(sessionID, { type });
+    },
+    setQuestion(sessionID: string, blocked: boolean) {
+      if (blocked) questions.add(sessionID); else questions.delete(sessionID);
     },
     select(sessionID: string) {
       current = { name: "session", params: { sessionID } };
@@ -212,18 +224,48 @@ test("does not replace the root session with a selected child session", async ()
   expect(requestParam(requests[0], "agent_session_id")).toBe("root-session");
 });
 
-test("reports the child session owned by a dedicated subagent pane", async () => {
+test("attached TUI reports existing child activity only after selection is accepted", async () => {
   process.env.HERDR_OPENCODE_SUBAGENT_SESSION_ID = "child-session";
+  accepted = false;
   const plugin = await loadPlugin();
   const tui = fakeApi();
   tui.addSession({ id: "root-session" });
   tui.addSession({ id: "child-session", parentID: "root-session" });
+  tui.setStatus("child-session", "busy");
   tui.select("child-session");
 
   await plugin.tui(tui.api);
 
   expect(requests).toHaveLength(1);
   expect(requestParam(requests[0], "agent_session_id")).toBe("child-session");
+  expect(requestParam(requests[0], "state")).toBeUndefined();
+
+  accepted = true;
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(requestParam(requests.at(-1), "state")).toBe("working");
+  tui.setQuestion("child-session", true);
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requestParam(requests.at(-1), "state")).toBe("blocked");
+  tui.setStatus("child-session", "idle");
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requestParam(requests.at(-1), "state")).toBe("blocked");
+  tui.setQuestion("child-session", false);
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requestParam(requests.at(-1), "state")).toBe("idle");
+  tui.setStatus("child-session", "retry");
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requestParam(requests.at(-1), "state")).toBe("working");
+
+  const reports = requests.filter((request) => requestParam(request, "state") !== undefined);
+  expect(reports.map((request) => requestParam(request, "state"))).toEqual([
+    "working", "blocked", "idle", "working",
+  ]);
+  expect(reports.every((request) => requestParam(request, "agent_session_id") === "child-session")).toBe(true);
+  tui.select("root-session");
+  tui.setStatus("root-session", "busy");
+  const count = requests.length;
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect(requests).toHaveLength(count);
 });
 
 test("stops route polling when the TUI plugin is disposed", async () => {
