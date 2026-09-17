@@ -20,6 +20,19 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Keep OpenCode native status checks at the actual plugin
+  host boundary.** The attached-child regression simulated a server plugin that
+  `opencode attach` never loads. A parent-forwarding correction then treated
+  queued `agent_started` as readiness, requiring a replacement installer.
+  Evidence: builds took 206.360 and 118.449 seconds; three broader startup probes
+  spent about 45 seconds each before the reporting boundary, while the focused
+  production TUI-to-native-IPC smoke passed in 0.905 seconds. Reuse that narrow
+  post-artifact acceptance shape and verify the installed-version plugin host and
+  start acknowledgement semantics during source discovery. Keep cold-shell launch
+  checks separate from status-reporting acceptance. Expected benefit: fewer false
+  positive mocks and less debugging time at unrelated startup boundaries. Owner:
+  OpenCode integration asset checks and `CONTRIBUTING.md`.
+
 - **Status: done. Scope Git trust inside the delta-worktree helper.** Every helper
   Git command now trusts only the resolved control checkout and selected worktree
   through command-scoped `safe.directory` values. Evidence: materialization had

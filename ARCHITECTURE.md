@@ -137,9 +137,12 @@ behavior; code and tests remain the detailed implementation truth.
   errors during an active retry, keeps child prompt state scoped to the selected
   root, and ignores server-global session creation as local ownership evidence.
   The pane-local TUI route is the sole selection reporter. The server plugin reads
-  the accepted session through `pane.get`; chat, status, and lifecycle events never
+  the accepted root session through `pane.get`; chat, status, and lifecycle events never
   infer selection. The TUI confirms delivery through correlated response framing
-  and exact session readback. Exhausted delivery may resume on selected-session
+  and exact session readback. A dedicated attached child has no server plugin of
+  its own: after selection confirmation, its TUI reports lifecycle from the
+  synchronized status and prompt snapshot through the existing route check. Root
+  aggregation remains server-plugin-owned. Exhausted delivery may resume on selected-session
   activity or reconnection, not a background retry service. Root changes filter
   live children and their prompts temporarily; only deletion retires their identity.
   A split response must identify the owned pane. An unconfirmed split is neither
