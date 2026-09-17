@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=24
+// HERDR_INTEGRATION_VERSION=25
 
 import { createHash } from "node:crypto";
 import net from "node:net";
@@ -104,7 +104,6 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
 
   const attachServerUrl = serverUrl instanceof URL ? serverUrl.toString() : undefined;
   const defaultDirectory = typeof directory === "string" && directory ? directory : undefined;
-  const attachedSessionID = process.env[SUBAGENT_SESSION_ENV] || undefined;
 
   function requestOnce(method, params, allowWhileDisposing = false) {
     if (disposed || (disposing && !allowWhileDisposing)) {
@@ -260,6 +259,22 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
     return reportRequest("pane.report_agent", params);
   }
 
+  function reportChildState(sessionID) {
+    const child = children.get(sessionID);
+    if (disposing || disposed || !child?.started || !child.paneID ||
+        deletedSessions.has(sessionID) || rootSessionFor(sessionID) !== currentRootSessionID) {
+      return Promise.resolve();
+    }
+    const blocked = [...activePrompts.values()].some((owner) => owner === sessionID);
+    // Attach runs only a TUI. The parent server owns the child's lifecycle and
+    // reports it to the exact pane whose split and agent start it confirmed.
+    return reportRequest("pane.report_agent", {
+      pane_id: child.paneID,
+      agent_session_id: sessionID,
+      state: blocked ? "blocked" : child.working ? "working" : "idle",
+    });
+  }
+
   function responseResult(response, expectedType) {
     const result = response?.result;
     return result?.type === expectedType ? result : undefined;
@@ -410,6 +425,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
     }
     if (closed && child.paneID === paneID) {
       child.paneID = undefined;
+      child.started = false;
     }
     return closed;
   }
@@ -516,6 +532,8 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
       });
       if (!(await agentStartSucceeded(name, paneID, startResponse))) {
         await closeChildPane(sessionID, disposing);
+      } else {
+        child.started = true;
       }
     } finally {
       child.spawning = false;
@@ -537,6 +555,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
         if (!child.paneID) {
           await openChildPane(sessionID);
         }
+        await reportChildState(sessionID);
         return;
       }
       if (!child.paneID) {
@@ -549,6 +568,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
         }
         if (liveState === "working") {
           child.working = true;
+          await reportChildState(sessionID);
           return;
         }
         if (liveState !== "idle") {
@@ -851,12 +871,12 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
         return;
       }
 
-      if ((type === "session.created" || type === "session.updated") && info?.id &&
-          info.parentID && info.id !== attachedSessionID) {
+      if ((type === "session.created" || type === "session.updated") && info?.id && info.parentID) {
         const child = children.get(info.id) ?? {
           info,
           working: false,
           spawning: false,
+          started: false,
           paneID: undefined,
           splitUnconfirmed: false,
           reconcileChain: Promise.resolve(),
@@ -887,9 +907,10 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
       if (disposing || disposed) return;
 
       if (child) {
-        if (childStatus && selectionKnown) await reconcileChildPane(sessionID);
         const state = updatePromptState(type, properties, sessionID)
           ?? CHILD_EVENT_STATES.get(type);
+        if (childStatus && selectionKnown) await reconcileChildPane(sessionID);
+        if (state && selectionKnown) await reportChildState(sessionID);
         if (state && selectionKnown && rootSessionFor(sessionID) === currentRootSessionID &&
             !unscopedErrorBlocked) {
           await reportState(state, rootSessionFor(sessionID));

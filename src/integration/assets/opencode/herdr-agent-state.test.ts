@@ -805,9 +805,10 @@ test("does not let a pending agent start block later pane placement", async () =
   acknowledgeRequest(5, 5, {
     result: { type: "agent_started", agent: { pane_id: "test:p3" }, argv: [] },
   });
+  autoAcknowledge = true;
   await Promise.all([first, second]);
 
-  expect(requests.map(requestMethod)).toEqual([
+  expect(requests.map(requestMethod).filter((method) => method !== "pane.report_agent")).toEqual([
     "pane.layout",
     "pane.split",
     "agent.start",
@@ -853,6 +854,7 @@ test("retains a child pane when the agent start response is lost", async () => {
     "pane.split",
     "agent.start",
     "agent.get",
+    "pane.report_agent",
   ]);
 });
 
@@ -873,8 +875,9 @@ test("keeps the child pane when delayed idle disagrees with live status", async 
 
   requests.length = 0;
   await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
-  expect(requests).toHaveLength(0);
+  expect(requests.map(requestState)).toEqual(["working"]);
 
+  requests.length = 0;
   liveStatus = { type: "idle" };
   await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
   expect(requests.map(requestMethod)).toEqual(["pane.close"]);
@@ -901,24 +904,29 @@ test("keeps the root working while a direct child is busy", async () => {
   expect(requests.map(requestSessionID)).toEqual(["root-session", "root-session"]);
 });
 
-test("an attached child pane reports its own lifecycle", async () => {
-  process.env.HERDR_OPENCODE_SUBAGENT_SESSION_ID = "child-session";
-  selectedRootSessionID = "child-session";
-  const plugin = await loadPlugin();
-
-  await plugin.event({
-    event: {
-      type: "session.created",
-      properties: {
-        info: { id: "child-session", parentID: "root-session" },
-      },
-    },
-  });
+test("the parent server reports lifecycle to its attached child pane", async () => {
+  const plugin = await loadPlugin({ serverUrl: new URL("http://127.0.0.1:4096") });
+  await openDirectChild(plugin);
+  await plugin.event({ event: { type: "question.asked", properties: {
+    id: "child-question", sessionID: "child-session",
+  } } });
   await plugin.event(sessionStatusEvent("child-session", { type: "busy" }));
-  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
+  await plugin.event({ event: { type: "question.replied", properties: {
+    requestID: "child-question", sessionID: "child-session",
+  } } });
+  await plugin.event(sessionStatusEvent("foreign-session", { type: "busy" }));
 
-  expect(requests.map(requestState)).toEqual(["working", "idle"]);
-  expect(requests.map(requestSessionID)).toEqual(["child-session", "child-session"]);
+  const childReports = requests.filter((request) =>
+    requestMethod(request) === "pane.report_agent" && requestParam(request, "pane_id") === "test:p2");
+  expect(childReports.map(requestState)).toEqual(["working", "blocked", "blocked", "working"]);
+  expect(childReports.map(requestSessionID)).toEqual(Array(4).fill("child-session"));
+  const rootReports = requests.filter((request) => requestParam(request, "pane_id") === "test:p1" &&
+    requestMethod(request) === "pane.report_agent");
+  expect(rootReports.map(requestSessionID)).toEqual(["root-session", "root-session"]);
+
+  await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
+  expect(requestMethod(requests.at(-1))).toBe("pane.close");
+  await plugin.dispose();
 });
 
 test("late child work wakes an idle root and finishes without clearing a prompt", async () => {
@@ -985,13 +993,18 @@ test("reconciles child status changes while attach is starting", async () => {
       argv: [],
     },
   });
+  autoAcknowledge = true;
   await Promise.all([created, idle, working]);
 
-  expect(requests.map(requestMethod)).toEqual([
+  expect(requests.map(requestMethod).filter((method) => method !== "pane.report_agent")).toEqual([
     "pane.layout",
     "pane.split",
     "agent.start",
   ]);
+  const reports = requests.filter((request) => requestMethod(request) === "pane.report_agent");
+  expect(reports.length).toBeGreaterThan(0);
+  expect(reports.every((request) => requestState(request) === "working" &&
+    requestParam(request, "pane_id") === "test:p2")).toBe(true);
 });
 
 test("dispose lets an in-flight child split report its pane before cleanup", async () => {
