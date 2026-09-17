@@ -20,6 +20,25 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Keep OpenCode repair acceptance out of packaging and
+  exploratory test loops.** The V1 repair required repeated 155-238 second
+  candidate builds, a 522-second Rust test compilation for 0.23 seconds of
+  execution, and an isolated startup harness that blocked on redirected output
+  after its launcher exited. The later headless test could not retain a live
+  terminal and never reached OpenCode. The user explicitly stopped further
+  installer work. Reuse a bounded existing native acceptance path, bound output
+  draining as well as process exit, and keep infrastructure diagnosis out of a
+  focused integration fix. Preserve an explicit unverified boundary rather than
+  spending another iteration building a new test setup. Owner: OpenCode V1
+  acceptance tooling and `CONTRIBUTING.md`.
+
+- **Status: proposed. Name one canonical installer resource-lock key.** The
+  source-loss investigation found both `resource:herdr-win-local-windows-installer`
+  and `resource:herdr-win-windows-candidate-build` used for the same build owner.
+  Different keys do not serialize shared outputs. Standardize the exact key in
+  the existing candidate command owner if concurrent building is selected again.
+  No overlapping mutation or link to source loss was established.
+
 - **Status: proposed. Keep OpenCode native status checks at the actual plugin
   host boundary.** The attached-child regression simulated a server plugin that
   `opencode attach` never loads. A parent-forwarding correction then treated

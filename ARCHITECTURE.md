@@ -145,6 +145,12 @@ behavior; code and tests remain the detailed implementation truth.
   aggregation remains server-plugin-owned. Exhausted delivery may resume on selected-session
   activity or reconnection, not a background retry service. Root changes filter
   live children and their prompts temporarily; only deletion retires their identity.
+  Managed V1 startup is admitted by the mounted, focused OpenCode prompt through
+  the TUI's separate `herdr:opencode:ready` report source. This changes only managed
+  readiness, not lifecycle authority or selected-session identity. Generic idle
+  detection is insufficient; a missing integration reaches the existing startup
+  timeout rather than falsely accepting input. The current TUI observer owns this
+  signal without another timer, prompt resend, or fixed startup delay.
   A split response must identify the owned pane. An unconfirmed split is neither
   repeated nor recovered through layout differences. SDK status reconciliation is
   abortable and bounded, including disposal. Direct child panes attach only to the ephemeral
