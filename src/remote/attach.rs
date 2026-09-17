@@ -3,9 +3,9 @@
 use super::{args::*, process::wait_with_output_timeout, restart_policy::*, shell_quote};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::{self, IsTerminal, Write as _};
+use std::io::{self, IsTerminal, Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 
 use interprocess::TryClone as _;
 use interprocess::local_socket::ListenerNonblockingMode;
@@ -673,6 +673,10 @@ impl RemoteSsh {
             .stderr(Stdio::piped())
             .spawn()?;
 
+        if !self.noninteractive {
+            return output_with_forwarded_stderr(child, Some(script.as_bytes()), io::stderr());
+        }
+
         let write_result = if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(script.as_bytes())
         } else {
@@ -681,11 +685,7 @@ impl RemoteSsh {
                 "ssh bootstrap stdin missing",
             ))
         };
-        let output = if self.noninteractive {
-            wait_with_output_timeout(child, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)?
-        } else {
-            child.wait_with_output()?
-        };
+        let output = wait_with_output_timeout(child, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)?;
         write_result?;
         Ok(output)
     }
@@ -700,7 +700,7 @@ impl RemoteSsh {
         if self.noninteractive {
             wait_with_output_timeout(command.spawn()?, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)
         } else {
-            command.output()
+            output_with_forwarded_stderr(command.spawn()?, None, io::stderr())
         }
     }
 
@@ -1068,6 +1068,55 @@ impl Drop for RemoteSsh {
             .stderr(Stdio::null())
             .status();
     }
+}
+
+// Interactive authentication instructions must be visible before SSH exits.
+// Background probes retain their capture-only timeout path to avoid disturbing the TUI.
+fn output_with_forwarded_stderr(
+    mut child: Child,
+    stdin: Option<&[u8]>,
+    mut destination: impl io::Write + Send + 'static,
+) -> io::Result<Output> {
+    let mut child_stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "ssh command stderr missing"))?;
+    let stderr_relay = thread::spawn(move || -> io::Result<Vec<u8>> {
+        let mut captured = Vec::new();
+        let mut buffer = [0_u8; 8 * 1024];
+        loop {
+            let read = child_stderr.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            captured.extend_from_slice(&buffer[..read]);
+            if destination.write_all(&buffer[..read]).is_ok() {
+                let _ = destination.flush();
+            }
+        }
+        Ok(captured)
+    });
+
+    let write_result = if let Some(bytes) = stdin {
+        if let Some(mut child_stdin) = child.stdin.take() {
+            child_stdin.write_all(bytes)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "ssh bootstrap stdin missing",
+            ))
+        }
+    } else {
+        Ok(())
+    };
+    let output_result = child.wait_with_output();
+    let stderr_result = stderr_relay
+        .join()
+        .map_err(|_| io::Error::other("ssh stderr relay panicked"))?;
+    let mut output = output_result?;
+    write_result?;
+    output.stderr = stderr_result?;
+    Ok(output)
 }
 
 fn apply_noninteractive_ssh_options(command: &mut Command) {
@@ -3544,6 +3593,19 @@ fn ssh_config_include_path(path: &Path) -> String {
     }
 }
 
+// MSYS OpenSSH ignores drive-letter Include paths. Let the selected SSH expand
+// its own home, matching its default user-config lookup even when HOME differs.
+#[cfg(windows)]
+fn ssh_user_config_include(_path: Option<&Path>) -> Option<String> {
+    Some(ssh_config_quote("~/.ssh/config"))
+}
+
+#[cfg(not(windows))]
+fn ssh_user_config_include(path: Option<&Path>) -> Option<String> {
+    path.filter(|path| path.is_file())
+        .map(ssh_config_include_path)
+}
+
 /// Builds a temporary ssh config that includes the user's settings first, so
 /// OpenSSH's first-value-wins behavior preserves explicit user keepalives.
 fn write_managed_ssh_config() -> io::Result<ManagedSshConfig> {
@@ -3555,11 +3617,8 @@ fn write_managed_ssh_config() -> io::Result<ManagedSshConfig> {
         .then(|| dir.join(SSH_CONTROL_SOCKET_NAME));
 
     let mut contents = String::new();
-    if let Some(user_config) = paths.user_config.filter(|path| path.is_file()) {
-        contents.push_str(&format!(
-            "Include {}\n",
-            ssh_config_include_path(&user_config)
-        ));
+    if let Some(include) = ssh_user_config_include(paths.user_config.as_deref()) {
+        contents.push_str(&format!("Include {include}\n"));
     }
     if let Some(system_config) = paths.system_config.filter(|path| path.is_file()) {
         contents.push_str(&format!(
@@ -4173,6 +4232,10 @@ mod tests {
         let contents = std::fs::read_to_string(&config_path).expect("read managed config");
         assert!(contents.contains("ServerAliveInterval 15"));
         assert!(contents.contains("ServerAliveCountMax 4"));
+        let include_at = contents
+            .find("Include \"~/.ssh/config\"")
+            .expect("user config is resolved by the selected SSH implementation");
+        assert!(include_at < contents.find("Host *").expect("fallback settings"));
 
         let ssh = RemoteSsh {
             target: "example".to_string(),
@@ -4204,6 +4267,68 @@ mod tests {
             ssh_config_include_path(Path::new(r"C:\Users\A B\.ssh\config")),
             r#""C:/Users/A B/.ssh/config""#
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ssh_auth_output_arrives_before_exit_and_remains_captured() {
+        use std::sync::mpsc;
+
+        struct NoticeWriter(mpsc::Sender<Vec<u8>>);
+        impl io::Write for NoticeWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.send(bytes.to_vec()).map_err(io::Error::other)?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let job = crate::platform::ChildProcessJob::new_kill_on_close().unwrap();
+        let mut command = Command::new("cmd.exe");
+        command
+            .args([
+                "/D",
+                "/C",
+                "(echo auth-notice 1>&2) & set /p approval= & echo reply & exit /b 23",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        crate::platform::configure_background_command(&mut command);
+        let mut child = command.spawn().unwrap();
+        if let Err(error) = job.assign(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("contain authentication fixture: {error}");
+        }
+        let mut approval = child.stdin.take().unwrap();
+        let (notice_tx, notice_rx) = mpsc::channel();
+        let (output_tx, output_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let _ = output_tx.send(output_with_forwarded_stderr(
+                child,
+                None,
+                NoticeWriter(notice_tx),
+            ));
+        });
+        // The child cannot exit until the test receives the relayed notice and
+        // releases its stdin. Capturing stderr only after exit fails this check.
+        let notice = notice_rx.recv_timeout(Duration::from_secs(5));
+        let approval_result = approval.write_all(b"approved\r\n");
+        drop(approval);
+        let output = output_rx.recv_timeout(Duration::from_secs(5));
+        if output.is_err() {
+            job.terminate().unwrap();
+        }
+        worker.join().unwrap();
+        let output = output.unwrap().unwrap();
+        approval_result.unwrap();
+        assert!(String::from_utf8_lossy(&notice.unwrap()).contains("auth-notice"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("auth-notice"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("reply"));
+        assert_eq!(output.status.code(), Some(23));
     }
 
     #[test]
