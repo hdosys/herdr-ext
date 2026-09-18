@@ -1109,7 +1109,10 @@ mod tests {
         let event = |generation, output: Option<&str>| AppEvent::TabBarCommandFinished {
             generation,
             segment_index: 0,
-            result: Ok(output.map(str::to_string)),
+            result: Ok(output.map(|text| state::StatusCommandOutput {
+                text: text.into(),
+                url: None,
+            })),
         };
 
         assert!(!app.handle_internal_event_with_render_impact(event(generation, None)));

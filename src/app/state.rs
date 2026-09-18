@@ -784,6 +784,13 @@ pub(crate) struct PaneFocusTarget {
 pub enum TabBarStatusSegment {
     Zoom,
     Text(Option<String>),
+    Link { text: String, url: String },
+}
+
+#[derive(Debug)]
+pub struct StatusCommandOutput {
+    pub text: String,
+    pub url: Option<String>,
 }
 
 pub struct AppState {

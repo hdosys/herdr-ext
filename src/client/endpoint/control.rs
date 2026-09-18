@@ -2,7 +2,7 @@ use super::ClientEndpointId;
 
 pub(crate) enum EndpointControlMessage {
     HealthPong,
-    Snapshot(Box<crate::protocol::ClientShellSnapshot>),
+    Snapshot(Box<crate::protocol::endpoint::ShellSnapshot>),
     Ignored,
 }
 

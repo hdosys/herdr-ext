@@ -5,6 +5,7 @@ pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
     AddMachine,
     WhatsNew,
+    StatusLink(usize),
 }
 
 pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
@@ -22,7 +23,7 @@ pub(super) fn global_menu_item_has_badge(
 
 pub(super) fn global_menu_items(
     snapshot: &ClientShellSnapshot,
-) -> Vec<(&'static str, ClientGlobalMenuAction)> {
+) -> Vec<(&str, ClientGlobalMenuAction)> {
     let mut items = vec![
         (
             "settings",
@@ -47,6 +48,14 @@ pub(super) fn global_menu_items(
             },
             ClientGlobalMenuAction::WhatsNew,
         ));
+    }
+    for (index, segment) in snapshot.tab_bar_right.iter().enumerate() {
+        if snapshot.status_url(index).is_some() {
+            items.push((
+                segment.text.as_str(),
+                ClientGlobalMenuAction::StatusLink(index),
+            ));
+        }
     }
     items.push((
         "detach",
@@ -105,12 +114,23 @@ impl ClientShellState {
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
-            ClientGlobalMenuAction::AddMachine => outcome.actions.push(
-                ClientShellAction::OpenSafeWebUrl(
+            ClientGlobalMenuAction::AddMachine => {
+                outcome.actions.push(ClientShellAction::OpenSafeWebUrl(
                     "https://herdr.dev/docs/connecting-machines/".to_owned(),
-                ),
-            ),
+                ))
+            }
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
+            ClientGlobalMenuAction::StatusLink(index) => {
+                if let Some(url) = self
+                    .snapshot
+                    .as_deref()
+                    .and_then(|snapshot| snapshot.status_url(index))
+                {
+                    outcome
+                        .actions
+                        .push(ClientShellAction::OpenSafeWebUrl(url.to_owned()));
+                }
+            }
         }
         outcome.repaint = true;
     }

@@ -53,10 +53,11 @@ use crate::config::{
     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
     TabBarPositionConfig,
 };
+use crate::protocol::endpoint::ShellSnapshot as ClientShellSnapshot;
 use crate::protocol::{
-    ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellSnapshot, ClientShellTab,
-    ClientShellWorkspace, ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification,
-    SemanticNotificationKind, SemanticNotificationSound,
+    ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellTab, ClientShellWorkspace,
+    ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification, SemanticNotificationKind,
+    SemanticNotificationSound,
 };
 #[cfg(test)]
 use crate::raw_input::RawInputEvent;

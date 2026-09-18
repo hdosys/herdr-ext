@@ -324,6 +324,40 @@ Command entries run immediately and then at `interval_seconds` without blocking 
 
 Separators appear only between visible entries. Set `tab_bar_right_separator = ""` for direct concatenation. On a narrow tab row, the complete status area yields to the tabs and their controls.
 
+Command producers can make an entry clickable by wrapping the complete last-line
+label in one OSC 8 hyperlink. No configuration change is required. Emit actual
+ESC (`0x1b`) and BEL (`0x07`) bytes, not the printable escape notation below:
+
+```text
+ESC]8;;https://chatgpt.com/codex/cloud/settings/analytics BELCodex 42%ESC]8;;BEL
+```
+
+There is no space before either BEL in the emitted bytes. For example, a Python
+producer can print:
+
+```python
+print("\x1b]8;;https://chatgpt.com/codex/cloud/settings/analytics\x07Codex 42%\x1b]8;;\x07")
+```
+
+Both BEL and ST (`ESC` followed by `\`) are accepted terminators. Emit only one
+complete link around the whole label. Plain text continues to work. Invalid,
+incomplete, non-HTTP(S), or credential-bearing authority URLs display as plain
+text without activation. Labels retain the existing 80-character limit and control
+sanitization; the complete output line, including the URL, must fit in 4096 bytes.
+Never include API keys, access tokens, passwords, or other secrets in URLs.
+
+Click the underlined status text, or press your configured prefix followed by
+**F10** to open the menu, select the status label with **Up/Down**, and press
+**Enter**. **Escape** cancels. An explicit prefix-F10 keybinding takes precedence.
+The menu also exposes links when the tab row is too narrow to show them. A status
+refresh that changes the menu's entries closes it rather than retargeting a
+selection. Refreshing or viewing status never opens a link.
+
+Opening uses the attached client's browser, including when a command runs on a
+remote Sandbox server. Both server and client need clickable-status support for
+activation. Older servers strip OSC 8 to plain labels; older compatible clients
+ignore the optional link metadata and still display the labels.
+
 ### Outer terminal window title
 
 Herdr emulates the terminals in its panes, so an `OSC 0`/`OSC 2` title written inside a pane stops at Herdr. Herdr writes its own title to the terminal it runs in, which is what window managers and terminal tab bars read:

@@ -9,7 +9,7 @@ pub(super) fn snapshot(
     revision: u64,
     config_diagnostic: Option<&str>,
     location: Option<&crate::server::clients::ClientShellLocation>,
-) -> protocol::ClientShellSnapshot {
+) -> protocol::endpoint::ShellSnapshot {
     let snapshot = app.session_snapshot();
     let focused_workspace_id = location
         .and_then(|location| location.focused_workspace_id.clone())
@@ -175,25 +175,28 @@ pub(super) fn snapshot(
                 .get(tab_index)
         })
         .is_some_and(|tab| tab.zoomed);
+    let mut tab_bar_right_urls = Vec::new();
     let tab_bar_right = app
         .state
         .tab_bar_right
         .iter()
-        .filter_map(|segment| match segment {
-            crate::app::state::TabBarStatusSegment::Zoom if zoomed => {
-                Some(protocol::ClientShellTabStatusSegment {
-                    text: "ZOOM".to_owned(),
-                    accent: true,
-                })
-            }
-            crate::app::state::TabBarStatusSegment::Text(Some(text)) if !text.is_empty() => {
-                Some(protocol::ClientShellTabStatusSegment {
-                    text: text.clone(),
-                    accent: false,
-                })
-            }
-            crate::app::state::TabBarStatusSegment::Zoom
-            | crate::app::state::TabBarStatusSegment::Text(_) => None,
+        .filter_map(|segment| {
+            let (text, accent, url) = match segment {
+                crate::app::state::TabBarStatusSegment::Zoom if zoomed => ("ZOOM", true, None),
+                crate::app::state::TabBarStatusSegment::Text(Some(text)) if !text.is_empty() => {
+                    (text.as_str(), false, None)
+                }
+                crate::app::state::TabBarStatusSegment::Link { text, url } => {
+                    (text.as_str(), false, Some(url.clone()))
+                }
+                crate::app::state::TabBarStatusSegment::Zoom
+                | crate::app::state::TabBarStatusSegment::Text(_) => return None,
+            };
+            tab_bar_right_urls.push(url);
+            Some(protocol::ClientShellTabStatusSegment {
+                text: text.to_owned(),
+                accent,
+            })
         })
         .collect();
 
@@ -216,30 +219,33 @@ pub(super) fn snapshot(
                 preview: notes.preview,
             });
 
-    protocol::ClientShellSnapshot {
-        boot_id: boot_id.to_owned(),
-        revision,
-        config_diagnostic: config_diagnostic.map(str::to_owned),
-        product_announcement,
-        update_available: app.state.update_available.clone(),
-        update_install_command: app.state.update_install_command.clone(),
-        server_keybindings_toml: app.client_shell_keybindings_profile().map(str::to_owned),
-        latest_release_notes_available: app.state.latest_release_notes_available,
-        integration_updates_available: app.state.integration_updates_available(),
-        worktree_directory: app.state.worktree_directory.to_string_lossy().into_owned(),
-        release_notes,
-        focused_workspace_id,
-        focused_tab_id,
-        focused_pane_id,
-        tab_bar_right,
-        tab_bar_right_separator: app.state.tab_bar_right_separator.clone(),
-        agent_view_label,
-        agent_order,
-        workspaces,
-        tabs,
-        panes,
-        agents,
-        commands: app.client_shell_command_manifest(),
+    protocol::endpoint::ShellSnapshot {
+        tab_bar_right_urls,
+        core: protocol::ClientShellSnapshot {
+            boot_id: boot_id.to_owned(),
+            revision,
+            config_diagnostic: config_diagnostic.map(str::to_owned),
+            product_announcement,
+            update_available: app.state.update_available.clone(),
+            update_install_command: app.state.update_install_command.clone(),
+            server_keybindings_toml: app.client_shell_keybindings_profile().map(str::to_owned),
+            latest_release_notes_available: app.state.latest_release_notes_available,
+            integration_updates_available: app.state.integration_updates_available(),
+            worktree_directory: app.state.worktree_directory.to_string_lossy().into_owned(),
+            release_notes,
+            focused_workspace_id,
+            focused_tab_id,
+            focused_pane_id,
+            tab_bar_right,
+            tab_bar_right_separator: app.state.tab_bar_right_separator.clone(),
+            agent_view_label,
+            agent_order,
+            workspaces,
+            tabs,
+            panes,
+            agents,
+            commands: app.client_shell_command_manifest(),
+        },
     }
 }
 

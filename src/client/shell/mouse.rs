@@ -1951,6 +1951,19 @@ impl ClientShellState {
                     );
                     return;
                 }
+                if let Some((_, url)) = self
+                    .hits
+                    .status_links
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                {
+                    if let Some(url) = crate::protocol::endpoint::status_web_url(url) {
+                        outcome
+                            .actions
+                            .push(ClientShellAction::OpenSafeWebUrl(url.to_owned()));
+                    }
+                    return;
+                }
                 if super::contains(self.hits.tab_scroll_left, point) {
                     self.tab_scroll = self.tab_scroll.saturating_sub(1);
                     outcome.repaint = true;

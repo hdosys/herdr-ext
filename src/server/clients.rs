@@ -176,7 +176,7 @@ pub(crate) struct ClientConnection {
     /// Connection-local workspace and tab projection for a client-owned shell.
     pub(crate) shell_location: Option<ClientShellLocation>,
     /// Last coherent shell replacement sent to this client.
-    pub(crate) shell_snapshot: Option<crate::protocol::ClientShellSnapshot>,
+    pub(crate) shell_snapshot: Option<crate::protocol::endpoint::ShellSnapshot>,
     /// Monotonic shell replacement revision for this connection.
     pub(crate) shell_projection_revision: u64,
     /// Whether this shell is waiting for one ordered endpoint command response.

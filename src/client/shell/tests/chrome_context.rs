@@ -280,6 +280,77 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
+fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
+    let url = "https://chatgpt.com/codex/cloud/settings/analytics";
+    let mut projected = snapshot();
+    projected.tab_bar_right = vec![crate::protocol::ClientShellTabStatusSegment {
+        text: "Codex 42%".into(),
+        accent: false,
+    }];
+    projected.tab_bar_right_urls = vec![Some(url.into())];
+    let message = crate::protocol::endpoint::snapshot_message(&projected).unwrap();
+    let crate::protocol::ServerMessage::EndpointControl { data, .. } = message else {
+        panic!("JSON snapshot");
+    };
+    // Old clients still see only the clean label; new clients retain the URL.
+    let old: crate::protocol::ClientShellSnapshot = serde_json::from_str(&data).unwrap();
+    assert_eq!(old.tab_bar_right[0].text, "Codex 42%");
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(serde_json::from_str(&data).unwrap()));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).unwrap();
+    let rect = state.hits.status_links[0].0;
+    let clicked = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: rect.x,
+        row: rect.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(clicked.requests.is_empty());
+    assert!(
+        matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value == url)
+    );
+    state.mode = ClientShellMode::Prefix;
+    state.handle_input_bytes(b"\x1b[21~");
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::GlobalMenu(_))
+    ));
+    let link_index =
+        super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
+            .iter()
+            .position(|(_, action)| {
+                matches!(
+                    action,
+                    super::super::global_menu::ClientGlobalMenuAction::StatusLink(0)
+                )
+            })
+            .unwrap();
+    for _ in 0..link_index {
+        state.handle_input_bytes(b"\x1b[B");
+    }
+    let activated = state.handle_input_bytes(b"\r");
+    assert!(activated.requests.is_empty());
+    assert!(
+        matches!(&activated.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value == url)
+    );
+
+    projected.revision = 2;
+    projected.tab_bar_right_urls = vec![Some("file:///C:/secret".into())];
+    state.set_snapshot(Box::new(projected));
+    state.compose(106, 30).unwrap();
+    assert!(state.hits.status_links.is_empty());
+    assert!(
+        !super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
+            .iter()
+            .any(|(_, action)| matches!(
+                action,
+                super::super::global_menu::ClientGlobalMenuAction::StatusLink(_)
+            ))
+    );
+}
+
+#[test]
 fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

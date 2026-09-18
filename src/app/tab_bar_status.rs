@@ -9,7 +9,10 @@ use std::{
 
 use tokio::io::AsyncReadExt;
 
-use super::{state::TabBarStatusSegment, App};
+use super::{
+    state::{StatusCommandOutput, TabBarStatusSegment},
+    App,
+};
 use crate::config::TabBarRightEntryConfig;
 
 const DATETIME_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -183,7 +186,7 @@ impl App {
         &mut self,
         generation: u64,
         segment_index: usize,
-        result: Result<Option<String>, String>,
+        result: Result<Option<StatusCommandOutput>, String>,
     ) -> bool {
         if generation != self.tab_bar_status_generation {
             return false;
@@ -204,13 +207,18 @@ impl App {
                 None
             }
         };
-        let Some(TabBarStatusSegment::Text(current)) =
-            self.state.tab_bar_right.get_mut(segment_index)
-        else {
+        let Some(current) = self.state.tab_bar_right.get_mut(segment_index) else {
             return false;
         };
-        let changed = *current != output;
-        *current = output;
+        let segment = match output {
+            Some(StatusCommandOutput {
+                text,
+                url: Some(url),
+            }) => TabBarStatusSegment::Link { text, url },
+            output => TabBarStatusSegment::Text(output.map(|output| output.text)),
+        };
+        let changed = *current != segment;
+        *current = segment;
         changed
     }
 }
@@ -280,6 +288,33 @@ fn command_output_text(output: &[u8]) -> Option<String> {
     let output = strip_terminal_control_sequences(output.as_bytes());
     let output = String::from_utf8_lossy(&output);
     output.lines().next_back().and_then(sanitize_status_text)
+}
+
+fn command_output(output: &[u8]) -> Option<StatusCommandOutput> {
+    let text = command_output_text(output)?;
+    let raw = String::from_utf8_lossy(output);
+    // One complete OSC 8 envelope owns the whole entry. All other terminal
+    // controls still take the existing plain-text sanitization path.
+    let url = raw.trim().strip_prefix("\x1b]8;").and_then(|body| {
+        let (params, body) = body.split_once(';')?;
+        if params.chars().any(char::is_control) {
+            return None;
+        }
+        let end = body.find(['\x07', '\x1b'])?;
+        let url = crate::protocol::endpoint::status_web_url(&body[..end])?;
+        let label = body[end..]
+            .strip_prefix('\x07')
+            .or_else(|| body[end..].strip_prefix("\x1b\\"))?;
+        let label = label
+            .strip_suffix("\x1b]8;;\x07")
+            .or_else(|| label.strip_suffix("\x1b]8;;\x1b\\"))?;
+        // Multiple links or nested OSC commands are not a single-entry link.
+        if label.contains("\x1b]") {
+            return None;
+        }
+        Some(url.to_owned())
+    });
+    Some(StatusCommandOutput { text, url })
 }
 
 #[derive(Clone, Copy)]
@@ -466,7 +501,7 @@ async fn run_status_command(
     deadline: tokio::time::Instant,
     environment: Vec<(String, String)>,
     cwd: Option<std::path::PathBuf>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<StatusCommandOutput>, String> {
     if control.is_terminated() || tokio::time::Instant::now() >= deadline {
         return Err(format!("timed out after {}s", timeout.as_secs()));
     }
@@ -504,7 +539,7 @@ async fn run_status_command(
         let status = status.map_err(|error| error.to_string())?;
         let output = output.map_err(|error| error.to_string())?;
         if status.success() {
-            Ok(command_output_text(&output))
+            Ok(command_output(&output))
         } else {
             Err(format!("exited with {status}"))
         }
@@ -574,7 +609,7 @@ mod tests {
                 generation: 7,
                 segment_index: 3,
                 result: Ok(Some(ref output)),
-            } if output == "final"
+            } if output.text == "final" && output.url.is_none()
         ));
     }
 
@@ -634,7 +669,7 @@ mod tests {
             AppEvent::TabBarCommandFinished {
                 result: Ok(Some(ref output)),
                 ..
-            } if output == "READY"
+            } if output.text == "READY" && output.url.is_none()
         ));
     }
 
@@ -657,7 +692,7 @@ mod tests {
             " ",
         );
 
-        app.handle_tab_bar_command_finished(stale_generation, 0, Ok(Some("stale".into())));
+        app.handle_tab_bar_command_finished(stale_generation, 0, Ok(command_output(b"stale")));
 
         assert_eq!(
             app.state.tab_bar_right,
@@ -759,6 +794,61 @@ mod tests {
             TabBarStatusSegment::Text(Some(value)) if !value.is_empty()
         ));
         assert!(!app.handle_tab_bar_status_tasks(deadline));
+    }
+
+    #[test]
+    fn clickable_status_accepts_one_web_link_and_preserves_plain_labels() {
+        for end in ["\x07", "\x1b\\"] {
+            let raw = format!("\x1b]8;;https://chatgpt.com/codex/cloud/settings/analytics{end}Codex 42%\x1b]8;;{end}");
+            let output = command_output(raw.as_bytes()).unwrap();
+            assert_eq!(output.text, "Codex 42%");
+            assert_eq!(
+                output.url.as_deref(),
+                Some("https://chatgpt.com/codex/cloud/settings/analytics")
+            );
+        }
+        for url in [
+            "file:///C:/secret",
+            "javascript:alert(1)",
+            "https://user:secret@example.test",
+            "https://",
+            "https://example.test/\0x",
+            "https://example.test/a b",
+        ] {
+            let raw = format!("\x1b]8;;{url}\x07Usage 42%\x1b]8;;\x07");
+            let output = command_output(raw.as_bytes()).unwrap();
+            assert_eq!(output.text, "Usage 42%");
+            assert!(output.url.is_none(), "{url:?}");
+        }
+        assert!(command_output(b"Usage 42%").unwrap().url.is_none());
+        assert!(command_output(b"\x1b]8;;https://example.test\x07Usage 42%")
+            .unwrap()
+            .url
+            .is_none());
+    }
+
+    #[test]
+    fn clickable_status_refresh_replaces_and_clears_link_without_activation() {
+        let mut app = test_app();
+        app.configure_tab_bar_status(
+            &[TabBarRightEntryConfig::Command {
+                command: MULTILINE_COMMAND.into(),
+                interval_seconds: 5,
+                timeout_seconds: 2,
+            }],
+            " ",
+        );
+        let generation = app.tab_bar_status_generation;
+        let linked = command_output(b"\x1b]8;;https://example.test\x07Usage\x1b]8;;\x07");
+        assert!(app.handle_tab_bar_command_finished(generation, 0, Ok(linked)));
+        assert!(
+            matches!(&app.state.tab_bar_right[0], TabBarStatusSegment::Link { text, .. } if text == "Usage")
+        );
+        assert!(app.handle_tab_bar_command_finished(generation, 0, Ok(command_output(b"Usage"))));
+        assert_eq!(
+            app.state.tab_bar_right[0],
+            TabBarStatusSegment::Text(Some("Usage".into()))
+        );
     }
 
     #[test]

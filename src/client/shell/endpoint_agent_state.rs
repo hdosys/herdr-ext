@@ -143,7 +143,7 @@ mod tests {
         snapshot.boot_id = "endpoint-boot".into();
         snapshot.revision = revision;
         snapshot.agents = vec![agent(status, sequence)];
-        snapshot
+        snapshot.core
     }
 
     fn surface(revision: u64) -> PaneSurfaceFrame {

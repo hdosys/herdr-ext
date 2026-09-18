@@ -147,6 +147,7 @@ pub(super) struct ShellHitMap {
     pub(super) workspace_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(super) workspace_max_scroll: usize,
     pub(super) tabs: Vec<(Rect, String)>,
+    pub(super) status_links: Vec<(Rect, String)>,
     pub(super) panes: Vec<PaneHit>,
     pub(super) popup: Option<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
@@ -1346,6 +1347,15 @@ impl ClientShellState {
             return;
         }
         self.graphics.set_scope(&graphics_scope);
+        if matches!(self.overlay, Some(ClientShellOverlay::GlobalMenu(_)))
+            && self.snapshot.as_ref().is_some_and(|current| {
+                current.tab_bar_right != snapshot.tab_bar_right
+                    || current.tab_bar_right_urls != snapshot.tab_bar_right_urls
+            })
+        {
+            // Do not activate a different status destination under an old menu selection.
+            self.overlay = None;
+        }
         let command_bindings_changed = self.snapshot.as_ref().is_none_or(|current| {
             current.commands.len() != snapshot.commands.len()
                 || current

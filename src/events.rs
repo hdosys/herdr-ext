@@ -159,7 +159,7 @@ pub enum AppEvent {
     TabBarCommandFinished {
         generation: u64,
         segment_index: usize,
-        result: Result<Option<String>, String>,
+        result: Result<Option<crate::app::state::StatusCommandOutput>, String>,
     },
     /// A plugin action or event command finished.
     PluginCommandFinished {

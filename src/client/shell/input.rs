@@ -574,6 +574,9 @@ impl ClientShellState {
                 }
                 self.mode = return_mode;
                 outcome.repaint = true;
+                if key.code == KeyCode::F(10) && key.modifiers.is_empty() {
+                    self.toggle_global_menu();
+                }
                 None
             }
             ClientShellMode::Navigate => {

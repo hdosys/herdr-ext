@@ -549,7 +549,7 @@ pub(super) fn handle_endpoint_attention(
 pub(super) fn install_client_shell_snapshot(
     state: &mut ClientState,
     endpoint_id: &endpoint::ClientEndpointId,
-    snapshot: Box<crate::protocol::ClientShellSnapshot>,
+    snapshot: Box<crate::protocol::endpoint::ShellSnapshot>,
     projection_pending: bool,
     endpoints: &mut endpoint::EndpointRegistry,
     prefix_input_source: &mut impl crate::platform::PrefixInputSource,
