@@ -220,7 +220,7 @@ pub(crate) fn render_tab_bar(
             );
         }
     }
-    render_tab_bar_status(buffer, area, snapshot, palette);
+    render_tab_bar_status(buffer, area, snapshot, palette, hits);
 }
 
 pub(crate) fn tab_bar_status_width(snapshot: &ClientShellSnapshot) -> u16 {
@@ -259,6 +259,7 @@ fn render_tab_bar_status(
     area: Rect,
     snapshot: &ClientShellSnapshot,
     palette: &Palette,
+    hits: &mut ShellHitMap,
 ) {
     let Some(status) = tab_bar_status_area(snapshot, area) else {
         return;
@@ -286,8 +287,23 @@ fn render_tab_bar_status(
         } else {
             Style::default().fg(palette.overlay1).bg(palette.panel_bg)
         };
-        put_text(buffer, x, area.y, width, &segment.text, style);
-        x = x.saturating_add(width);
+        if let Some(spans) = snapshot.status_spans(index) {
+            for span in spans {
+                let width = display_width(&span.text);
+                let style = if let Some(url) = span.web_url() {
+                    hits.status_links
+                        .push((Rect::new(x, area.y, width, 1), url.to_owned()));
+                    style.add_modifier(Modifier::UNDERLINED)
+                } else {
+                    style
+                };
+                put_text(buffer, x, area.y, width, &span.text, style);
+                x = x.saturating_add(width);
+            }
+        } else {
+            put_text(buffer, x, area.y, width, &segment.text, style);
+            x = x.saturating_add(width);
+        }
     }
 }
 

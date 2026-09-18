@@ -105,11 +105,11 @@ impl ClientShellState {
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
-            ClientGlobalMenuAction::AddMachine => outcome.actions.push(
-                ClientShellAction::OpenSafeWebUrl(
+            ClientGlobalMenuAction::AddMachine => {
+                outcome.actions.push(ClientShellAction::OpenSafeWebUrl(
                     "https://herdr.dev/docs/connecting-machines/".to_owned(),
-                ),
-            ),
+                ))
+            }
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
         }
         outcome.repaint = true;

@@ -9,8 +9,12 @@ use std::{
 
 use tokio::io::AsyncReadExt;
 
-use super::{state::TabBarStatusSegment, App};
+use super::{
+    state::{StatusCommandOutput, TabBarStatusSegment},
+    App,
+};
 use crate::config::TabBarRightEntryConfig;
+use crate::protocol::endpoint::StatusSpan;
 
 const DATETIME_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_COMMAND_LINE_BYTES: usize = 4096;
@@ -183,7 +187,7 @@ impl App {
         &mut self,
         generation: u64,
         segment_index: usize,
-        result: Result<Option<String>, String>,
+        result: Result<Option<StatusCommandOutput>, String>,
     ) -> bool {
         if generation != self.tab_bar_status_generation {
             return false;
@@ -204,13 +208,19 @@ impl App {
                 None
             }
         };
-        let Some(TabBarStatusSegment::Text(current)) =
-            self.state.tab_bar_right.get_mut(segment_index)
-        else {
+        let Some(current) = self.state.tab_bar_right.get_mut(segment_index) else {
             return false;
         };
-        let changed = *current != output;
-        *current = output;
+        let segment = match output {
+            Some(StatusCommandOutput { text, spans })
+                if spans.iter().any(|span| span.url.is_some()) =>
+            {
+                TabBarStatusSegment::Link { text, spans }
+            }
+            output => TabBarStatusSegment::Text(output.map(|output| output.text)),
+        };
+        let changed = *current != segment;
+        *current = segment;
         changed
     }
 }
@@ -275,75 +285,172 @@ fn is_unicode_format_control(character: char) -> bool {
     )
 }
 
+#[cfg(test)]
 fn command_output_text(output: &[u8]) -> Option<String> {
-    let output = String::from_utf8_lossy(output);
-    let output = strip_terminal_control_sequences(output.as_bytes());
-    let output = String::from_utf8_lossy(&output);
-    output.lines().next_back().and_then(sanitize_status_text)
+    command_output(output).map(|output| output.text)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum ControlSequenceState {
     Text,
     Escape,
     EscapeIntermediate,
     Csi,
     Osc,
+    OscEscape,
     StString,
 }
 
-fn strip_terminal_control_sequences(value: &[u8]) -> Vec<u8> {
+fn command_output(value: &[u8]) -> Option<StatusCommandOutput> {
     use ControlSequenceState::*;
 
-    let mut output = Vec::with_capacity(value.len());
+    let mut spans = vec![StatusSpan {
+        text: String::new(),
+        url: None,
+    }];
+    let mut open_span = None;
+    let mut line_break = false;
+    let mut osc = String::new();
     let mut state = Text;
-    for &byte in value {
-        state = match (state, byte) {
-            (Text, b'\x1b') => Escape,
+    for character in String::from_utf8_lossy(value).chars() {
+        if state == OscEscape && character != '\\' {
+            osc.clear();
+            state = Escape;
+        }
+        state = match (state, character) {
+            (Text, '\x1b') => Escape,
             (Text, _) => {
-                output.push(byte);
+                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
                 Text
             }
-            (Escape, b'[') => Csi,
-            (Escape, b']') => Osc,
-            (Escape, b'P' | b'X' | b'^' | b'_') => StString,
-            (Escape, 0x20..=0x2f) => EscapeIntermediate,
-            (Escape, 0x30..=0x7e) => Text,
-            (Escape, b'\x1b') => Escape,
-            (Escape, b'\x18' | b'\x1a') => Text,
-            (Escape, byte) if byte.is_ascii_control() => Escape,
+            (Escape, '[') => Csi,
+            (Escape, ']') => {
+                osc.clear();
+                Osc
+            }
+            (Escape, 'P' | 'X' | '^' | '_') => StString,
+            (Escape, '\u{20}'..='\u{2f}') => EscapeIntermediate,
+            (Escape, '\u{30}'..='\u{7e}') => Text,
+            (Escape, '\x1b') => Escape,
+            (Escape, '\x18' | '\x1a') => Text,
+            (Escape, character) if character.is_ascii_control() => Escape,
             (Escape, _) => {
-                output.push(byte);
+                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
                 Text
             }
-            (EscapeIntermediate, 0x20..=0x2f) => EscapeIntermediate,
-            (EscapeIntermediate, 0x30..=0x7e) => Text,
-            (EscapeIntermediate, b'\x1b') => Escape,
-            (EscapeIntermediate, b'\x18' | b'\x1a') => Text,
-            (EscapeIntermediate, byte) if byte.is_ascii_control() => EscapeIntermediate,
+            (EscapeIntermediate, '\u{20}'..='\u{2f}') => EscapeIntermediate,
+            (EscapeIntermediate, '\u{30}'..='\u{7e}') => Text,
+            (EscapeIntermediate, '\x1b') => Escape,
+            (EscapeIntermediate, '\x18' | '\x1a') => Text,
+            (EscapeIntermediate, character) if character.is_ascii_control() => EscapeIntermediate,
             (EscapeIntermediate, _) => {
-                output.push(byte);
+                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
                 Text
             }
-            (Csi, 0x20..=0x3f) => Csi,
-            (Csi, 0x40..=0x7e) => Text,
-            (Csi, b'\x1b') => Escape,
-            (Csi, b'\x18' | b'\x1a') => Text,
-            (Csi, byte) if byte.is_ascii_control() => Csi,
+            (Csi, '\u{20}'..='\u{3f}') => Csi,
+            (Csi, '\u{40}'..='\u{7e}') => Text,
+            (Csi, '\x1b') => Escape,
+            (Csi, '\x18' | '\x1a') => Text,
+            (Csi, character) if character.is_ascii_control() => Csi,
             (Csi, _) => {
-                output.push(byte);
+                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
                 Text
             }
-            (Osc, b'\x07') => Text,
-            (Osc, b'\x1b') => Escape,
-            (Osc, b'\x18' | b'\x1a') => Text,
-            (Osc, _) => Osc,
-            (StString, b'\x1b') => Escape,
-            (StString, b'\x18' | b'\x1a') => Text,
+            (Osc, '\x07') | (OscEscape, '\\') => {
+                if let Some(body) = osc.strip_prefix("8;") {
+                    let url = body.split_once(';').and_then(|(params, url)| {
+                        if params.chars().any(char::is_control) {
+                            return None;
+                        }
+                        crate::protocol::endpoint::status_web_url(url).map(str::to_owned)
+                    });
+                    open_span = url.as_ref().map(|_| spans.len());
+                    spans.push(StatusSpan {
+                        text: String::new(),
+                        url,
+                    });
+                }
+                osc.clear();
+                Text
+            }
+            (Osc, '\x1b') => OscEscape,
+            (Osc, '\x18' | '\x1a') => {
+                osc.clear();
+                Text
+            }
+            (Osc, _) => {
+                osc.push(character);
+                Osc
+            }
+            (OscEscape, _) => Text,
+            (StString, '\x1b') => Escape,
+            (StString, '\x18' | '\x1a') => Text,
             (StString, _) => StString,
         };
     }
-    output
+    // A truncated/unclosed link must not claim the remaining text.
+    if let Some(start) = open_span {
+        for span in spans.iter_mut().skip(start) {
+            span.url = None;
+        }
+    }
+    let start = spans.iter().position(|span| !span.text.trim().is_empty())?;
+    let end = spans
+        .iter()
+        .rposition(|span| !span.text.trim().is_empty())?;
+    let mut spans: Vec<_> = spans.drain(start..=end).collect();
+    if let Some(first) = spans.first_mut() {
+        first.text = first.text.trim_start().to_owned();
+    }
+    if let Some(last) = spans.last_mut() {
+        last.text = last.text.trim_end().to_owned();
+    }
+    // Command input already has a strict byte bound. Do not truncate a combined
+    // result at the old single-label limit, dropping later labels or links.
+    spans.retain(|span| !span.text.is_empty());
+    let text = spans.iter().map(|span| span.text.as_str()).collect();
+    Some(StatusCommandOutput { text, spans })
+}
+
+fn append_status_character(
+    spans: &mut Vec<StatusSpan>,
+    open_span: &mut Option<usize>,
+    line_break: &mut bool,
+    character: char,
+) {
+    if character == '\n' {
+        if *line_break {
+            let url = spans.last().and_then(|span| span.url.clone());
+            spans.clear();
+            spans.push(StatusSpan {
+                text: String::new(),
+                url,
+            });
+            if open_span.is_some() {
+                *open_span = Some(0);
+            }
+        }
+        *line_break = true;
+        return;
+    }
+    if character.is_control() || is_unicode_format_control(character) {
+        return;
+    }
+    if *line_break {
+        let url = spans.last().and_then(|span| span.url.clone());
+        spans.clear();
+        spans.push(StatusSpan {
+            text: String::new(),
+            url,
+        });
+        if open_span.is_some() {
+            *open_span = Some(0);
+        }
+        *line_break = false;
+    }
+    if let Some(span) = spans.last_mut() {
+        span.text.push(character);
+    }
 }
 
 async fn read_last_output_line(
@@ -466,7 +573,7 @@ async fn run_status_command(
     deadline: tokio::time::Instant,
     environment: Vec<(String, String)>,
     cwd: Option<std::path::PathBuf>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<StatusCommandOutput>, String> {
     if control.is_terminated() || tokio::time::Instant::now() >= deadline {
         return Err(format!("timed out after {}s", timeout.as_secs()));
     }
@@ -504,7 +611,7 @@ async fn run_status_command(
         let status = status.map_err(|error| error.to_string())?;
         let output = output.map_err(|error| error.to_string())?;
         if status.success() {
-            Ok(command_output_text(&output))
+            Ok(command_output(&output))
         } else {
             Err(format!("exited with {status}"))
         }
@@ -574,7 +681,7 @@ mod tests {
                 generation: 7,
                 segment_index: 3,
                 result: Ok(Some(ref output)),
-            } if output == "final"
+            } if output.text == "final" && output.spans.iter().all(|span| span.url.is_none())
         ));
     }
 
@@ -634,7 +741,7 @@ mod tests {
             AppEvent::TabBarCommandFinished {
                 result: Ok(Some(ref output)),
                 ..
-            } if output == "READY"
+            } if output.text == "READY" && output.spans.iter().all(|span| span.url.is_none())
         ));
     }
 
@@ -657,7 +764,7 @@ mod tests {
             " ",
         );
 
-        app.handle_tab_bar_command_finished(stale_generation, 0, Ok(Some("stale".into())));
+        app.handle_tab_bar_command_finished(stale_generation, 0, Ok(command_output(b"stale")));
 
         assert_eq!(
             app.state.tab_bar_right,
@@ -759,6 +866,150 @@ mod tests {
             TabBarStatusSegment::Text(Some(value)) if !value.is_empty()
         ));
         assert!(!app.handle_tab_bar_status_tasks(deadline));
+    }
+
+    #[test]
+    fn clickable_status_accepts_one_web_link_and_preserves_plain_labels() {
+        for end in ["\x07", "\x1b\\"] {
+            let raw = format!("\x1b]8;;https://chatgpt.com/codex/cloud/settings/analytics{end}Codex 42%\x1b]8;;{end}");
+            let output = command_output(raw.as_bytes()).unwrap();
+            assert_eq!(output.text, "Codex 42%");
+            assert_eq!(
+                output.spans[0].url.as_deref(),
+                Some("https://chatgpt.com/codex/cloud/settings/analytics")
+            );
+        }
+        for url in [
+            "file:///C:/secret",
+            "javascript:alert(1)",
+            "https://user:secret@example.test",
+            "https://",
+            "https://example.test/\0x",
+            "https://example.test/a b",
+        ] {
+            let raw = format!("\x1b]8;;{url}\x07Usage 42%\x1b]8;;\x07");
+            let output = command_output(raw.as_bytes()).unwrap();
+            assert_eq!(output.text, "Usage 42%");
+            assert!(
+                output.spans.iter().all(|span| span.url.is_none()),
+                "{url:?}"
+            );
+        }
+        assert!(command_output(b"Usage 42%")
+            .unwrap()
+            .spans
+            .iter()
+            .all(|span| span.url.is_none()));
+        assert!(command_output(b"\x1b]8;;https://example.test\x07Usage 42%")
+            .unwrap()
+            .spans
+            .iter()
+            .all(|span| span.url.is_none()));
+    }
+
+    #[test]
+    fn clickable_status_preserves_multiple_links_and_complete_combined_labels() {
+        let entries = [
+            ("Codex week: auth unavailable", "https://example.test/codex"),
+            (
+                "OpenRouter: auth unavailable",
+                "https://example.test/router",
+            ),
+            ("Apify: token unavailable", "https://example.test/apify"),
+        ];
+        let raw = entries
+            .iter()
+            .enumerate()
+            .map(|(index, (label, url))| {
+                let end = if index == 1 { "\x07" } else { "\x1b\\" };
+                format!("\x1b]8;;{url}{end}\x1b[32m{label}\x1b[0m\x1b]8;;{end}")
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let parsed = command_output(format!("discard\n  {raw}  \r\n").as_bytes()).unwrap();
+        assert_eq!(
+            parsed.text,
+            entries
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
+        assert_eq!(parsed.text.chars().count(), 86);
+        assert_eq!(
+            parsed
+                .spans
+                .iter()
+                .filter_map(|span| span.web_url())
+                .collect::<Vec<_>>(),
+            entries.iter().map(|(_, url)| *url).collect::<Vec<_>>()
+        );
+        assert_eq!(parsed.spans[1].text, " | ");
+        assert!(parsed.spans[1].url.is_none());
+        let mixed =
+            command_output(b"plain \x1b]8;;https://example.test\x07linked\x1b]8;;\x07 tail")
+                .unwrap();
+        assert_eq!(mixed.spans.len(), 3);
+        assert_eq!(mixed.spans[1].web_url(), Some("https://example.test"));
+        let partial = command_output(
+            format!("{raw} \x1b]8;;https://example.test/incomplete\x07tail").as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(
+            partial
+                .spans
+                .iter()
+                .filter_map(|span| span.web_url())
+                .count(),
+            3
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn clickable_status_command_preserves_link_from_windows_process() {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
+        spawn_status_command(
+            event_tx,
+            1,
+            0,
+            "echo \x1b]8;;https://example.test/usage\x07Usage\x1b]8;;\x07 ^| \x1b]8;;https://example.test/more\x07More\x1b]8;;\x07".into(),
+            Duration::from_secs(2),
+            Vec::new(),
+            None,
+        );
+        let event = tokio::time::timeout(Duration::from_secs(3), event_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(event, AppEvent::TabBarCommandFinished { result: Ok(Some(ref output)), .. }
+            if output.text == "Usage | More" && output.spans.iter().filter_map(|span| span.web_url()).collect::<Vec<_>>() == ["https://example.test/usage", "https://example.test/more"])
+        );
+    }
+
+    #[test]
+    fn clickable_status_refresh_replaces_and_clears_link_without_activation() {
+        let mut app = test_app();
+        app.configure_tab_bar_status(
+            &[TabBarRightEntryConfig::Command {
+                command: MULTILINE_COMMAND.into(),
+                interval_seconds: 5,
+                timeout_seconds: 2,
+            }],
+            " ",
+        );
+        let generation = app.tab_bar_status_generation;
+        let linked = command_output(b"\x1b]8;;https://example.test\x07Usage\x1b]8;;\x07");
+        assert!(app.handle_tab_bar_command_finished(generation, 0, Ok(linked)));
+        assert!(
+            matches!(&app.state.tab_bar_right[0], TabBarStatusSegment::Link { text, .. } if text == "Usage")
+        );
+        assert!(app.handle_tab_bar_command_finished(generation, 0, Ok(command_output(b"Usage"))));
+        assert_eq!(
+            app.state.tab_bar_right[0],
+            TabBarStatusSegment::Text(Some("Usage".into()))
+        );
     }
 
     #[test]

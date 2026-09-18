@@ -8,7 +8,7 @@ use crossterm::event::MouseEvent;
 mod text_editing;
 
 pub(super) fn snapshot() -> ClientShellSnapshot {
-    ClientShellSnapshot {
+    crate::protocol::ClientShellSnapshot {
         boot_id: "boot-1".into(),
         revision: 1,
         config_diagnostic: None,
@@ -64,6 +64,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
         agents: Vec::new(),
         commands: Vec::new(),
     }
+    .into()
 }
 
 fn worktree_list_result(open_workspace_id: Option<&str>) -> crate::api::schema::ResponseResult {

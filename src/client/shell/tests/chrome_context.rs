@@ -378,6 +378,96 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
+fn clickable_status_mouse_actions_stay_out_of_the_main_menu() {
+    let url = "https://chatgpt.com/codex/cloud/settings/analytics";
+    let urls = [
+        url,
+        "https://example.test/router",
+        "https://example.test/apify",
+    ];
+    let mut projected = snapshot();
+    projected.tab_bar_right = vec![crate::protocol::ClientShellTabStatusSegment {
+        text: "Codex 界 | Router | Apify".into(),
+        accent: false,
+    }];
+    projected.tab_bar_right_spans = vec![vec![
+        crate::protocol::endpoint::StatusSpan {
+            text: "Codex 界".into(),
+            url: Some(url.into()),
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: " | ".into(),
+            url: None,
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: "Router".into(),
+            url: Some(urls[1].into()),
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: " | ".into(),
+            url: None,
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: "Apify".into(),
+            url: Some(urls[2].into()),
+        },
+    ]];
+    let message = crate::protocol::endpoint::snapshot_message(&projected).unwrap();
+    let crate::protocol::ServerMessage::EndpointControl { data, .. } = message else {
+        panic!("JSON snapshot");
+    };
+    // Old clients still see only the clean label; new clients retain the URL.
+    let old: crate::protocol::ClientShellSnapshot = serde_json::from_str(&data).unwrap();
+    assert_eq!(old.tab_bar_right[0].text, "Codex 界 | Router | Apify");
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(serde_json::from_str(&data).unwrap()));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).unwrap();
+    assert_eq!(state.hits.status_links.len(), 3);
+    let rect = state.hits.status_links[0].0;
+    assert_eq!(state.hits.status_links[1].0.x, rect.right() + 3);
+    for (index, expected_url) in urls.iter().enumerate() {
+        let rect = state.hits.status_links[index].0;
+        let clicked = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+        assert!(clicked.requests.is_empty());
+        assert!(
+            matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value.as_str() == *expected_url)
+        );
+    }
+
+    let menu_before =
+        super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap());
+    let menu_without_status = super::super::global_menu::global_menu_items(&snapshot());
+    assert_eq!(menu_before, menu_without_status);
+    state.toggle_global_menu();
+
+    projected.revision = 2;
+    for span in &mut projected.tab_bar_right_spans[0] {
+        if span.url.is_some() {
+            span.url = Some("file:///C:/secret".into());
+        }
+    }
+    let mut mismatched = projected.clone();
+    mismatched.tab_bar_right_spans[0][0].text = "forged label".into();
+    assert!(mismatched.status_spans(0).is_none());
+    state.set_snapshot(Box::new(projected));
+    let mut replacement_surface = surface();
+    replacement_surface.projection_revision = 2;
+    state.set_pane_surface(replacement_surface);
+    state.compose(106, 30).unwrap();
+    assert!(state.hits.status_links.is_empty());
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::GlobalMenu(_))
+    ));
+}
+
+#[test]
 fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
