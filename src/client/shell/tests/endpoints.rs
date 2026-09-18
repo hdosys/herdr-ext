@@ -1226,10 +1226,11 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
             ..agent("remote blocked", AgentStatus::Blocked, 2)
         },
     ];
+    let template = remote.panes[0].clone();
     remote.panes.push(ClientShellPane {
         pane_id: "pane_2".into(),
         focused: false,
-        ..remote.panes[0].clone()
+        ..template
     });
     state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
 

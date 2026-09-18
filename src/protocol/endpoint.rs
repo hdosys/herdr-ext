@@ -121,7 +121,82 @@ pub struct EndpointServerWelcome {
     pub error: Option<EndpointHandshakeError>,
 }
 
-pub fn snapshot_message(snapshot: &ClientShellSnapshot) -> serde_json::Result<ServerMessage> {
+/// JSON-only additions travel atomically with the baseline snapshot. Never add
+/// these fields to the frozen binary ClientShellSnapshot codec.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShellSnapshot {
+    #[serde(flatten)]
+    pub core: ClientShellSnapshot,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tab_bar_right_spans: Vec<Vec<StatusSpan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatusSpan {
+    pub text: String,
+    pub url: Option<String>,
+}
+
+impl StatusSpan {
+    pub fn web_url(&self) -> Option<&str> {
+        if self.text.trim().is_empty() {
+            return None;
+        }
+        status_web_url(self.url.as_deref()?)
+    }
+}
+
+impl From<ClientShellSnapshot> for ShellSnapshot {
+    fn from(core: ClientShellSnapshot) -> Self {
+        Self {
+            core,
+            tab_bar_right_spans: Vec::new(),
+        }
+    }
+}
+
+impl std::ops::Deref for ShellSnapshot {
+    type Target = ClientShellSnapshot;
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
+impl std::ops::DerefMut for ShellSnapshot {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.core
+    }
+}
+
+impl ShellSnapshot {
+    pub fn status_spans(&self, index: usize) -> Option<&[StatusSpan]> {
+        let mut text = self.tab_bar_right.get(index)?.text.as_str();
+        let spans = self.tab_bar_right_spans.get(index)?;
+        for span in spans {
+            if span.text.is_empty() {
+                return None;
+            }
+            text = text.strip_prefix(&span.text)?;
+        }
+        (text.is_empty() && !spans.is_empty()).then_some(spans.as_slice())
+    }
+}
+
+/// Status producers supply web destinations, never commands or credentials.
+pub(crate) fn status_web_url(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    (!authority.is_empty()
+        && !authority.contains('@')
+        && !url.chars().any(|ch| {
+            ch.is_control() || ch.is_whitespace() || matches!(ch, '\\' | '"' | '<' | '>')
+        }))
+    .then_some(url)
+}
+
+pub fn snapshot_message(snapshot: &ShellSnapshot) -> serde_json::Result<ServerMessage> {
     Ok(ServerMessage::EndpointControl {
         kind: ENDPOINT_SNAPSHOT_KIND.into(),
         data: serde_json::to_string(snapshot)?,
@@ -323,7 +398,8 @@ mod tests {
     #[test]
     fn snapshot_message_uses_named_json_control() {
         let snapshot = snapshot();
-        let ServerMessage::EndpointControl { kind, data } = snapshot_message(&snapshot).unwrap()
+        let ServerMessage::EndpointControl { kind, data } =
+            snapshot_message(&snapshot.clone().into()).unwrap()
         else {
             panic!("snapshot should use endpoint control");
         };
@@ -361,7 +437,7 @@ mod tests {
 
     #[test]
     fn snapshot_json_tolerates_future_fields_and_command_actions() {
-        let mut snapshot = match snapshot_message(&snapshot()).unwrap() {
+        let mut snapshot = match snapshot_message(&snapshot().into()).unwrap() {
             ServerMessage::EndpointControl { data, .. } => {
                 serde_json::from_str::<serde_json::Value>(&data).unwrap()
             }
@@ -409,6 +485,7 @@ mod tests {
                 SURFACE_INTEREST_CAPABILITY.to_string(),
                 PRESENTATION_EFFECTS_FENCE_CAPABILITY.to_string(),
                 HEALTH_CHECK_CAPABILITY.to_string(),
+                SURFACE_CURSOR_COLOR_CAPABILITY.to_string(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.to_string(),
                 AGENT_COMPLETIONS_CAPABILITY.to_string(),
             ]

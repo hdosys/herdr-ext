@@ -16,7 +16,7 @@ mod surface_scroll_tests;
 fn client_shell_projection(
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
 ) -> (
-    Box<protocol::ClientShellSnapshot>,
+    Box<protocol::endpoint::ShellSnapshot>,
     protocol::endpoint::EndpointAgentCompletions,
 ) {
     let read_control = |expected| {
@@ -32,7 +32,7 @@ fn client_shell_projection(
     };
     let completions: protocol::endpoint::EndpointAgentCompletions =
         serde_json::from_str(&read_control(protocol::endpoint::AGENT_COMPLETIONS_KIND)).unwrap();
-    let snapshot: Box<protocol::ClientShellSnapshot> =
+    let snapshot: Box<protocol::endpoint::ShellSnapshot> =
         serde_json::from_str(&read_control(protocol::endpoint::ENDPOINT_SNAPSHOT_KIND)).unwrap();
     assert_eq!(completions.boot_id, snapshot.boot_id);
     assert_eq!(completions.revision, snapshot.revision);
@@ -41,7 +41,7 @@ fn client_shell_projection(
 
 fn client_shell_snapshot(
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
-) -> Box<protocol::ClientShellSnapshot> {
+) -> Box<protocol::endpoint::ShellSnapshot> {
     client_shell_projection(receiver).0
 }
 
@@ -7476,6 +7476,7 @@ fn api_report_agent_stores_valid_resume_argv_and_rejects_invalid() {
         .clone();
     let report = |resume_argv: Vec<&str>| {
         api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
+            suppress_completion: false,
             pane_id: public_pane_id.clone(),
             source: "prime-agent".into(),
             agent: "prime-agent".into(),
@@ -7654,6 +7655,7 @@ fn completion_guard_api_startup_blocker_respects_suppression() {
             api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
                 pane_id: public_pane_id.clone(),
                 source: "custom:pi".into(),
+                suppress_completion: false,
                 agent: "pi".into(),
                 state,
                 message: None,
@@ -7729,6 +7731,7 @@ fn completion_guard_api_session_replacement_does_not_notify_finished() {
                 }),
             );
             let mut report = PaneReportAgentParams {
+                suppress_completion: false,
                 pane_id: public_pane_id,
                 source: "herdr:pi".into(),
                 agent: "pi".into(),
