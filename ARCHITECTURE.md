@@ -397,6 +397,17 @@ behavior; code and tests remain the detailed implementation truth.
 
 ## Windows and Rust Boundaries
 
+- Script status links reuse the existing command scheduler, OSC 8 label envelope,
+  and client-local `OpenSafeWebUrl` action. A JSON-only `ShellSnapshot` envelope
+  flattens the immutable core snapshot and carries optional `tab_bar_right_urls`
+  aligned with its filtered visible segments. Text and URL replacement share the
+  same endpoint, boot, revision, and equality path, including URL-only changes.
+  Old clients ignore the added JSON field; old servers omit it. The frozen binary
+  `wire.rs` and named core codecs are unchanged. Server parsing and client
+  activation both restrict destinations to HTTP(S), with no authority credentials,
+  control characters, whitespace, or shell-command execution. No provider logic or
+  refresh-time browser action is introduced.
+
 - The Windows SSH bridge preserves blocking download writes. Endpoint writers
   bound work per write and measure stalled progress rather than lengthening the
   stall timeout. These reuse the current bridge and writer owners, not another

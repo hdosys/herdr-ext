@@ -76,6 +76,12 @@ v0.9.0 base unchanged. An upstream PR reference is provenance, not a claim that 
 fix has shipped in upstream stable; temporary mailboxes remain until equivalent
 stable behavior includes the necessary adaptations.
 
+**Unpublished development candidate:** script-generated status labels can include
+an OSC 8 web link. Click the underlined label or use prefix-F10, Up/Down, and Enter
+to open it in the client's browser, even when the producer runs remotely. Existing
+plain-text commands still work. See the [producer contract](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx)
+before adapting scripts. This capability is not yet in the maintained release queue.
+
 ## Install
 
 ### Choose an installation method

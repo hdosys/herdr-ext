@@ -186,6 +186,14 @@ tests remain the detailed implementation truth.
 ## Interaction and Status
 
 - Keyboard-first terminal operation remains complete end to end.
+- The unpublished development candidate accepts one OSC 8 HTTP(S) link around a
+  command-produced tab-row status label. Plain-text producers remain unchanged.
+  Clicking the underlined label or selecting it through prefix-F10, Up/Down, and
+  Enter opens the attached client's browser, never the remote server's browser.
+  Refresh never activates a link. Producers must not put credentials in URLs;
+  unsupported schemes and credential-bearing authorities are not clickable.
+  Both endpoints need this feature for activation; older compatible endpoints
+  retain the plain label. The source configuration guide owns the byte contract.
 - Background Agent completion alerts follow Herdr's enabled default. Settings >
   completion and `ui.notify_on_agent_completion = false` expose one immediate,
   persistent opt-out for completion popups and done sounds without suppressing
