@@ -5,7 +5,7 @@ mod pane_graphics_tests;
 #[path = "surface_interest.rs"]
 mod surface_interest_tests;
 
-fn client_shell_snapshot(message: ServerMessage) -> Box<crate::protocol::ClientShellSnapshot> {
+fn client_shell_snapshot(message: ServerMessage) -> Box<crate::protocol::endpoint::ShellSnapshot> {
     let ServerMessage::EndpointControl { kind, data } = message else {
         panic!("expected client shell snapshot");
     };

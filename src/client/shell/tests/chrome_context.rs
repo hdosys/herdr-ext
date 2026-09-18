@@ -310,7 +310,7 @@ fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
     assert!(
         matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value == url)
     );
-    state.mode = ClientShellMode::Prefix;
+    state.handle_input_bytes(&[0x02]);
     state.handle_input_bytes(b"\x1b[21~");
     assert!(matches!(
         state.overlay,
@@ -338,6 +338,9 @@ fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
     projected.revision = 2;
     projected.tab_bar_right_urls = vec![Some("file:///C:/secret".into())];
     state.set_snapshot(Box::new(projected));
+    let mut replacement_surface = surface();
+    replacement_surface.projection_revision = 2;
+    state.set_pane_surface(replacement_surface);
     state.compose(106, 30).unwrap();
     assert!(state.hits.status_links.is_empty());
     assert!(

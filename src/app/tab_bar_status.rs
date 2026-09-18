@@ -827,6 +827,29 @@ mod tests {
             .is_none());
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn clickable_status_command_preserves_link_from_windows_process() {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
+        spawn_status_command(
+            event_tx,
+            1,
+            0,
+            "echo \x1b]8;;https://example.test/usage\x07Usage 42%%\x1b]8;;\x07".into(),
+            Duration::from_secs(2),
+            Vec::new(),
+            None,
+        );
+        let event = tokio::time::timeout(Duration::from_secs(3), event_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(event, AppEvent::TabBarCommandFinished { result: Ok(Some(ref output)), .. }
+            if output.text.starts_with("Usage 42") && output.url.as_deref() == Some("https://example.test/usage"))
+        );
+    }
+
     #[test]
     fn clickable_status_refresh_replaces_and_clears_link_without_activation() {
         let mut app = test_app();

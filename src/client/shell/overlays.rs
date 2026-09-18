@@ -115,8 +115,11 @@ pub(crate) fn render_global_menu(
         palette.panel_bg,
     )?;
     let mut rows = Vec::new();
-    for (index, (label, action)) in items.iter().enumerate() {
-        let row_y = inner.y.saturating_add(index as u16);
+    let start = menu
+        .highlighted
+        .saturating_sub(inner.height.saturating_sub(1) as usize);
+    for (index, (label, action)) in items.iter().enumerate().skip(start) {
+        let row_y = inner.y.saturating_add((index - start) as u16);
         if row_y >= inner.bottom() {
             break;
         }

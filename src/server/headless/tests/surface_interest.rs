@@ -749,7 +749,8 @@ async fn two_headless_servers_drive_atomic_endpoint_handoff() {
             read_server_message(target_control.recv().expect("presentation sync snapshot"));
         if let ServerMessage::EndpointControl { kind, data } = message {
             if kind == crate::protocol::endpoint::ENDPOINT_SNAPSHOT_KIND {
-                break serde_json::from_str::<crate::protocol::ClientShellSnapshot>(&data).unwrap();
+                break serde_json::from_str::<crate::protocol::endpoint::ShellSnapshot>(&data)
+                    .unwrap();
             }
         }
     };
