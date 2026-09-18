@@ -4287,6 +4287,9 @@ mod tests {
 
     #[test]
     fn windows_daemon_readiness_checks_job_limits_and_console() {
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+        };
         const CHILD_ENV: &str = "HERDR_TEST_DAEMON_READINESS_CHILD";
         if std::env::var_os(CHILD_ENV).is_some() {
             use super::*;
