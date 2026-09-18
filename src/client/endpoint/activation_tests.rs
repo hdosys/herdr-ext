@@ -42,7 +42,7 @@ fn negotiation() -> super::super::EndpointNegotiation {
     )
 }
 
-fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::ClientShellSnapshot {
+fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::endpoint::ShellSnapshot {
     crate::protocol::ClientShellSnapshot {
         boot_id: boot_id.into(),
         revision,
@@ -68,6 +68,7 @@ fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::ClientShellSn
         agents: Vec::new(),
         commands: Vec::new(),
     }
+    .into()
 }
 
 type SentMessages = std::sync::Arc<std::sync::Mutex<Vec<crate::protocol::ClientMessage>>>;

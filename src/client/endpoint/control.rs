@@ -10,7 +10,7 @@ pub(crate) enum EndpointControlMessage {
     HealthPong,
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
-    Snapshot(Box<crate::protocol::ClientShellSnapshot>),
+    Snapshot(Box<crate::protocol::endpoint::ShellSnapshot>),
     Ignored,
 }
 
