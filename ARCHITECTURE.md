@@ -177,10 +177,15 @@ behavior; code and tests remain the detailed implementation truth.
   retain no independently reserved name.
   Native Agent resume remains the
   only Agent launch path for restored Agent terminals. The development client's
-  `StartOpenCode` action uses the existing keybinding-source projection and routes
+  `StartAgent` action uses client-owned `AgentConfig` independently of the existing
+  keybinding-source projection and routes
   `agent.start` through the selected endpoint's advertised method lane. The client
   proposes a name using the shared automatic-name selector; the existing server
   validation remains authoritative and rejects a concurrent collision or busy pane.
+  `AgentConfig` resolves a supported kind and structured arguments. Additional
+  OpenCode root arguments reuse the existing loopback argv owner; conflicting
+  hostname, port or mDNS options fail before submission. The public AgentStart API
+  keeps its explicit argv semantics for existing attach and resume callers.
   No frozen binary codec or AgentStart parameter shape changes. Managed start, auto-start,
   and resume resolve the same shell used by pane spawning and call one shared
   shell-command renderer. PowerShell resolves one native application and invokes
