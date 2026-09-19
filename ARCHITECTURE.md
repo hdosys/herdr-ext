@@ -412,11 +412,16 @@ behavior; code and tests remain the detailed implementation truth.
 
 ## Windows and Rust Boundaries
 
-- Script status links reuse the existing command scheduler, OSC 8 label envelope,
+- Script status links reuse the existing command scheduler, OSC 8 text spans,
   and client-local `OpenSafeWebUrl` action. A JSON-only `ShellSnapshot` envelope
-  flattens the immutable core snapshot and carries optional `tab_bar_right_urls`
-  aligned with its filtered visible segments. Text and URL replacement share the
+  flattens the immutable core snapshot and carries optional `tab_bar_right_spans`
+  aligned with its filtered visible segments. Each span owns text and an optional
+  URL. One control-sequence parser produces both the spans and their concatenated
+  fallback label. The client accepts span metadata only when concatenation exactly
+  matches that core label; it validates each URL independently and derives separate
+  width-correct hit regions and keyboard menu entries. Text and span replacement share the
   same endpoint, boot, revision, and equality path, including URL-only changes.
+  Single-link metadata is replaced rather than maintained as a parallel contract.
   Old clients ignore the added JSON field; old servers omit it. The frozen binary
   `wire.rs` and named core codecs are unchanged. Server parsing and client
   activation both restrict destinations to HTTP(S), with no authority credentials,
