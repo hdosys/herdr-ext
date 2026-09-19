@@ -1110,7 +1110,7 @@ mod tests {
             segment_index: 0,
             result: Ok(output.map(|text| state::StatusCommandOutput {
                 text: text.into(),
-                url: None,
+                spans: Vec::new(),
             })),
         };
 

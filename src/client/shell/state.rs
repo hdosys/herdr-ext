@@ -1351,7 +1351,7 @@ impl ClientShellState {
         if matches!(self.overlay, Some(ClientShellOverlay::GlobalMenu(_)))
             && self.snapshot.as_ref().is_some_and(|current| {
                 current.tab_bar_right != snapshot.tab_bar_right
-                    || current.tab_bar_right_urls != snapshot.tab_bar_right_urls
+                    || current.tab_bar_right_spans != snapshot.tab_bar_right_spans
             })
         {
             // Do not activate a different status destination under an old menu selection.

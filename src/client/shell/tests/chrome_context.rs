@@ -282,61 +282,99 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 #[test]
 fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
     let url = "https://chatgpt.com/codex/cloud/settings/analytics";
+    let urls = [
+        url,
+        "https://example.test/router",
+        "https://example.test/apify",
+    ];
     let mut projected = snapshot();
     projected.tab_bar_right = vec![crate::protocol::ClientShellTabStatusSegment {
-        text: "Codex 42%".into(),
+        text: "Codex 界 | Router | Apify".into(),
         accent: false,
     }];
-    projected.tab_bar_right_urls = vec![Some(url.into())];
+    projected.tab_bar_right_spans = vec![vec![
+        crate::protocol::endpoint::StatusSpan {
+            text: "Codex 界".into(),
+            url: Some(url.into()),
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: " | ".into(),
+            url: None,
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: "Router".into(),
+            url: Some(urls[1].into()),
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: " | ".into(),
+            url: None,
+        },
+        crate::protocol::endpoint::StatusSpan {
+            text: "Apify".into(),
+            url: Some(urls[2].into()),
+        },
+    ]];
     let message = crate::protocol::endpoint::snapshot_message(&projected).unwrap();
     let crate::protocol::ServerMessage::EndpointControl { data, .. } = message else {
         panic!("JSON snapshot");
     };
     // Old clients still see only the clean label; new clients retain the URL.
     let old: crate::protocol::ClientShellSnapshot = serde_json::from_str(&data).unwrap();
-    assert_eq!(old.tab_bar_right[0].text, "Codex 42%");
+    assert_eq!(old.tab_bar_right[0].text, "Codex 界 | Router | Apify");
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(serde_json::from_str(&data).unwrap()));
     state.set_pane_surface(surface());
     state.compose(106, 30).unwrap();
+    assert_eq!(state.hits.status_links.len(), 3);
     let rect = state.hits.status_links[0].0;
-    let clicked = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: rect.x,
-        row: rect.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(clicked.requests.is_empty());
-    assert!(
-        matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value == url)
-    );
-    state.handle_input_bytes(&[0x02]);
-    state.handle_input_bytes(b"\x1b[21~");
-    assert!(matches!(
-        state.overlay,
-        Some(ClientShellOverlay::GlobalMenu(_))
-    ));
-    let link_index =
+    assert_eq!(state.hits.status_links[1].0.x, rect.right() + 3);
+    for (index, expected_url) in urls.iter().enumerate() {
+        let rect = state.hits.status_links[index].0;
+        let clicked = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+        assert!(clicked.requests.is_empty());
+        assert!(
+            matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value.as_str() == *expected_url)
+        );
+        state.handle_input_bytes(&[0x02]);
+        state.handle_input_bytes(b"\x1b[21~");
+        assert!(matches!(
+            state.overlay,
+            Some(ClientShellOverlay::GlobalMenu(_))
+        ));
+        let link_index =
         super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
             .iter()
             .position(|(_, action)| {
                 matches!(
                     action,
-                    super::super::global_menu::ClientGlobalMenuAction::StatusLink(0)
+                    super::super::global_menu::ClientGlobalMenuAction::StatusLink(0, part) if *part == index * 2
                 )
             })
             .unwrap();
-    for _ in 0..link_index {
-        state.handle_input_bytes(b"\x1b[B");
+        for _ in 0..link_index {
+            state.handle_input_bytes(b"\x1b[B");
+        }
+        let activated = state.handle_input_bytes(b"\r");
+        assert!(activated.requests.is_empty());
+        assert!(
+            matches!(&activated.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value.as_str() == *expected_url)
+        );
     }
-    let activated = state.handle_input_bytes(b"\r");
-    assert!(activated.requests.is_empty());
-    assert!(
-        matches!(&activated.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value == url)
-    );
 
     projected.revision = 2;
-    projected.tab_bar_right_urls = vec![Some("file:///C:/secret".into())];
+    for span in &mut projected.tab_bar_right_spans[0] {
+        if span.url.is_some() {
+            span.url = Some("file:///C:/secret".into());
+        }
+    }
+    let mut mismatched = projected.clone();
+    mismatched.tab_bar_right_spans[0][0].text = "forged label".into();
+    assert!(mismatched.status_spans(0).is_none());
     state.set_snapshot(Box::new(projected));
     let mut replacement_surface = surface();
     replacement_surface.projection_revision = 2;
@@ -348,7 +386,7 @@ fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
             .iter()
             .any(|(_, action)| matches!(
                 action,
-                super::super::global_menu::ClientGlobalMenuAction::StatusLink(_)
+                super::super::global_menu::ClientGlobalMenuAction::StatusLink(_, _)
             ))
     );
 }

@@ -287,15 +287,23 @@ fn render_tab_bar_status(
         } else {
             Style::default().fg(palette.overlay1).bg(palette.panel_bg)
         };
-        let style = if let Some(url) = snapshot.status_url(index) {
-            hits.status_links
-                .push((Rect::new(x, area.y, width, 1), url.to_owned()));
-            style.add_modifier(Modifier::UNDERLINED)
+        if let Some(spans) = snapshot.status_spans(index) {
+            for span in spans {
+                let width = display_width(&span.text);
+                let style = if let Some(url) = span.web_url() {
+                    hits.status_links
+                        .push((Rect::new(x, area.y, width, 1), url.to_owned()));
+                    style.add_modifier(Modifier::UNDERLINED)
+                } else {
+                    style
+                };
+                put_text(buffer, x, area.y, width, &span.text, style);
+                x = x.saturating_add(width);
+            }
         } else {
-            style
-        };
-        put_text(buffer, x, area.y, width, &segment.text, style);
-        x = x.saturating_add(width);
+            put_text(buffer, x, area.y, width, &segment.text, style);
+            x = x.saturating_add(width);
+        }
     }
 }
 

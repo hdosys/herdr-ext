@@ -97,14 +97,29 @@ pub struct ShellSnapshot {
     #[serde(flatten)]
     pub core: ClientShellSnapshot,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tab_bar_right_urls: Vec<Option<String>>,
+    pub tab_bar_right_spans: Vec<Vec<StatusSpan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatusSpan {
+    pub text: String,
+    pub url: Option<String>,
+}
+
+impl StatusSpan {
+    pub fn web_url(&self) -> Option<&str> {
+        if self.text.trim().is_empty() {
+            return None;
+        }
+        status_web_url(self.url.as_deref()?)
+    }
 }
 
 impl From<ClientShellSnapshot> for ShellSnapshot {
     fn from(core: ClientShellSnapshot) -> Self {
         Self {
             core,
-            tab_bar_right_urls: Vec::new(),
+            tab_bar_right_spans: Vec::new(),
         }
     }
 }
@@ -123,9 +138,16 @@ impl std::ops::DerefMut for ShellSnapshot {
 }
 
 impl ShellSnapshot {
-    pub fn status_url(&self, index: usize) -> Option<&str> {
-        self.tab_bar_right.get(index)?;
-        status_web_url(self.tab_bar_right_urls.get(index)?.as_deref()?)
+    pub fn status_spans(&self, index: usize) -> Option<&[StatusSpan]> {
+        let mut text = self.tab_bar_right.get(index)?.text.as_str();
+        let spans = self.tab_bar_right_spans.get(index)?;
+        for span in spans {
+            if span.text.is_empty() {
+                return None;
+            }
+            text = text.strip_prefix(&span.text)?;
+        }
+        (text.is_empty() && !spans.is_empty()).then_some(spans.as_slice())
     }
 }
 

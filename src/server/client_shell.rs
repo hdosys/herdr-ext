@@ -175,24 +175,26 @@ pub(super) fn snapshot(
                 .get(tab_index)
         })
         .is_some_and(|tab| tab.zoomed);
-    let mut tab_bar_right_urls = Vec::new();
+    let mut tab_bar_right_spans = Vec::new();
     let tab_bar_right = app
         .state
         .tab_bar_right
         .iter()
         .filter_map(|segment| {
-            let (text, accent, url) = match segment {
-                crate::app::state::TabBarStatusSegment::Zoom if zoomed => ("ZOOM", true, None),
-                crate::app::state::TabBarStatusSegment::Text(Some(text)) if !text.is_empty() => {
-                    (text.as_str(), false, None)
+            let (text, accent, spans) = match segment {
+                crate::app::state::TabBarStatusSegment::Zoom if zoomed => {
+                    ("ZOOM", true, Vec::new())
                 }
-                crate::app::state::TabBarStatusSegment::Link { text, url } => {
-                    (text.as_str(), false, Some(url.clone()))
+                crate::app::state::TabBarStatusSegment::Text(Some(text)) if !text.is_empty() => {
+                    (text.as_str(), false, Vec::new())
+                }
+                crate::app::state::TabBarStatusSegment::Link { text, spans } => {
+                    (text.as_str(), false, spans.clone())
                 }
                 crate::app::state::TabBarStatusSegment::Zoom
                 | crate::app::state::TabBarStatusSegment::Text(_) => return None,
             };
-            tab_bar_right_urls.push(url);
+            tab_bar_right_spans.push(spans);
             Some(protocol::ClientShellTabStatusSegment {
                 text: text.to_owned(),
                 accent,
@@ -220,7 +222,7 @@ pub(super) fn snapshot(
             });
 
     protocol::endpoint::ShellSnapshot {
-        tab_bar_right_urls,
+        tab_bar_right_spans,
         core: protocol::ClientShellSnapshot {
             boot_id: boot_id.to_owned(),
             revision,

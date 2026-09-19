@@ -5,7 +5,7 @@ pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
     AddMachine,
     WhatsNew,
-    StatusLink(usize),
+    StatusLink(usize, usize),
 }
 
 pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
@@ -49,12 +49,16 @@ pub(super) fn global_menu_items(
             ClientGlobalMenuAction::WhatsNew,
         ));
     }
-    for (index, segment) in snapshot.tab_bar_right.iter().enumerate() {
-        if snapshot.status_url(index).is_some() {
-            items.push((
-                segment.text.as_str(),
-                ClientGlobalMenuAction::StatusLink(index),
-            ));
+    for index in 0..snapshot.tab_bar_right.len() {
+        if let Some(spans) = snapshot.status_spans(index) {
+            for (part, span) in spans.iter().enumerate() {
+                if span.web_url().is_some() {
+                    items.push((
+                        span.text.as_str(),
+                        ClientGlobalMenuAction::StatusLink(index, part),
+                    ));
+                }
+            }
         }
     }
     items.push((
@@ -120,11 +124,13 @@ impl ClientShellState {
                 ))
             }
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
-            ClientGlobalMenuAction::StatusLink(index) => {
+            ClientGlobalMenuAction::StatusLink(index, part) => {
                 if let Some(url) = self
                     .snapshot
                     .as_deref()
-                    .and_then(|snapshot| snapshot.status_url(index))
+                    .and_then(|snapshot| snapshot.status_spans(index))
+                    .and_then(|spans| spans.get(part))
+                    .and_then(|span| span.web_url())
                 {
                     outcome
                         .actions
