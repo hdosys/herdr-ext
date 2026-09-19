@@ -483,8 +483,9 @@ fn encoded_powershell_command(script: &str) -> String {
     // because their output is consumed only after exit. The interactive bridge
     // deliberately bypasses this wrapper because Windows PowerShell buffers a
     // native child's stdout and can serialize diagnostics as CLIXML.
+    // These commands have a text stdout/stderr contract, not serialized streams.
     let encoded = encoded_powershell_script(script);
-    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}")
+    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}")
 }
 
 fn encoded_powershell_script(script: &str) -> String {
@@ -755,7 +756,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_bootstrap_file_transport_executes_and_deletes_the_exact_script() {
+    fn windows_bootstrap_file_transport_executes_with_text_diagnostics_and_deletes_script() {
         use std::io::Write as _;
 
         let path = std::env::temp_dir().join(format!(
@@ -766,7 +767,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let script = "$ErrorActionPreference='Stop';[Console]::Out.Write('bootstrap-ok')";
+        let script = "$ErrorActionPreference='Stop';Write-Progress -Activity 'bootstrap-progress' -PercentComplete 50;Write-Error 'bootstrap-diagnostic' -ErrorAction Continue;[Console]::Out.Write('bootstrap-ok');exit 0";
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -776,15 +777,8 @@ mod tests {
             .unwrap();
         drop(file);
         let command = powershell_script_file_command(path.to_str().unwrap());
-        let encoded_receiver = command.split_whitespace().last().unwrap();
         let mut child = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-EncodedCommand",
-                encoded_receiver,
-            ])
+            .args(command.split_whitespace().skip(1))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -825,6 +819,13 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(output.stdout, b"bootstrap-ok");
+        let diagnostics = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            diagnostics.contains("bootstrap-diagnostic"),
+            "{diagnostics}"
+        );
+        assert!(!diagnostics.contains("#< CLIXML"), "{diagnostics}");
+        assert!(!diagnostics.contains("<Objs "), "{diagnostics}");
         assert!(script_was_deleted);
     }
 
