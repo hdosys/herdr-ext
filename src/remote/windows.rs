@@ -761,6 +761,7 @@ mod tests {
     #[test]
     fn windows_bootstrap_file_transport_executes_with_text_diagnostics_and_deletes_script() {
         use std::io::Write as _;
+        use std::os::windows::process::CommandExt as _;
 
         let path = std::env::temp_dir().join(format!(
             "herdr-bootstrap-test-{}-{}.ps1",
@@ -782,7 +783,8 @@ mod tests {
         let command = powershell_script_file_command(path.to_str().unwrap());
         let job = crate::platform::ChildProcessJob::new_kill_on_close().unwrap();
         let mut child = std::process::Command::new("cmd.exe")
-            .args(["/d", "/s", "/c", &command])
+            .args(["/d", "/s", "/c"])
+            .raw_arg(&command)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -839,6 +841,7 @@ mod tests {
     #[test]
     fn remote_sidecar_removal_waits_for_runtime_files_to_unlock() {
         use std::os::windows::fs::OpenOptionsExt as _;
+        use std::os::windows::process::CommandExt as _;
 
         let root = std::env::temp_dir().join(format!(
             "herdr-sidecar-removal-test-{}-{}",
@@ -895,7 +898,8 @@ mod tests {
         let command = powershell_script_file_command(script_path.to_str().unwrap());
         let job = crate::platform::ChildProcessJob::new_kill_on_close().unwrap();
         let mut child = std::process::Command::new("cmd.exe")
-            .args(["/d", "/s", "/c", &command])
+            .args(["/d", "/s", "/c"])
+            .raw_arg(&command)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
