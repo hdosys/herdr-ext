@@ -20,6 +20,17 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Keep the selected Python interpreter consistent through
+  packaging.** The absolute registered interpreter completed a114.520-second
+  build, but `scripts/package_windows_installer.ps1` independently resolved a
+  broken bare `python` from PATH and failed. A process-local PATH selecting the
+  same healthy runtime completed the existing validated bundle in42.855 seconds,
+  without recompilation or global changes. Propagate the orchestrator's selected
+  interpreter through the existing package helper instead of resolving it again;
+  do not add interpreter fallbacks. Expected benefit: avoid split-runtime failures
+  after a successful compile. Owners: `scripts/local_windows_installer.py` and
+  `scripts/package_windows_installer.ps1`.
+
 - **Status: proposed. Resolve Windows invocation semantics before classifying an
   output-format fix as owner-known.** Explicit `-OutputFormat Text` did not stop
   Windows PowerShell5.1 encoded-command stderr serialization. Installed-runtime
