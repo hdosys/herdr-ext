@@ -145,6 +145,7 @@ impl ClientShellConfig {
                     keybinds: config.keybinds(),
                 }),
             local_keys: config.keys.clone(),
+            agent: config.agent.clone(),
             keybinding_source: ClientShellKeybindingSource::Local,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
@@ -291,6 +292,10 @@ impl ClientShellConfig {
         let mut diagnostics = load_diagnostics.to_vec();
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
+
+        if !invalid_section("agent") {
+            self.agent = config.agent.clone();
+        }
 
         if !invalid_section("keys")
             && self.keybinding_source != ClientShellKeybindingSource::Endpoint

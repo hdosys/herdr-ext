@@ -144,18 +144,21 @@ split_horizontal = "prefix+minus"
 
 The default keymap is prefix-first so Herdr does not steal input from shells, editors, tmux, or terminal apps. Search `keys.` in the [Config reference](/docs/config-reference/) to see every action and default binding. The in-app help panel at `prefix+?` shows the active bindings.
 
-Press **prefix then o** to start OpenCode immediately in the selected pane's
+Press **prefix then o** to start your preferred agent immediately in the selected pane's
 existing shell and current working directory. Use an available shell prompt;
 Herdr refuses a managed-agent pane, a non-shell process, or a shell with running
 child processes instead of sending launch text to that application. This uses the
-same managed launch as new-tab auto-start, including the ephemeral loopback HTTP
-endpoint needed for child-session splits. No shell alias or profile setup is needed.
+same managed launch as new-tab auto-start. No shell alias or profile setup is needed.
 **prefix then Shift+O** opens the visible notification's target.
 
 ```toml
 [keys]
-start_opencode = "prefix+o"
+start_agent = "prefix+o"
 open_notification_target = "prefix+shift+o"
+
+[agent]
+kind = "opencode"
+args = []
 ```
 
 These are client keybindings. With the default local keybindings for a remote
@@ -164,6 +167,22 @@ remote pane. Existing server-keybinding mode still uses the server's key profile
 Client and server must both support this shortcut: an older server without the
 advertised `agent.start` method shows an unavailable-action notice and receives no
 terminal input. Explicit older key overrides remain in effect until you change them.
+
+`[agent]` always comes from the client configuration, even when server keybindings
+are selected. Choose a supported agent such as `opencode`, `codex`, or `claude`.
+The corresponding program must be installed on the selected server. `args` is a
+list of arguments, for example `["--model", "your-model"]`, not an executable,
+shell command, alias, or pipeline. Herdr renders those arguments for its supported
+PowerShell, cmd, Nushell and POSIX shell paths; do not add shell quoting yourself.
+For OpenCode, Herdr retains the ephemeral loopback HTTP flags needed for child
+session splits even with additional arguments. Explicit hostname, port and mDNS
+options in `agent.args` are rejected rather than overriding those owned flags.
+
+The former development-only `keys.start_opencode` field is replaced by
+`keys.start_agent`; update an explicit override once. The default remains
+`prefix+o`. Automatic new-tab launch stays separately opt-in through
+`session.auto_start_agent` on the server; selecting a preferred client agent does
+not enable auto-start or change existing sessions.
 
 A binding may also be an array when one action needs multiple shortcuts:
 

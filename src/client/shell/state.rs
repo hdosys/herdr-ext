@@ -94,6 +94,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
     pub(super) local_keys: crate::config::KeysConfig,
+    pub(super) agent: crate::config::AgentConfig,
     pub(super) keybinding_source: ClientShellKeybindingSource,
     pub(super) prompt_new_tab_name: bool,
     pub(super) prompt_new_workspace_name: bool,

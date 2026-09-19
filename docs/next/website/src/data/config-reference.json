@@ -13,6 +13,24 @@
       ]
     },
     {
+      "id": "agent",
+      "title": "Preferred agent",
+      "keys": [
+        {
+          "key": "agent.kind",
+          "type": "string",
+          "default": "\"opencode\"",
+          "description": "Client-owned supported agent for the existing-pane start shortcut, including remote panes."
+        },
+        {
+          "key": "agent.args",
+          "type": "string[]",
+          "default": "[]",
+          "description": "Additional arguments for the preferred agent. Not shell command text. OpenCode network flags remain managed by Herdr."
+        }
+      ]
+    },
+    {
       "id": "server",
       "title": "Server",
       "keys": [
@@ -580,10 +598,10 @@
           "description": "Reload config.toml in the running app/server."
         },
         {
-          "key": "keys.start_opencode",
+          "key": "keys.start_agent",
           "type": "keybinding",
           "default": "\"prefix+o\"",
-          "description": "Start OpenCode in the selected available shell pane."
+          "description": "Start the preferred agent in the selected available shell pane."
         },
         {
           "key": "keys.open_notification_target",

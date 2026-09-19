@@ -208,14 +208,18 @@ detach = "prefix+x"
 }
 
 #[test]
-fn opencode_shortcut_uses_selected_remote_managed_start() {
-    for (keys, prefix, key) in [
-        ("", 0x02, b'o'),
+fn preferred_agent_shortcut_uses_selected_remote_managed_start() {
+    for (keys, prefix, key, kind, args) in [
+        ("", 0x02, b'o', "opencode", Vec::<&str>::new()),
         (
-            "[keys]\nprefix = 'ctrl+a'\nstart_opencode = 'prefix+u'",
+            "[keys]\nprefix = 'ctrl+a'\nstart_agent = 'prefix+u'\n[agent]\nkind = 'codex'\nargs = ['--model', 'model with spaces']",
             0x01,
             b'u',
+            "codex",
+            vec!["--model", "model with spaces"],
         ),
+        ("[agent]\nkind = 'opencode'\nargs = ['--model', 'model with spaces']",
+            0x02, b'o', "opencode", vec!["--hostname=127.0.0.1", "--port=0", "--no-mdns", "--model", "model with spaces"]),
     ] {
         let config: Config = toml::from_str(keys).unwrap();
         let mut state = ClientShellState::new(
@@ -228,7 +232,7 @@ fn opencode_shortcut_uses_selected_remote_managed_start() {
         state.set_endpoint_status(&remote_id, ClientEndpointStatus::Online);
         let mut projection = snapshot();
         // The client's bindings win even when the remote publishes a different one.
-        let remote: Config = toml::from_str("[keys]\nstart_opencode = 'prefix+y'").unwrap();
+        let remote: Config = toml::from_str("[keys]\nstart_agent = 'prefix+y'\n[agent]\nkind = 'claude'").unwrap();
         projection.server_keybindings_toml = remote.local_keybindings_profile_toml().ok();
         state.set_endpoint_snapshot(&remote_id, Box::new(projection));
         assert!(state.activate_endpoint_projection(&remote_id));
@@ -254,11 +258,8 @@ fn opencode_shortcut_uses_selected_remote_managed_start() {
             panic!("expected managed agent.start");
         };
         assert_eq!(params.pane_id, "pane_1");
-        assert_eq!(params.kind, "opencode");
-        assert!(
-            params.args.is_empty(),
-            "server owns loopback launch arguments"
-        );
+        assert_eq!(params.kind, kind);
+        assert_eq!(params.args, args);
         assert!(params.timeout_ms.is_none());
         let request_id = request.id.clone();
         state.handle_endpoint_result(
@@ -283,6 +284,19 @@ fn opencode_shortcut_uses_selected_remote_managed_start() {
             state.visible_endpoint_notice.as_ref().unwrap().key.code,
             "agent.start"
         );
+
+        state.set_endpoint_methods(Some(vec!["agent.start".into()]));
+        for invalid in ["[agent]\nkind = 'not-an-agent'",
+            "[agent]\nargs = ['--port=1234']",
+            "[agent]\nargs = ['--mdns']"] {
+            let invalid: Config = toml::from_str(invalid).unwrap();
+            state.config.apply_live_config(&invalid, &[], &["keys".into()]);
+            state.handle_input_bytes(&[prefix]);
+            let rejected = state.handle_input_bytes(&[key]);
+            assert!(rejected.actions.is_empty());
+            assert!(rejected.requests.is_empty());
+            assert_eq!(state.visible_endpoint_notice.as_ref().unwrap().key.code, "agent_config_invalid");
+        }
     }
 }
 

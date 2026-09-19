@@ -22,7 +22,7 @@ pub use self::{
         IndexedKeybind, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadReport,
+        validated_sidebar_bounds, AgentConfig, AgentPanelSortConfig, Config, ConfigReloadReport,
         ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, PaneBordersConfig,
         ShellModeConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle, TabBarPositionConfig,
         ToastClipboardPosition, ToastConfig, ToastDelivery, ToastHerdrPosition,
@@ -121,6 +121,7 @@ impl Config {
             .chain(tab_bar_right_diagnostics(&self.ui.tab_bar_right))
             .chain(window_title_diagnostics(&self.ui.window_title))
             .chain(self.invalid_session_auto_start_agent_diagnostic())
+            .chain(self.agent.launch().err())
             .chain(self.invalid_sidebar_bounds_diagnostic())
             .chain(self.invalid_headless_size_diagnostic())
             .collect()

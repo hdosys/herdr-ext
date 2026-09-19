@@ -66,6 +66,47 @@ impl ClientShellState {
                     self.focus_visible_notification(outcome);
                     return;
                 }
+                if action == crate::input::KeybindAction::StartAgent {
+                    match self.config.agent.launch() {
+                        Err(message) => {
+                            outcome.repaint |= self.push_endpoint_notice(
+                                ClientEndpointNoticeKind::Rejected,
+                                "agent_config_invalid",
+                                "Agent start unavailable",
+                                message,
+                            );
+                        }
+                        Ok((kind, args)) => {
+                            let Some(snapshot) = self.snapshot.as_deref() else {
+                                return;
+                            };
+                            let Some(pane_id) = self.focused_pane_id() else {
+                                return;
+                            };
+                            let name = crate::app::unused_agent_name(
+                                kind,
+                                1,
+                                snapshot
+                                    .agents
+                                    .iter()
+                                    .filter_map(|agent| agent.name.as_deref()),
+                            );
+                            self.push_endpoint_method(
+                                crate::api::schema::Method::AgentStart(
+                                    crate::api::schema::AgentStartParams {
+                                        name,
+                                        kind: crate::detect::agent_label(kind).into(),
+                                        pane_id,
+                                        args,
+                                        timeout_ms: None,
+                                    },
+                                ),
+                                outcome,
+                            );
+                        }
+                    }
+                    return;
+                }
                 if action == crate::input::KeybindAction::ReloadConfig {
                     self.push_endpoint_method_with_kind(
                         crate::api::schema::Method::ServerReloadConfig(
@@ -960,22 +1001,6 @@ impl ClientShellState {
         };
 
         match action {
-            KeybindAction::StartOpenCode => {
-                Some(Method::AgentStart(crate::api::schema::AgentStartParams {
-                    name: crate::app::unused_agent_name(
-                        crate::detect::Agent::OpenCode,
-                        1,
-                        snapshot
-                            .agents
-                            .iter()
-                            .filter_map(|agent| agent.name.as_deref()),
-                    ),
-                    kind: "opencode".into(),
-                    pane_id: focused_pane?,
-                    args: Vec::new(),
-                    timeout_ms: None,
-                }))
-            }
             KeybindAction::FocusAgent(index) => {
                 let agents = super::agent_sidebar::ordered_agent_pane_ids(
                     snapshot,

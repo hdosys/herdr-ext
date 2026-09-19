@@ -74,7 +74,10 @@ pub(crate) fn keybind_help_groups(
                 entry(binding_label(&keybinds.settings), "settings"),
                 entry(binding_label(&keybinds.detach), "detach"),
                 entry(binding_label(&keybinds.reload_config), "reload config"),
-                entry(binding_label(&keybinds.start_opencode), "start OpenCode"),
+                entry(
+                    binding_label(&keybinds.start_agent),
+                    "start preferred agent",
+                ),
                 entry(
                     binding_label(&keybinds.open_notification_target),
                     "open notification target",

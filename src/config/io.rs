@@ -6,6 +6,7 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
+    "agent",
     "experimental",
     "keys",
     "onboarding",
@@ -295,6 +296,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
     );
     load_live_section(
         table,
+        "agent",
+        "agent config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.agent = section,
+    );
+    load_live_section(
+        table,
         "server",
         "server config",
         &mut diagnostics,
@@ -352,6 +361,7 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
 
     diagnostics.extend(config.theme.diagnostics());
     diagnostics.extend(config.invalid_session_auto_start_agent_diagnostic());
+    diagnostics.extend(config.agent.launch().err());
 
     Ok(LoadedConfig {
         config,
