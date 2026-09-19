@@ -483,9 +483,12 @@ fn encoded_powershell_command(script: &str) -> String {
     // because their output is consumed only after exit. The interactive bridge
     // deliberately bypasses this wrapper because Windows PowerShell buffers a
     // native child's stdout and can serialize diagnostics as CLIXML.
-    // These commands have a text stdout/stderr contract, not serialized streams.
+    // Windows PowerShell forces redirected stderr to CLIXML for -EncodedCommand,
+    // even with -OutputFormat Text. Keep the payload encoded, but invoke a literal
+    // decoder so diagnostics use the normal text formatter. Only base64 enters
+    // this fixed command string, never raw script text or shell arguments.
     let encoded = encoded_powershell_script(script);
-    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand {encoded}")
+    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -Command \"& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded}'))))\"")
 }
 
 fn encoded_powershell_script(script: &str) -> String {
@@ -767,7 +770,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let script = "$ErrorActionPreference='Stop';Write-Progress -Activity 'bootstrap-progress' -PercentComplete 50;Write-Error 'bootstrap-diagnostic' -ErrorAction Continue;[Console]::Out.Write('bootstrap-ok');exit 0";
+        let script = "$ErrorActionPreference='Stop';Write-Progress -Activity 'bootstrap-progress' -PercentComplete 50;[Console]::Out.Write('bootstrap-ok');throw 'bootstrap-diagnostic'";
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -777,13 +780,15 @@ mod tests {
             .unwrap();
         drop(file);
         let command = powershell_script_file_command(path.to_str().unwrap());
-        let mut child = std::process::Command::new("powershell.exe")
-            .args(command.split_whitespace().skip(1))
+        let job = crate::platform::ChildProcessJob::new_kill_on_close().unwrap();
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/d", "/s", "/c", &command])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
+        job.assign(&child).unwrap();
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let completed = loop {
@@ -796,7 +801,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         };
         if !completed {
-            let _ = child.kill();
+            let _ = job.terminate_and_wait(&mut child, Duration::from_secs(5));
             let output = child.wait_with_output().unwrap();
             let _ = std::fs::remove_file(&path);
             panic!(
@@ -813,8 +818,9 @@ mod tests {
             "bootstrap receiver has {} UTF-16 code units",
             command.encode_utf16().count()
         );
-        assert!(
-            output.status.success(),
+        assert_eq!(
+            output.status.code(),
+            Some(1),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -887,20 +893,15 @@ mod tests {
         )
         .unwrap();
         let command = powershell_script_file_command(script_path.to_str().unwrap());
-        let encoded = command.split_whitespace().last().unwrap();
-        let mut child = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-EncodedCommand",
-                encoded,
-            ])
+        let job = crate::platform::ChildProcessJob::new_kill_on_close().unwrap();
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/d", "/s", "/c", &command])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
+        job.assign(&child).unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(500));
         drop(lease);
@@ -925,7 +926,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         if child.try_wait().unwrap().is_none() {
-            let _ = child.kill();
+            let _ = job.terminate_and_wait(&mut child, Duration::from_secs(5));
         }
         let output = child.wait_with_output().unwrap();
         let root_removed = !root.exists();
@@ -941,7 +942,7 @@ mod tests {
     }
 
     fn decoded_powershell_command(command: &str) -> String {
-        let encoded = command.split_whitespace().last().unwrap();
+        let encoded = command.split('\'').nth(1).unwrap();
         decode_powershell_script(encoded)
     }
 
