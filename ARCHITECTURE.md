@@ -170,6 +170,11 @@ behavior; code and tests remain the detailed implementation truth.
   Server-side `AppPolicy.persist_session` gates this path. Restored tabs, reattach,
   live handoff, pane split, and existing managed-Agent terminals do not queue it.
   Newly created replacement default workspaces use the same new-root launch owner.
+  Unpublished development source allocates automatic names against the existing
+  agent registry immediately before managed submission. Internal pane numbers are
+  reusable after restore while agent names persist, so a numeric pane-derived name
+  is only a starting candidate, not proof of uniqueness. Pending autostart requests
+  retain no independently reserved name.
   Native Agent resume remains the
   only Agent launch path for restored Agent terminals. Managed start, auto-start,
   and resume resolve the same shell used by pane spawning and call one shared
