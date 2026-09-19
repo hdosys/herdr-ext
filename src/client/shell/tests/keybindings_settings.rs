@@ -208,6 +208,85 @@ detach = "prefix+x"
 }
 
 #[test]
+fn opencode_shortcut_uses_selected_remote_managed_start() {
+    for (keys, prefix, key) in [
+        ("", 0x02, b'o'),
+        (
+            "[keys]\nprefix = 'ctrl+a'\nstart_opencode = 'prefix+u'",
+            0x01,
+            b'u',
+        ),
+    ] {
+        let config: Config = toml::from_str(keys).unwrap();
+        let mut state = ClientShellState::new(
+            ClientShellConfig::from_config(&config)
+                .with_keybinding_source(ClientShellKeybindingSource::RemoteLocal),
+        );
+        let profile = SavedSshEndpoint::new("Remote", "dev@remote.example", "default").unwrap();
+        let remote_id = ClientEndpointId::Ssh(profile.id.clone());
+        state.set_endpoint_catalog(&[profile]);
+        state.set_endpoint_status(&remote_id, ClientEndpointStatus::Online);
+        let mut projection = snapshot();
+        // The client's bindings win even when the remote publishes a different one.
+        let remote: Config = toml::from_str("[keys]\nstart_opencode = 'prefix+y'").unwrap();
+        projection.server_keybindings_toml = remote.local_keybindings_profile_toml().ok();
+        state.set_endpoint_snapshot(&remote_id, Box::new(projection));
+        assert!(state.activate_endpoint_projection(&remote_id));
+        state.set_endpoint_methods(Some(vec!["agent.start".into()]));
+
+        state.handle_input_bytes(&[prefix]);
+        let launched = state.handle_input_bytes(&[key]);
+        assert!(
+            launched.requests.is_empty(),
+            "shortcut must not inject raw terminal bytes"
+        );
+        let [ClientShellAction::Endpoint {
+            endpoint_id,
+            boot_id,
+            request,
+        }] = &launched.actions[..]
+        else {
+            panic!("expected selected-endpoint launch: {:?}", launched.actions);
+        };
+        assert_eq!(endpoint_id, &remote_id);
+        assert_eq!(boot_id, "boot-1");
+        let crate::api::schema::Method::AgentStart(params) = &request.method else {
+            panic!("expected managed agent.start");
+        };
+        assert_eq!(params.pane_id, "pane_1");
+        assert_eq!(params.kind, "opencode");
+        assert!(
+            params.args.is_empty(),
+            "server owns loopback launch arguments"
+        );
+        assert!(params.timeout_ms.is_none());
+        let request_id = request.id.clone();
+        state.handle_endpoint_result(
+            "boot-1",
+            &request_id,
+            Err(ClientShellEndpointError {
+                code: Some("agent_pane_busy".into()),
+                message: "Pane is busy".into(),
+            }),
+        );
+        assert_eq!(
+            state.visible_endpoint_notice.as_ref().unwrap().key.code,
+            "agent.start:agent_pane_busy"
+        );
+
+        state.set_endpoint_methods(Some(Vec::new()));
+        state.handle_input_bytes(&[prefix]);
+        let unsupported = state.handle_input_bytes(&[key]);
+        assert!(unsupported.actions.is_empty());
+        assert!(unsupported.requests.is_empty());
+        assert_eq!(
+            state.visible_endpoint_notice.as_ref().unwrap().key.code,
+            "agent.start"
+        );
+    }
+}
+
+#[test]
 fn prefix_endpoint_action_uses_public_api_with_stable_ids() {
     let mut config = Config::default();
     config.ui.prompt_new_tab_name = false;

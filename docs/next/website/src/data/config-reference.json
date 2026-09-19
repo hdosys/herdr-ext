@@ -580,9 +580,15 @@
           "description": "Reload config.toml in the running app/server."
         },
         {
-          "key": "keys.open_notification_target",
+          "key": "keys.start_opencode",
           "type": "keybinding",
           "default": "\"prefix+o\"",
+          "description": "Start OpenCode in the selected available shell pane."
+        },
+        {
+          "key": "keys.open_notification_target",
+          "type": "keybinding",
+          "default": "\"prefix+shift+o\"",
           "description": "Focus the currently visible notification target."
         },
         {

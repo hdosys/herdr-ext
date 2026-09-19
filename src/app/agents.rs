@@ -28,6 +28,21 @@ fn agent_launch_argv(kind: crate::detect::Agent, args: Vec<String>) -> Vec<Strin
     argv
 }
 
+pub(crate) fn unused_agent_name<'a>(
+    kind: crate::detect::Agent,
+    mut number: u64,
+    names: impl Iterator<Item = &'a str> + Clone,
+) -> String {
+    let label = crate::detect::agent_label(kind);
+    loop {
+        let name = format!("{label}-p{number}");
+        if !names.clone().any(|existing| existing == name) {
+            return name;
+        }
+        number += 1;
+    }
+}
+
 impl App {
     pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
         self.state
@@ -303,12 +318,12 @@ impl App {
             // Restored agents retain their names, but internal pane numbers can
             // be reused. Allocate against the current registry only when ready
             // to launch; earlier successful starts already reserve their names.
-            let mut number = internal_pane_id.raw() as u64;
-            let mut name = format!("{label}-p{number}");
-            while !self.agent_name_conflicts(&name, "").is_empty() {
-                number += 1;
-                name = format!("{label}-p{number}");
-            }
+            let agents = self.collect_agent_infos();
+            let name = unused_agent_name(
+                kind,
+                internal_pane_id.raw() as u64,
+                agents.iter().filter_map(|agent| agent.name.as_deref()),
+            );
             let params = AgentStartParams {
                 name,
                 kind: label.to_string(),
@@ -767,6 +782,15 @@ mod tests {
         second_receiver
             .try_recv()
             .expect("managed launch should submit the later tab agent command");
+
+        let busy = app.start_agent(crate::api::schema::AgentStartParams {
+            name: "shortcut-attempt".into(),
+            kind: "opencode".into(),
+            pane_id: app.public_pane_id(0, first_root).unwrap(),
+            args: Vec::new(),
+            timeout_ms: None,
+        });
+        assert!(matches!(busy, Err(super::AgentStartError::TargetBusy(_))));
 
         assert!(!app.try_start_tab_auto_start_agents(Instant::now()));
         assert!(first_receiver.try_recv().is_err());

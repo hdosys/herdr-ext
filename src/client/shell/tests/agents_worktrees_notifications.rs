@@ -1274,11 +1274,8 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
         },
         now,
     );
-    let mut keybind = ClientShellInput::default();
-    state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::OpenNotificationTarget),
-        &mut keybind,
-    );
+    state.handle_input_bytes(&[0x02]);
+    let keybind = state.handle_input_bytes(b"O");
     assert!(keybind.actions.iter().any(|action| matches!(
         action,
         ClientShellAction::Endpoint { request, .. }

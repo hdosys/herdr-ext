@@ -330,6 +330,7 @@ pub struct Keybinds {
     pub goto: ActionKeybinds,
     pub detach: ActionKeybinds,
     pub reload_config: ActionKeybinds,
+    pub start_opencode: ActionKeybinds,
     pub open_notification_target: ActionKeybinds,
     pub previous_workspace: ActionKeybinds,
     pub next_workspace: ActionKeybinds,
@@ -498,6 +499,7 @@ impl Config {
             goto: empty_action!(),
             detach: empty_action!(),
             reload_config: empty_action!(),
+            start_opencode: empty_action!(),
             open_notification_target: empty_action!(),
             previous_workspace: empty_action!(),
             next_workspace: empty_action!(),
@@ -626,6 +628,7 @@ impl Config {
             apply_action!(keybinds.goto, goto, source);
             apply_action!(keybinds.detach, detach, source);
             apply_action!(keybinds.reload_config, reload_config, source);
+            apply_action!(keybinds.start_opencode, start_opencode, source);
             apply_action!(
                 keybinds.open_notification_target,
                 open_notification_target,

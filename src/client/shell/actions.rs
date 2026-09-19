@@ -960,6 +960,22 @@ impl ClientShellState {
         };
 
         match action {
+            KeybindAction::StartOpenCode => {
+                Some(Method::AgentStart(crate::api::schema::AgentStartParams {
+                    name: crate::app::unused_agent_name(
+                        crate::detect::Agent::OpenCode,
+                        1,
+                        snapshot
+                            .agents
+                            .iter()
+                            .filter_map(|agent| agent.name.as_deref()),
+                    ),
+                    kind: "opencode".into(),
+                    pane_id: focused_pane?,
+                    args: Vec::new(),
+                    timeout_ms: None,
+                }))
+            }
             KeybindAction::FocusAgent(index) => {
                 let agents = super::agent_sidebar::ordered_agent_pane_ids(
                     snapshot,
