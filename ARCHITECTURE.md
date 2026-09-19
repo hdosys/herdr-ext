@@ -176,7 +176,12 @@ behavior; code and tests remain the detailed implementation truth.
   is only a starting candidate, not proof of uniqueness. Pending autostart requests
   retain no independently reserved name.
   Native Agent resume remains the
-  only Agent launch path for restored Agent terminals. Managed start, auto-start,
+  only Agent launch path for restored Agent terminals. The development client's
+  `StartOpenCode` action uses the existing keybinding-source projection and routes
+  `agent.start` through the selected endpoint's advertised method lane. The client
+  proposes a name using the shared automatic-name selector; the existing server
+  validation remains authoritative and rejects a concurrent collision or busy pane.
+  No frozen binary codec or AgentStart parameter shape changes. Managed start, auto-start,
   and resume resolve the same shell used by pane spawning and call one shared
   shell-command renderer. PowerShell resolves one native application and invokes
   its path directly, cmd uses escaped cmd syntax, Nushell uses explicit external

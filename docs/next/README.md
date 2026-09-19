@@ -81,6 +81,10 @@ an OSC 8 web link. Click the underlined label or use prefix-F10, Up/Down, and En
 to open it in the client's browser, even when the producer runs remotely. Existing
 plain-text commands still work. See the [producer contract](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx)
 before adapting scripts. This capability is not yet in the maintained release queue.
+The candidate also starts OpenCode in the current available shell with **prefix+o**,
+including selected remote panes. **prefix+Shift+O** opens the notification target.
+No shell alias is needed; [keybinding configuration](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx#keybindings)
+remains client-owned by default.
 
 ## Install
 

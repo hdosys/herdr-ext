@@ -214,6 +214,14 @@ tests remain the detailed implementation truth.
   use their native command syntax on Windows; unknown Windows shells fail
   closed. Linux and macOS use shell-native argument quoting, including explicit
   external-command invocation for Nushell.
+- The development candidate binds `prefix+o` to immediate managed OpenCode start
+  in the selected existing shell pane and its current directory. It uses the same
+  ephemeral loopback HTTP launch flags as new-tab auto-start and refuses managed
+  agents, non-shell processes, and shells with running children. No shell profile,
+  alias, new pane, or separate server supervisor is required. `keys.start_opencode`
+  is configurable through the existing client/remote keybinding machinery;
+  client-local bindings apply to the selected remote pane. The notification-target
+  default moves to `prefix+shift+o`. Explicit user overrides remain authoritative.
 - OpenCode roots started through Herdr's managed Agent path expose one ephemeral
   loopback attach endpoint so direct child sessions can open in their own panes.
   Those panes remain bound to the root session selected locally in that pane;
