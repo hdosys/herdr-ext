@@ -20,6 +20,20 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Resolve Windows invocation semantics before classifying an
+  output-format fix as owner-known.** Explicit `-OutputFormat Text` did not stop
+  Windows PowerShell5.1 encoded-command stderr serialization. Installed-runtime
+  evidence established the override; a later native fixture also incorrectly
+  applied ordinary argv quoting to `cmd /c`. Use one bounded installed-runtime
+  diagnostic when that behavior is uncertain, then make existing native tests
+  consume the production command at its real shell boundary instead of duplicating
+  arguments. The two-minute request-to-artifact goal was missed; exact discovery,
+  edit and end-to-end times were not captured. Builds took 113.030, 108.557 and
+  103.190 seconds; successive test compiles took 40.86, 34.66 and 33.12 seconds.
+  Expected benefit: avoid speculative candidates and fixture-driven rebuilds.
+  Owner: Windows remote native checks and focused-diagnosis guidance in
+  `CONTRIBUTING.md`.
+
 - **Status: proposed. Keep OpenCode repair acceptance out of packaging and
   exploratory test loops.** The V1 repair required repeated 155-238 second
   candidate builds, a 522-second Rust test compilation for 0.23 seconds of
