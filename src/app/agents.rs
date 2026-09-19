@@ -186,7 +186,6 @@ impl App {
         self.pending_tab_auto_start_agents
             .push(PendingTabAutoStartAgent {
                 kind,
-                name: format!("{label}-p{}", root_pane.raw()),
                 pane_id,
                 deadline: Instant::now() + DEFAULT_AGENT_START_TIMEOUT,
             });
@@ -232,7 +231,6 @@ impl App {
         let pending_agents = std::mem::take(&mut self.pending_tab_auto_start_agents);
         for PendingTabAutoStartAgent {
             kind,
-            name,
             pane_id,
             deadline,
         } in pending_agents
@@ -283,7 +281,6 @@ impl App {
                 self.pending_tab_auto_start_agents
                     .push(PendingTabAutoStartAgent {
                         kind,
-                        name,
                         pane_id,
                         deadline,
                     });
@@ -297,13 +294,21 @@ impl App {
                 self.pending_tab_auto_start_agents
                     .push(PendingTabAutoStartAgent {
                         kind,
-                        name,
                         pane_id,
                         deadline,
                     });
                 continue;
             }
 
+            // Restored agents retain their names, but internal pane numbers can
+            // be reused. Allocate against the current registry only when ready
+            // to launch; earlier successful starts already reserve their names.
+            let mut number = internal_pane_id.raw() as u64;
+            let mut name = format!("{label}-p{number}");
+            while !self.agent_name_conflicts(&name, "").is_empty() {
+                number += 1;
+                name = format!("{label}-p{number}");
+            }
             let params = AgentStartParams {
                 name,
                 kind: label.to_string(),
@@ -766,5 +771,43 @@ mod tests {
         assert!(!app.try_start_tab_auto_start_agents(Instant::now()));
         assert!(first_receiver.try_recv().is_err());
         assert!(second_receiver.try_recv().is_err());
+
+        let later_tab = app.state.workspaces[0].test_add_tab(None);
+        let later_root = app.state.workspaces[0].tabs[later_tab].root_pane;
+        app.state.ensure_test_terminals();
+        let later_terminal = app.state.workspaces[0].tabs[later_tab].panes[&later_root]
+            .attached_terminal_id
+            .clone();
+        let (later_runtime, mut later_receiver) =
+            crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        later_runtime.test_process_pty_bytes(b"$ ");
+        app.terminal_runtimes
+            .insert(later_terminal.clone(), later_runtime);
+
+        // Model a restored agent retaining the name that a new internal pane
+        // number would otherwise select. It must not prevent the new tab launch.
+        let retained_name = format!("opencode-p{}", later_root.raw());
+        app.state
+            .terminals
+            .get_mut(&first_terminal)
+            .unwrap()
+            .set_agent_name(retained_name.clone());
+        app.queue_tab_auto_start_agent(0, later_tab);
+        assert!(app.pending_tab_auto_start_agents.is_empty());
+        later_receiver
+            .try_recv()
+            .expect("a retained name must not consume the new tab launch");
+        assert_eq!(
+            app.state.terminals[&first_terminal].agent_name.as_deref(),
+            Some(retained_name.as_str())
+        );
+        let allocated_name = app.state.terminals[&later_terminal]
+            .agent_name
+            .as_deref()
+            .unwrap();
+        assert_ne!(allocated_name, retained_name);
+        assert!(valid_agent_name(allocated_name));
+        assert!(!app.try_start_tab_auto_start_agents(Instant::now()));
+        assert!(later_receiver.try_recv().is_err());
     }
 }

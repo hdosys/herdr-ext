@@ -109,7 +109,6 @@ pub(crate) struct DeferredWorkspaceShell {
 #[derive(Debug)]
 pub(crate) struct PendingTabAutoStartAgent {
     kind: crate::detect::Agent,
-    name: String,
     pane_id: String,
     deadline: Instant,
 }
