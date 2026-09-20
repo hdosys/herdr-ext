@@ -20,6 +20,17 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Parallelize independent immutable-payload checks and
+  packaging when resources permit.** A menu-only deletion still took151.573 seconds
+  to its installer on16CPUs:98.175 compiling,9.418 for the native launch probe,
+  and26.787 packaging. Request-to-artifact therefore exceeded151.573 seconds and
+  missed the two-minute soft goal; discovery/edit timing was not separately captured.
+  Once the payload is validated, consider running the task-owned launch probe and
+  packaging concurrently with disjoint temporary outputs, retaining both gates
+  before canonical handoff. Expected saving is bounded by the measured9.418-second
+  probe, not a claim that this alone meets the goal. Owner:
+  `scripts/local_windows_installer.py`; no gate removal or compiler-identity change.
+
 - **Status: proposed. Keep the selected Python interpreter consistent through
   packaging.** The absolute registered interpreter completed a114.520-second
   build, but `scripts/package_windows_installer.ps1` independently resolved a
