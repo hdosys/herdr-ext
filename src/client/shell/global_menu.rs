@@ -5,7 +5,6 @@ pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
     AddMachine,
     WhatsNew,
-    StatusLink(usize, usize),
 }
 
 pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
@@ -23,7 +22,7 @@ pub(super) fn global_menu_item_has_badge(
 
 pub(super) fn global_menu_items(
     snapshot: &ClientShellSnapshot,
-) -> Vec<(&str, ClientGlobalMenuAction)> {
+) -> Vec<(&'static str, ClientGlobalMenuAction)> {
     let mut items = vec![
         (
             "settings",
@@ -48,18 +47,6 @@ pub(super) fn global_menu_items(
             },
             ClientGlobalMenuAction::WhatsNew,
         ));
-    }
-    for index in 0..snapshot.tab_bar_right.len() {
-        if let Some(spans) = snapshot.status_spans(index) {
-            for (part, span) in spans.iter().enumerate() {
-                if span.web_url().is_some() {
-                    items.push((
-                        span.text.as_str(),
-                        ClientGlobalMenuAction::StatusLink(index, part),
-                    ));
-                }
-            }
-        }
     }
     items.push((
         "detach",
@@ -124,19 +111,6 @@ impl ClientShellState {
                 ))
             }
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
-            ClientGlobalMenuAction::StatusLink(index, part) => {
-                if let Some(url) = self
-                    .snapshot
-                    .as_deref()
-                    .and_then(|snapshot| snapshot.status_spans(index))
-                    .and_then(|spans| spans.get(part))
-                    .and_then(|span| span.web_url())
-                {
-                    outcome
-                        .actions
-                        .push(ClientShellAction::OpenSafeWebUrl(url.to_owned()));
-                }
-            }
         }
         outcome.repaint = true;
     }

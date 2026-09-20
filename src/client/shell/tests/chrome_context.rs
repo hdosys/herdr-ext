@@ -280,7 +280,7 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
-fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
+fn clickable_status_mouse_actions_stay_out_of_the_main_menu() {
     let url = "https://chatgpt.com/codex/cloud/settings/analytics";
     let urls = [
         url,
@@ -340,31 +340,13 @@ fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
         assert!(
             matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value.as_str() == *expected_url)
         );
-        state.handle_input_bytes(&[0x02]);
-        state.handle_input_bytes(b"\x1b[21~");
-        assert!(matches!(
-            state.overlay,
-            Some(ClientShellOverlay::GlobalMenu(_))
-        ));
-        let link_index =
-        super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
-            .iter()
-            .position(|(_, action)| {
-                matches!(
-                    action,
-                    super::super::global_menu::ClientGlobalMenuAction::StatusLink(0, part) if *part == index * 2
-                )
-            })
-            .unwrap();
-        for _ in 0..link_index {
-            state.handle_input_bytes(b"\x1b[B");
-        }
-        let activated = state.handle_input_bytes(b"\r");
-        assert!(activated.requests.is_empty());
-        assert!(
-            matches!(&activated.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value.as_str() == *expected_url)
-        );
     }
+
+    let menu_before =
+        super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap());
+    let menu_without_status = super::super::global_menu::global_menu_items(&snapshot());
+    assert_eq!(menu_before, menu_without_status);
+    state.toggle_global_menu();
 
     projected.revision = 2;
     for span in &mut projected.tab_bar_right_spans[0] {
@@ -381,14 +363,10 @@ fn clickable_status_mouse_and_keyboard_open_only_client_actions() {
     state.set_pane_surface(replacement_surface);
     state.compose(106, 30).unwrap();
     assert!(state.hits.status_links.is_empty());
-    assert!(
-        !super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap())
-            .iter()
-            .any(|(_, action)| matches!(
-                action,
-                super::super::global_menu::ClientGlobalMenuAction::StatusLink(_, _)
-            ))
-    );
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::GlobalMenu(_))
+    ));
 }
 
 #[test]
