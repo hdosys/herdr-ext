@@ -192,8 +192,9 @@ tests remain the detailed implementation truth.
   separators. The whole output line remains bounded to 4096 bytes; the old
   per-command 80-character truncation no longer drops combined labels.
   Plain-text producers remain supported.
-  Clicking the underlined label or selecting it through prefix-F10, Up/Down, and
-  Enter opens the attached client's browser, never the remote server's browser.
+  Clicking an underlined text section opens the attached client's browser, never
+  the remote server's browser. Status values and links stay out of the main menu;
+  the user explicitly selected mouse-only activation for status links.
   Refresh never activates a link. Producers must not put credentials in URLs;
   unsupported schemes and credential-bearing authorities are not clickable.
   Both endpoints need multi-span support for activation; older compatible endpoints

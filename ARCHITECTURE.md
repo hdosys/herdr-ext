@@ -419,7 +419,7 @@ behavior; code and tests remain the detailed implementation truth.
   URL. One control-sequence parser produces both the spans and their concatenated
   fallback label. The client accepts span metadata only when concatenation exactly
   matches that core label; it validates each URL independently and derives separate
-  width-correct hit regions and keyboard menu entries. Text and span replacement share the
+  width-correct mouse hit regions without adding main-menu entries. Text and span replacement share the
   same endpoint, boot, revision, and equality path, including URL-only changes.
   Single-link metadata is replaced rather than maintained as a parallel contract.
   Old clients ignore the added JSON field; old servers omit it. The frozen binary
