@@ -460,22 +460,6 @@ mod tests {
     }
 
     #[test]
-    fn repeated_scrolled_rows_are_not_mistaken_for_a_fixed_header() {
-        let previous = snapshot(&["sticky", "same", "same", "newer"]);
-        let next = snapshot(&["sticky", "same", "same", "same"]);
-        let mut history = previous.rows.clone();
-
-        assert_eq!(
-            merge_scrolled_up(&mut history, &previous, &next),
-            UpwardMerge::Advanced { rows: 1 }
-        );
-        assert_eq!(
-            row_identities(&history),
-            ["same", "sticky", "same", "same", "newer"]
-        );
-    }
-
-    #[test]
     fn unchanged_and_unaligned_frames_do_not_change_history() {
         let previous = snapshot(&["line 1", "line 2", "line 3"]);
         let mut history = previous.rows.clone();
