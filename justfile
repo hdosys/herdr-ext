@@ -113,6 +113,10 @@ integration-assets-test:
 plugin-marketplace-test:
     cd workers/plugin-marketplace && bun install --frozen-lockfile && bun test
 
+# Regenerate the C API bindings with bindgen-cli 0.72.1
+libghostty-bindings *clang_args:
+    bash scripts/generate_libghostty_bindings.sh {{clang_args}}
+
 # Build the vendored libghostty-vt source dist
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
