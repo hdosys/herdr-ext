@@ -82,6 +82,18 @@ build:
 bench-render-scale:
     cargo test --release --locked --bin herdr render_scale_profile -- --ignored --nocapture --test-threads=1
 
+# Profile terminal target name resolution at increasing pane counts.
+bench-terminal-targets:
+    cargo test --release --locked --bin herdr terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
+
+# Profile BSP split collection and construction with balanced and skewed trees.
+bench-bsp-layout:
+    cargo test --release --locked --bin herdr bsp_layout_profile -- --ignored --nocapture --test-threads=1
+
+# Profile first-batch latency and aggregate drain cost for external API bursts.
+bench-api-fairness:
+    cargo test --release --locked --bin herdr external_api_burst_profile -- --ignored --nocapture --test-threads=1
+
 # ~3-5 minute CPU comparison; downloads stable unless HERDR_PERF_BASELINE_BIN is set
 bench-release-smoke:
     cargo build --release --locked

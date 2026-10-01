@@ -1,5 +1,6 @@
 use super::*;
 
+mod event_fairness;
 #[path = "pane_graphics.rs"]
 mod pane_graphics_tests;
 #[path = "surface_interest.rs"]
