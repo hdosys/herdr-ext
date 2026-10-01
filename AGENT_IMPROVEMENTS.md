@@ -20,15 +20,22 @@ configuration repository.
 
 ## Proposals
 
-- **Status: proposed. Carry the resolved compiler environment across source
-  handoffs.** After a successful 0.9.2 build, the next session inherited Zig 0.15.2
+- **Status: proposed. Carry native compiler and cache context across build
+  assignments and source handoffs.** After a successful 0.9.2 build, the next session
+  inherited Zig 0.15.2
   from PATH and failed in the vendored native build even though the required 0.16
   executable was already provisioned. Selecting that existing executable through
   `ZIG` completed the unchanged source build. Resolve and validate the required
   compiler through the existing build owner before compilation, and include its
-  invocation context in an artifact handoff. Do not add a version pin or alternate
-  compiler fallback. Expected benefit: avoid a failed build and repeated toolchain
-  discovery after a successful source integration. Owners:
+  invocation context in an artifact handoff. A Linux cross-check also had an
+  exclusive Cargo target while inherited `ZIG_LOCAL_CACHE_DIR` and
+  `ZIG_GLOBAL_CACHE_DIR` routed native writes elsewhere; native shared-library
+  symlink creation failed with `PermissionDenied` before Rust type checking.
+  Include those effective variables in resource assignments before claiming
+  isolation. No filesystem cause or cache-corruption claim was established.
+  Do not add a version pin, alternate compiler fallback, or blind cache relocation.
+  Expected benefit: avoid incomplete resource ownership, failed builds and repeated
+  toolchain discovery after successful source integration. Owners:
   `scripts/local_windows_installer.py` and `CONTRIBUTING.md`.
 
 - **Status: proposed. Parallelize independent immutable-payload checks and

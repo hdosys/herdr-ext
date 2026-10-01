@@ -76,7 +76,15 @@ v0.9.0 base unchanged. An upstream PR reference is provenance, not a claim that 
 fix has shipped in upstream stable; temporary mailboxes remain until equivalent
 stable behavior includes the necessary adaptations.
 
-**Unpublished development candidate:** script-generated status labels can include
+**Unpublished development candidate:** the development line now incorporates
+Herdr v0.9.2, including upstream [cursor/rendering](https://github.com/herdrdev/herdr/pull/4554),
+[scrollback](https://github.com/herdrdev/herdr/pull/4553), and
+[SSH recovery](https://github.com/herdrdev/herdr/pull/4490) improvements. It retains
+the fork's Windows SSH adapter, managed installer, client-local appearance, and
+OpenCode V1 integration. The maintained release queue still targets v0.9.0; this
+development integration is not a new public release.
+
+The candidate's script-generated status labels can include
 multiple OSC 8 web links in one command output. Click an underlined text section
 to open it in the client's browser, even when the producer runs remotely. Existing
 plain-text commands still work. See the [producer contract](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx)
