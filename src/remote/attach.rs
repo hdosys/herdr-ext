@@ -1873,8 +1873,11 @@ fn detect_remote_windows_attach(
         require_surface_interest,
         exact_identity,
     );
-    let output = ssh.powershell_command_output(&command)?;
+    // Classify remote probe diagnostics before displaying them. SSH's own stderr
+    // stays live for authentication and connection errors on the local process.
+    let mut output = ssh.powershell_command_output(&format!("{command} 2>&1"))?;
     if !output.status.success() {
+        output.stderr.extend_from_slice(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         if remote_command_missing(&stderr, WINDOWS_POWERSHELL_EXECUTABLE) {
             return Ok(None);
