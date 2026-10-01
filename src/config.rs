@@ -3,6 +3,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 mod io;
 mod keybinds;
 mod model;
+pub(crate) mod provision;
 mod sidebar;
 mod sound;
 mod tab_bar;

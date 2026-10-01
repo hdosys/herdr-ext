@@ -382,6 +382,14 @@ fn powershell_herdr_script(
     script
 }
 
+pub(super) fn powershell_config_import_command(executable: &str, sidecar: bool) -> String {
+    let script = format!(
+        "{}; [Console]::In.ReadToEnd() | & $herdr 'config' 'provision-import'; exit $LASTEXITCODE",
+        powershell_herdr_prefix(Some(executable), sidecar),
+    );
+    encoded_powershell_command(&script)
+}
+
 fn powershell_herdr_prefix(executable: Option<&str>, sidecar: bool) -> String {
     let mut script = match executable {
         Some(executable) => format!("$herdr = {}", powershell_quote(executable)),

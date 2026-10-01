@@ -2731,6 +2731,8 @@ fn provision_remote(
             "non-interactive remote provisioning requires --yes",
         ));
     }
+    // Fail before remote installation when the transferable local configuration is invalid.
+    let client_config = crate::config::provision::export()?;
     let DetectedRemoteHost {
         host,
         windows_herdr,
@@ -2803,7 +2805,10 @@ fn provision_remote(
         .binary
         .clone()
         .ok_or_else(|| io::Error::other("selected runtime executable is missing"))?;
-    if !config_validated {
+    if let Some(config) = &client_config {
+        deploy_remote_config(ssh, &prepared.remote_herdr, config)?;
+    }
+    if !config_validated || client_config.is_some() {
         validate_remote_config(ssh, &prepared.remote_herdr)?;
     }
     let status = match known_server_status {
@@ -2836,6 +2841,50 @@ fn provision_remote(
         version,
         protocol,
     })
+}
+
+fn deploy_remote_config(
+    ssh: &RemoteSsh,
+    remote_herdr: &RemoteHerdr,
+    config: &str,
+) -> io::Result<()> {
+    ssh.progress(format_args!(
+        "Applying client configuration on {} (machine-local settings stay unchanged)...",
+        ssh.target()
+    ));
+    let command = match remote_herdr.shell {
+        RemoteShell::Posix => format!("{} config provision-import", remote_herdr.shell_path),
+        RemoteShell::WindowsPowerShell => super::windows::powershell_config_import_command(
+            &remote_herdr.shell_path,
+            remote_herdr.remote_sidecar,
+        ),
+    };
+    let mut child = ssh
+        .command()
+        .arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdin = child.stdin.take();
+    let bytes = config.as_bytes().to_vec();
+    let writer = thread::spawn(move || match stdin {
+        Some(mut stdin) => stdin.write_all(&bytes),
+        None => Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "configuration transfer stdin missing",
+        )),
+    });
+    // The existing bounded runner closes the SSH process on timeout, also releasing stdin.
+    let output = wait_with_output_timeout(child, NONINTERACTIVE_SSH_COMMAND_TIMEOUT);
+    let write_result = writer
+        .join()
+        .map_err(|_| io::Error::other("configuration transfer failed"))?;
+    let output = output?;
+    if !output.status.success() {
+        return Err(command_failed("remote configuration transfer failed", &output));
+    }
+    write_result
 }
 
 fn validate_remote_config(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<()> {

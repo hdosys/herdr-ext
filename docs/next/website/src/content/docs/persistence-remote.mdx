@@ -98,6 +98,42 @@ For local builds or custom packages, set `HERDR_REMOTE_BINARY` to a local file p
 HERDR_REMOTE_BINARY=target/release/herdr herdr --remote workbox
 ```
 
+## Provisioning with your client configuration
+
+```bash
+herdr --remote workbox --provision --yes
+```
+
+Explicit provisioning uses your existing local `config.toml` (or
+`HERDR_CONFIG_PATH`) as the configuration source. No separate per-host file is
+needed. It replaces the target's transferable settings with the client's settings,
+validates the result before writing it, and uses the existing server start or
+configuration-reload path. Settings omitted from the client return to their defaults
+on the target. If there is no local config file, the remote configuration is left
+unchanged. Ordinary attachment and saved-machine reconnect do not deploy config.
+
+Only these machine-local values are excluded from transfer and preserved on the
+target; when absent there, the target defaults apply:
+
+| Excluded setting | Reason |
+| --- | --- |
+| `onboarding` | Local setup state |
+| `terminal.default_shell`, `terminal.new_cwd` | Machine-specific executable and working directory |
+| `worktrees.directory` | Machine-specific checkout root |
+| `agent.args` | Free-form arguments can contain local paths or credentials |
+| `keys.command` | Commands are written for the originating machine |
+| `ui.tab_bar_right` | The entry list can contain machine-specific shell commands |
+| `ui.sound.path`, `ui.sound.done_path`, `ui.sound.request_path` | Local sound files are not copied |
+
+All other configuration settings are transferred. New settings therefore transfer
+unless explicitly added to this exclusion list. Configuration is serialized as TOML;
+comments and formatting are not preserved on the target. Invalid input fails without
+replacing the existing configuration. A transfer larger than 1 MiB is rejected.
+This copies configuration values only, not credentials, agent configuration files,
+SSH profiles, session state, or referenced files. Provisioning still requires the
+exact matching Herdr runtime; it does not make an older remote binary support new
+configuration settings.
+
 ## Remote named sessions
 
 Use `--session` with `--remote` to attach to a named session on the remote host:
