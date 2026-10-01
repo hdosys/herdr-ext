@@ -58,7 +58,10 @@ fn validated_text(table: &toml::Table) -> io::Result<String> {
         .map_err(|_| invalid("cannot encode provisioned configuration"))?;
     let loaded = super::io::load_live_config_from_str(&text)
         .map_err(|_| invalid("invalid provisioned configuration; run herdr config check"))?;
-    if !loaded.diagnostics.is_empty() || !loaded.invalid_sections.is_empty() {
+    if !loaded.diagnostics.is_empty()
+        || !loaded.invalid_sections.is_empty()
+        || !loaded.config.collect_diagnostics().is_empty()
+    {
         return Err(invalid(
             "invalid provisioned configuration; run herdr config check",
         ));
