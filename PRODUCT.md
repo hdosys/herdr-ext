@@ -287,6 +287,18 @@ tests remain the detailed implementation truth.
   adjacent to the complete portable runtime. Herdr projects that runtime into the
   same validated ZIP layout used by published builds. Windows remote hosts do not
   support live handoff.
+- Explicit provisioning uses the existing client configuration as its single
+  source, without requiring separately maintained target files. It transfers all
+  settings except the source-owned machine-local exclusion list, preserves those
+  excluded values on the target, and validates the complete result before writing.
+  Client-omitted transferable settings return to defaults; a missing client file
+  leaves the target configuration unchanged. This applies to Windows and Unix
+  targets. Ordinary attachment and reconnect never synchronize configuration.
+  Shell and directory paths, free-form agent arguments, custom command bindings,
+  the status-bar entry list, local sound paths and onboarding state remain local.
+- An expected missing Windows probe command on a Unix target is platform-detection
+  data, not a user-visible error. Actual SSH authentication/connection diagnostics
+  and failed Windows probes remain visible.
 - User-visible state distinguishes waiting, active, mixed, complete, failed,
   cancelled, stopped, and no-op outcomes whenever they require different user
   understanding or action.

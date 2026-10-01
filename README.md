@@ -147,6 +147,8 @@ herdr --remote workbox --provision --yes --json
 
 The Windows SSH user's OpenSSH default shell must be `cmd.exe` or PowerShell 7 (`pwsh.exe`), and persistent server launch requires exactly one active desktop session owned by that user. The first probe is reused for the complete decision, the portable payload transfers once, and visible progress reports every real preparation, validation, stop, activation, verification, and opening phase. Provisioning validates the complete payload before stopping or replacing a server and verifies the exact binary, version, and protocol afterward.
 
+Development builds also provision your existing client configuration to Windows or Unix targets, without a separate per-host file. Machine-local shell and directory paths, agent arguments, custom command bindings, the status-bar entry list, sound paths, and onboarding state stay on the target; other settings come from the client. The result is validated before writing. Ordinary attachment does not synchronize configuration. See the [configuration policy](https://github.com/hdosys/herdr-ext/blob/master/PRODUCT.md).
+
 ### Fork-specific options
 
 Start OpenCode automatically in the root pane of each genuinely new persistent-session tab:

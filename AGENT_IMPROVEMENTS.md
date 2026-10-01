@@ -20,6 +20,17 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Carry the resolved compiler environment across source
+  handoffs.** After a successful 0.9.2 build, the next session inherited Zig 0.15.2
+  from PATH and failed in the vendored native build even though the required 0.16
+  executable was already provisioned. Selecting that existing executable through
+  `ZIG` completed the unchanged source build. Resolve and validate the required
+  compiler through the existing build owner before compilation, and include its
+  invocation context in an artifact handoff. Do not add a version pin or alternate
+  compiler fallback. Expected benefit: avoid a failed build and repeated toolchain
+  discovery after a successful source integration. Owners:
+  `scripts/local_windows_installer.py` and `CONTRIBUTING.md`.
+
 - **Status: proposed. Parallelize independent immutable-payload checks and
   packaging when resources permit.** A menu-only deletion still took151.573 seconds
   to its installer on16CPUs:98.175 compiling,9.418 for the native launch probe,
