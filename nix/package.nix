@@ -40,6 +40,8 @@ rustPlatform.buildRustPackage {
     fileset = lib.fileset.intersection (lib.fileset.fromSource (lib.sources.cleanSource ./..)) (
       lib.fileset.unions [
         ../assets
+        ../crates
+        ../distribution/install.ps1
         ../docs/next/api/herdr-api.schema.json
         ../src
         ../vendor/libghostty-vt

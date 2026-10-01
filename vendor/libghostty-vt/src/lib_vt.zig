@@ -317,6 +317,7 @@ comptime {
         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+        @export(&c.terminal_clear_screen, .{ .name = "ghostty_terminal_clear_screen" });
         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
@@ -331,6 +332,7 @@ comptime {
         @export(&c.terminal_continuation_alloc, .{ .name = "ghostty_terminal_continuation_alloc" });
         if (features.selection) {
             @export(&c.terminal_select_word, .{ .name = "ghostty_terminal_select_word" });
+            @export(&c.terminal_select_word_bounded, .{ .name = "ghostty_terminal_select_word_bounded" });
             @export(&c.terminal_select_word_between, .{ .name = "ghostty_terminal_select_word_between" });
             @export(&c.terminal_select_line, .{ .name = "ghostty_terminal_select_line" });
             @export(&c.terminal_select_all, .{ .name = "ghostty_terminal_select_all" });

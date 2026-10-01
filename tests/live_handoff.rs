@@ -410,6 +410,50 @@ fn wait_for_file_contains(path: &Path, needle: &str, timeout: Duration) -> Strin
     );
 }
 
+fn wait_for_pid_marker(path: &Path, timeout: Duration) -> u32 {
+    // Shell redirection creates the file before echo writes the PID. Wait for
+    // the newline too, so a partially written PID cannot be accepted.
+    let text = wait_for_file_contains(path, "\n", timeout);
+    text.lines()
+        .next()
+        .and_then(|line| line.split_whitespace().last())
+        .and_then(|pid| pid.parse().ok())
+        .filter(|pid| *pid > 0)
+        .unwrap_or_else(|| panic!("invalid PID marker at {}: {text:?}", path.display()))
+}
+
+#[test]
+fn pid_marker_waits_for_complete_line() {
+    let base = unique_test_dir();
+    fs::create_dir_all(&base).unwrap();
+    let marker = base.join("child.pid");
+    // Keep each incomplete marker unchanged throughout the wait. In particular,
+    // READY 12 must time out rather than return a truncated but parseable PID.
+    for partial in ["", "READY ", "READY 12"] {
+        fs::write(&marker, partial).unwrap();
+        let timeout = Duration::from_millis(100);
+        let started = Instant::now();
+        let panic = std::panic::catch_unwind(|| wait_for_pid_marker(&marker, timeout))
+            .expect_err("incomplete marker should time out");
+        assert!(
+            started.elapsed() >= timeout,
+            "marker {partial:?} failed early"
+        );
+        let message = panic.downcast_ref::<String>().expect("timeout diagnostic");
+        assert_eq!(
+            message,
+            &format!(
+                "{} did not contain {:?}; last text was {partial:?}",
+                marker.display(),
+                "\n"
+            )
+        );
+    }
+    fs::write(&marker, "READY 1234\n").unwrap();
+    assert_eq!(wait_for_pid_marker(&marker, Duration::from_secs(1)), 1234);
+    fs::remove_dir_all(base).unwrap();
+}
+
 #[cfg(target_os = "linux")]
 fn server_ptmx_fd_count(pid: u32) -> usize {
     let Ok(entries) = fs::read_dir(format!("/proc/{pid}/fd")) else {
@@ -702,6 +746,79 @@ fn live_handoff_unknown_pane_exit_preserves_session_on_shutdown() {
     cleanup_test_base(&base);
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn live_handoff_carries_more_panes_than_one_scm_rights_message() {
+    const PANES: usize = 70;
+
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("herdr.sock");
+
+    let spawned = spawn_server(&config_home, &runtime_dir, &api_socket);
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    register_runtime_dir(&runtime_dir);
+    let server_pid = spawned
+        .child
+        .process_id()
+        .expect("test server should expose pid");
+
+    let created = request(
+        &api_socket,
+        serde_json::json!({
+            "id": "test:workspace:create",
+            "method": "workspace.create",
+            "params": {"cwd": "/tmp", "focus": true}
+        }),
+    );
+    let workspace_id = created["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // One pane per tab keeps the layout shallow, so this exercises the fd
+    // transfer rather than the depth of a single split tree.
+    for index in 1..PANES {
+        assert_ok(request(
+            &api_socket,
+            serde_json::json!({
+                "id": format!("test:tab:create-{index}"),
+                "method": "tab.create",
+                "params": {"workspace_id": workspace_id, "focus": false}
+            }),
+        ));
+    }
+    wait_for_server_ptmx_fd_count(server_pid, PANES, Duration::from_secs(60));
+
+    assert_ok(request(
+        &api_socket,
+        serde_json::json!({"id":"test:handoff","method":"server.live_handoff","params":{}}),
+    ));
+    let replacement_pid =
+        wait_for_replacement_server_pid(&runtime_dir, server_pid, Duration::from_secs(30));
+    wait_for_api(&api_socket, Duration::from_secs(30));
+    wait_for_server_ptmx_fd_count(replacement_pid, PANES, Duration::from_secs(30));
+
+    let panes = request(
+        &api_socket,
+        serde_json::json!({"id":"test:pane:list","method":"pane.list","params":{}}),
+    );
+    assert_eq!(
+        panes["result"]["panes"].as_array().map(Vec::len),
+        Some(PANES),
+        "replacement server should report every pane after handoff"
+    );
+
+    let _ = request(
+        &api_socket,
+        serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
+    );
+    drop(spawned);
+    cleanup_test_base(&base);
+}
+
 #[test]
 fn live_handoff_preserves_named_session_socket_paths() {
     let _lock = test_lock();
@@ -941,17 +1058,8 @@ fn live_handoff_preserves_pane_process_io() {
             "params": {"pane_id": second_pane_id, "text": second_command, "keys": ["Enter"]}
         }),
     ));
-    support::wait_for_file(&marker, Duration::from_secs(5));
-    support::wait_for_file(&second_marker, Duration::from_secs(5));
-    let pid_text = fs::read_to_string(&marker).unwrap();
-    let child_pid: u32 = pid_text.split_whitespace().last().unwrap().parse().unwrap();
-    let second_pid_text = fs::read_to_string(&second_marker).unwrap();
-    let second_child_pid: u32 = second_pid_text
-        .split_whitespace()
-        .last()
-        .unwrap()
-        .parse()
-        .unwrap();
+    let child_pid = wait_for_pid_marker(&marker, Duration::from_secs(5));
+    let second_child_pid = wait_for_pid_marker(&second_marker, Duration::from_secs(5));
     assert_eq!(unsafe { libc::kill(child_pid as libc::pid_t, 0) }, 0);
     assert_eq!(unsafe { libc::kill(second_child_pid as libc::pid_t, 0) }, 0);
 
@@ -1508,9 +1616,13 @@ fn live_handoff_keeps_agent_started_pane_after_agent_exits() {
     let api_socket = runtime_dir.join("herdr.sock");
     let started_marker = base.join("agent-started");
     let exited_marker = base.join("agent-exited");
+    let ready_marker = base.join("shell-ready");
     let shell_marker = base.join("shell-after-agent");
     let bin = base.join("bin");
     fs::create_dir_all(&bin).unwrap();
+    let delayed_shell = bin.join("delayed-shell");
+    fs::write(&delayed_shell, "#!/bin/sh\n/bin/sleep 0.4\nexec /bin/sh\n").unwrap();
+    fs::set_permissions(&delayed_shell, fs::Permissions::from_mode(0o755)).unwrap();
     let fake_pi = bin.join("pi");
     fs::write(
         &fake_pi,
@@ -1528,7 +1640,10 @@ fn live_handoff_keeps_agent_started_pane_after_agent_exits() {
         &config_home,
         &runtime_dir,
         &api_socket,
-        &[("PATH", path.as_str())],
+        &[
+            ("PATH", path.as_str()),
+            ("SHELL", delayed_shell.to_str().unwrap()),
+        ],
     );
     wait_for_socket(&api_socket, Duration::from_secs(10));
     register_runtime_dir(&runtime_dir);
@@ -1545,6 +1660,22 @@ fn live_handoff_keeps_agent_started_pane_after_agent_exits() {
         .as_str()
         .unwrap()
         .to_string();
+
+    assert_ok(request(
+        &api_socket,
+        serde_json::json!({
+            "id": "test:shell-ready",
+            "method": "pane.send_input",
+            "params": {
+                "pane_id": pane_id,
+                "text": format!("printf ready > {}", ready_marker.display()),
+                "keys": ["Enter"]
+            }
+        }),
+    ));
+    // Creation acknowledges the PTY, not an idle interactive shell. A real
+    // shell command must execute before this raw agent.start request.
+    support::wait_for_file(&ready_marker, Duration::from_secs(5));
 
     let started = request(
         &api_socket,
@@ -1859,9 +1990,7 @@ fn live_handoff_bad_expected_protocol_rolls_back_old_server() {
             "params": {"pane_id": pane_id, "text": command, "keys": ["Enter"]}
         }),
     ));
-    support::wait_for_file(&marker, Duration::from_secs(5));
-    let pid_text = fs::read_to_string(&marker).unwrap();
-    let child_pid: u32 = pid_text.split_whitespace().last().unwrap().parse().unwrap();
+    let child_pid = wait_for_pid_marker(&marker, Duration::from_secs(5));
 
     let failed = request(
         &api_socket,
@@ -1945,9 +2074,7 @@ fn live_handoff_import_failure_rolls_back_old_server_at(failure_point: &str) {
             "params": {"pane_id": pane_id, "text": command, "keys": ["Enter"]}
         }),
     ));
-    support::wait_for_file(&marker, Duration::from_secs(5));
-    let pid_text = fs::read_to_string(&marker).unwrap();
-    let child_pid: u32 = pid_text.split_whitespace().last().unwrap().parse().unwrap();
+    let child_pid = wait_for_pid_marker(&marker, Duration::from_secs(5));
 
     let failed = request(
         &api_socket,

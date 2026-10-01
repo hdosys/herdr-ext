@@ -46,9 +46,13 @@ impl Harness {
     }
 
     fn write(&mut self, bytes: &[u8]) {
+        self.write_from_process(0, bytes);
+    }
+
+    fn write_from_process(&mut self, shell_pid: u32, bytes: &[u8]) {
         let result = self
             .pane
-            .process_pty_bytes(PaneId::from_raw(1), 0, bytes, &self.tx);
+            .process_pty_bytes(PaneId::from_raw(1), shell_pid, bytes, &self.tx);
         for reply in result.terminal_responses {
             self.effects.replies.extend_from_slice(&reply);
         }
@@ -108,6 +112,128 @@ impl Harness {
             detection: self.pane.detection_text(),
             title: self.pane.terminal_title(),
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn primary_screen_replay_honors_ed3_for_droid_at_chunk_boundaries() {
+    // A zero PID would bypass the former process-specific filter entirely.
+    // Use the real foreground-job lookup, with cleanup even on assertion failure.
+    struct ChildGuard(Box<dyn portable_pty::Child + Send + Sync>);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let pair = portable_pty::native_pty_system()
+        .openpty(portable_pty::PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = portable_pty::CommandBuilder::new("bash");
+    command.args(["-c", "exec -a droid sleep 999"]);
+    let child = ChildGuard(pair.slave.spawn_command(command).unwrap());
+    let pid = child.0.process_id().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let ready = crate::detect::foreground_job(pid).is_some_and(|job| {
+            job.processes
+                .iter()
+                .any(|process| process.cmdline.as_deref() == Some("droid 999"))
+        });
+        if ready {
+            break;
+        }
+        assert!(Instant::now() < deadline, "Droid foreground job not ready");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    for clear in ["\x1b[3J", "\x1b[?3J"] {
+        let prefix = format!("\x1b[?2026h\x1b[2J{clear}\x1b[H");
+        let frame = |label: &str| {
+            let mut bytes = format!("{prefix}welcome\r\n");
+            for row in 0..55 {
+                bytes.push_str(&format!("{label}-{row:02}\r\n"));
+            }
+            bytes.push_str("\x1b[?2026l");
+            bytes
+        };
+        let old = frame("old");
+        let new = frame("new");
+        // Whole writes catch the old filter; bytewise writes and every split
+        // within the erase prefix prove that PTY chunking cannot change ED3.
+        for chunk_size in [usize::MAX, 1, 7] {
+            for split in 0..=prefix.len() {
+                let mut harness = Harness::new(80, 24);
+                for bytes in old.as_bytes().chunks(chunk_size) {
+                    harness.write_from_process(pid, bytes);
+                }
+                assert!(harness
+                    .pane
+                    .recent_text_snapshot(256)
+                    .text
+                    .contains("old-00"));
+                harness.write_from_process(pid, &new.as_bytes()[..split]);
+                for bytes in new.as_bytes()[split..].chunks(chunk_size) {
+                    harness.write_from_process(pid, bytes);
+                }
+                let recent = harness.pane.recent_text_snapshot(256).text;
+                assert!(recent.contains("new-54"), "redraw must complete");
+                assert_eq!(
+                    recent.matches("welcome").count(),
+                    1,
+                    "{clear:?}, split {split}, chunk {chunk_size}: {recent}"
+                );
+                assert!(!recent.contains("old-"), "{recent}");
+                assert!(harness.pane.visible_text().contains("new-54"));
+                harness.pane.scroll_up(256);
+                let top = harness.pane.visible_text();
+                assert!(top.contains("welcome") && top.contains("new-00"), "{top}");
+                assert!(!top.contains("old-"), "{top}");
+            }
+        }
+    }
+}
+
+#[test]
+fn erase_display_preserves_screen_and_history_boundaries() {
+    for clear in [b"\x1b[3J".as_slice(), b"\x1b[?3J"] {
+        let mut harness = Harness::new(80, 24);
+        for row in 0..55 {
+            harness.write(format!("history-{row:02}\r\n").as_bytes());
+        }
+        assert!(harness
+            .pane
+            .recent_text_snapshot(256)
+            .text
+            .contains("history-00"));
+        let primary = harness.pane.recent_text_snapshot(256);
+        let visible = harness.pane.visible_text();
+
+        harness.write(b"\x1b[?1049h\x1b[2J\x1b[Halternate");
+        harness.write(clear);
+        assert!(harness.pane.visible_text().contains("alternate"));
+        harness.write(b"\x1b[?1049l");
+        assert_eq!(harness.pane.recent_text_snapshot(256), primary);
+        assert_eq!(harness.pane.visible_text(), visible);
+
+        // ED2 clears only the display, not prior shell output in scrollback.
+        harness.write(b"\x1b[2J\x1b[Hprompt");
+        assert_eq!(harness.pane.visible_text().trim(), "prompt");
+        assert!(harness
+            .pane
+            .recent_text_snapshot(256)
+            .text
+            .contains("history-00"));
+        harness.write(clear);
+        // ED3 clears history without erasing the current display.
+        assert_eq!(harness.pane.visible_text().trim(), "prompt");
+        assert_eq!(harness.pane.recent_text_snapshot(256).text.trim(), "prompt");
     }
 }
 
@@ -185,6 +311,13 @@ fn incremental_rows_reconstruct_full_render() {
         b"\x1b[3;4H",
         b"\x1b[?1049hALT",
         b"\x1b[?1049l",
+        // Blank cells must match the full renderer under every color source.
+        b"\x1b[3;1H\x1b[44m\x1b[2K\x1b[0m",
+        b"\x1b[4;2H\x1b[7m \x1b[0m \x1b[8m \x1b[0m",
+        b"\x1b[?5h",
+        b"\x1b[?5l",
+        b"\x1b[5;1H\x1b]133;A\x07$ \x1b]133;B\x07  \x1b]133;C\x07",
+        b"\x1b[5;1H\r\n\r\nscrolled\r\n",
     ] {
         incremental.write(bytes);
         full.write(bytes);

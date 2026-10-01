@@ -105,12 +105,16 @@ impl HeadlessServer {
             client.shell_endpoint_command_surface_revision = Some(client.shell_projection_revision);
             let deferred_worktree = matches!(
                 &request.method,
-                api::schema::Method::WorktreeCreate(_) | api::schema::Method::WorktreeRemove(_)
+                api::schema::Method::WorktreeCreate(_)
+                    | api::schema::Method::WorktreeRemove(_)
+                    | api::schema::Method::WorktreeList(_)
+                    | api::schema::Method::WorktreeOpen(_)
             );
-            let deferred_navigation = matches!(
-                &request.method,
-                api::schema::Method::WorktreeCreate(params) if params.focus
-            );
+            let deferred_navigation = match &request.method {
+                api::schema::Method::WorktreeCreate(params) => params.focus,
+                api::schema::Method::WorktreeOpen(params) => params.focus,
+                _ => false,
+            };
             client.shell_deferred_navigation_request_id =
                 deferred_worktree.then(|| api_request_id.clone());
             client.shell_deferred_navigation_response = deferred_navigation.then(Vec::new);
@@ -123,7 +127,6 @@ impl HeadlessServer {
                     request: *request,
                     respond_to,
                     response_write_complete: None,
-                    stream_active: None,
                 },
             )
     }

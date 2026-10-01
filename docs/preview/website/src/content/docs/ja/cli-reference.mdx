@@ -11,19 +11,21 @@ Herdr の CLI は、インテグレーションやエージェントが使うの
 
 ```bash
 herdr                         # デフォルトセッションを起動またはアタッチ
-herdr --session work          # 名前付きセッションを起動またはアタッチ
 herdr --remote workbox        # SSH 越しにアタッチ (ローカルのキーバインドを使用)
-herdr --remote workbox --remote-keybindings server
-herdr --remote workbox --handoff
 herdr --default-config        # デフォルト設定を表示
 herdr update                  # 設定済みチャンネルからダウンロードしてインストール
-herdr update --handoff        # 対応する実行中サーバーでライブハンドオフにオプトイン
 herdr completion zsh          # zsh 補完スクリプトを生成
 herdr channel show            # stable または preview を表示
 herdr channel set preview     # プレビュービルドにオプトイン
 herdr channel set stable      # 直接インストールを安定版に戻す
 herdr --version               # バージョンを表示
 ```
+
+起動と更新の任意オプション:
+
+- デフォルトではなく名前付きセッションを使う場合は `--session <name>` を追加します。
+- リモート接続でサーバーのキーバインドを使う場合は `--remote-keybindings server` を追加します。
+- 実験的なライブハンドオフには、`herdr --remote` または `herdr update` で明示的な `--handoff` が必要です。通常のセットアップや接続には使いません。[更新](/ja/docs/install/)を参照してください。
 
 ステータスコマンド:
 
@@ -46,19 +48,38 @@ herdr api schema --output herdr-api.schema.json
 ## 保存済み SSH マシン
 
 ```bash
-herdr machine list [--json]
-herdr machine add workbox --label "Build machine" [--remote-session agents]
+herdr machine list
+herdr machine add workbox --label "Build machine"
 herdr machine rename <profile-id> --label "New name"
 herdr machine disable <profile-id>
 herdr machine enable <profile-id>
 herdr machine remove <profile-id>
 ```
 
-`machine add` はリモート側の Herdr が必要な機能を備えているか確認し、必要な場合だけ承認を得てインストールまたは更新します。指定したセッションのバックグラウンドサーバーを起動してからプロファイルを保存します。互換性があればリリースバージョンは一致しなくてもかまいません。インストールや再起動の承認が必要な場合は、対話型ターミナルで実行してください。セットアップが失敗またはキャンセルされた場合、プロファイルは保存されません。
+`machine add` はリモートのデフォルトセッションを使います。名前付きセッションを使う場合だけ `--remote-session <name>` を追加します。スクリプトでは `machine list` に `--json` を追加できます。詳しくは[マシンへの接続](/ja/docs/connecting-machines/)を参照してください。
+
+`machine add` はリモート側の Herdr が必要な機能を備えているか確認し、必要な場合だけ承認を得てインストールまたは更新します。指定したセッションのバックグラウンドサーバーを起動してからプロファイルを保存します。互換性があればリリースバージョンは一致しなくてもかまいません。インストールや再起動の承認が必要な場合は、対話型ターミナルで実行してください。セットアップが失敗またはキャンセルされた場合、プロファイルは保存されません。実行中サーバーの置き換えには明示的な承認が必要で、デフォルトの回答は No です。停止するとペインのプロセスも終了します。`machine add` は実験的なハンドオフを暗黙に有効にしません。
 
 変更は、開いているローカルの Herdr クライアントに通常 1 秒以内に自動反映されます。追加または有効化したマシンにはバックグラウンドで接続し、名前の変更では再接続しません。削除または無効化すると、そのマシンだけが切断され、リモートセッションは動き続けます。表示中のマシンを削除すると Local に戻ります。Local に接続できない場合は、再接続するまで利用不可と表示します。各プロファイルは、不透明な ID、ラベル、SSH 接続先、明示的なリモートセッション名、有効状態をクライアントの状態ファイルに保存します。パスワード、秘密鍵、その他の SSH 認証情報は保存しません。
 
-自動接続と再接続は非対話型です。ホスト鍵、パスワード、鍵のパスフレーズ、MFA、インストール、更新、再起動に承認が必要な場合、隠れたプロンプトを開くのではなく Attention と表示します。`herdr --remote workbox --session agents --handoff` など、Herdr が表示する単独接続用のコマンドを実行してフォアグラウンドでセットアップを完了し、クライアントを再起動してください。
+`herdr machine status [<label-or-id>] [--json]` は SSH とリモート Herdr を非対話式で確認します。`reachable` は今回の確認結果で、TUI の接続状態ではありません。ターミナルで `herdr machine reconnect <label-or-id>` を実行すると認証と検証を行いますが、インストールや更新は行いません。開いているクライアントは 30 秒以内に再試行します。`! auth` または `! error` をクリックすると最新のエラーと CLI コマンドを表示します。折りたたみ時は `!` です。対応環境は [SSH 認証の復旧](/ja/docs/connecting-machines/#ssh-認証の復旧)を参照してください。セットアップには `herdr --remote workbox` を使い、名前付きセッションの場合だけ `--session <name>` を追加します。
+
+ワークスペース、タブ、ペインの ID とエージェント名はサーバーごとに独立しています。UI での選択は CLI の接続先を変えません。保存済み SSH マシンへ API コマンドを送るには、グローバルな**プレフィックス** `--machine <label-or-id>` を指定します。
+
+```bash
+herdr --machine "Build machine" agent list
+herdr --machine <profile-id> pane list
+herdr --machine "Build machine" agent prompt w1:p1 "review this change"
+herdr --machine "Build machine" worktree create --cwd /srv/project --branch review
+```
+
+有効なプロファイル ID または一意のラベル（大文字・小文字を区別）を指定します。任意の SSH ホスト名は使えません。保存済みのリモートセッションを使うため、`--session` や `--remote` との併用はエラーです。省略時のローカル動作は変わりません。
+
+対応するのは `workspace`、`worktree`、`tab`、`pane`、`notification`、`agent`（`attach` とローカルの `explain --file` 以外）、`api snapshot`、`status server`、API ベースのプラグイン操作（`link`、`unlink`、`enable`、`disable`、`list`、`action`、`log`、`pane`）です。サーバー操作は `stop`、`reload-config`、`agent-manifests`、`reload-agent-manifests` に対応します。ローカルのインストール・設定、プラグインのインストール、セッション管理、対話的な端末接続は転送しません。
+
+JSON API を非対話 SSH で転送します。API の内容を SSH のシェルコマンドに埋め込むことはありません。開いた TUI は不要で、サーバーのインストール・起動・再起動も自動では行いません。ローカル CLI とリモート Herdr を更新し、実行中サーバーの API プロトコルとの互換性を保ってください。認証、接続、互換性のエラーで Local にフォールバックしたり、要求を自動再送したりすることはありません。
+
+呼び出し元のローカルペイン ID は継承しません。リモート ID を明示してください。`--current` でローカルペインを指定することはできません。リモート worktree パスには絶対パス、`~`、または `~/` で始まるパスを指定します（サーバー側で展開）。プラグインの link パスは絶対パスが必要です。対象は 1 台ずつで、一覧の統合や別の TUI の接続を使った転送は含みません。
 
 ## シェル補完
 
@@ -170,7 +191,9 @@ herdr tab rename <tab_id> <label>
 herdr tab close <tab_id>
 ```
 
-タブはワークスペース内の別のターミナルレイアウトです。`--workspace` を省略すると、`tab create` はアクティブなワークスペースを使い、存在しなければ失敗します。JSON レスポンスの `.result.tab.tab_id` と `.result.root_pane.pane_id` から ID を取得できます。
+タブはワークスペース内の別のターミナルレイアウトです。`--workspace` を省略すると、`tab create` はアクティブなワークスペースを使い、存在しなければ失敗します。JSON レスポンスの `.result.tab.tab_id` と `.result.root_pane.pane_id` から ID を取得できます。ワークスペースの最後のタブを閉じると、そのワークスペースも閉じられます。`ui.confirm_close` が有効で、親ワークツリーの最後のタブを閉じるとワークツリーグループ全体が閉じられる場合、`tab close` は `confirmation_required` エラーを返します。
+
+`ui.confirm_close` が有効な場合、キーバインドやタブメニューからワークスペースの最後のタブを閉じる前に、TUI が確認を求めます。通常の CLI/API によるタブの終了は引き続き即座に実行されます。
 
 ワークスペースとタブの作成、およびペインの分割は、デフォルトではフォーカスを変えません。`--focus` は新しいレイアウトを選択し、`--no-focus` はデフォルトを明示します。`--cwd` がない場合、新しいターミナルは `terminal.new_cwd` の設定に従い、デフォルトでは元のペインまたはワークスペースを引き継ぎます。各 `--env KEY=VALUE` は新しいルートシェルの環境変数を追加または置換します。
 
@@ -197,7 +220,7 @@ herdr pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--f
 herdr pane close <pane_id>
 ```
 
-`--current` を受け付けるペインコマンドは、Herdr ペイン内から実行した場合、呼び出し元の `HERDR_PANE_ID` を使います。`pane split` では、明示したペイン ID または `--pane ID` がそのペインを、`--current` が呼び出し元ペインを分割します。対象を省略すると UI でフォーカス中のペインを使います。分割レスポンスでは、新しいペイン ID は `.result.pane.pane_id` にあります。
+`--current` を受け付けるペインコマンドは、Herdr ペイン内から実行した場合、呼び出し元の `HERDR_PANE_ID` を使います。`pane split` では、明示したペイン ID または `--pane ID` がそのペインを分割します。対象を省略すると `HERDR_PANE_ID` があれば呼び出し元ペインを、なければフォーカス中のペインを使います。`--current` は呼び出し元ペインを必須とし、`HERDR_PANE_ID` がない場合はエラーになります。分割レスポンスでは、新しいペイン ID は `.result.pane.pane_id` にあります。
 
 `pane move` の後続コマンドには `.result.move_result.pane.pane_id` を使います。別ワークスペースへの移動ではワークスペース修飾付きのペイン ID が変わり、以前の値は `.result.move_result.previous_pane_id` に残ります。実行中プロセスの `HERDR_PANE_ID`、`HERDR_TAB_ID`、`HERDR_WORKSPACE_ID` は起動時の値のままですが、Herdr は以前のペイン ID をそのターミナルの別名として保持するため、`--current` を使うペインコマンドは引き続き解決できます。ライブエージェント名もターミナルに追従します。
 
@@ -235,7 +258,8 @@ herdr pane report-agent <pane_id> \
   [--message TEXT] \
   [--seq N] \
   [--agent-session-id ID] \
-  [--agent-session-path PATH]
+  [--agent-session-path PATH] \
+  [-- RESUME_COMMAND...]
 
 herdr pane report-agent-session <pane_id> \
   --source ID \
@@ -243,7 +267,8 @@ herdr pane report-agent-session <pane_id> \
   [--seq N] \
   [--agent-session-id ID] \
   [--agent-session-path PATH] \
-  [--session-start-source SOURCE]
+  [--session-start-source SOURCE] \
+  [-- RESUME_COMMAND...]
 
 herdr pane release-agent <pane_id> \
   --source ID \
@@ -252,6 +277,8 @@ herdr pane release-agent <pane_id> \
 ```
 
 `report-agent-session` はライフサイクル状態を報告せずにネイティブセッション識別子を更新します。`release-agent` は、そのエージェントプロセスが終了したときに、そのソースのライフサイクル権限を終了します。
+
+`--` の後の引数は、サーバー再起動後にこのセッションを再開するために Herdr が実行するコマンドです。最初の引数は `PATH` 上の単純なコマンド名でなければならず、どの引数にもアポストロフィを含めることはできません。
 
 公式インテグレーションがネイティブセッション参照を報告している場合、`pane get`、`pane list`、`agent get`、`agent list` は読み取り専用の `agent_session` オブジェクトを含みます。ネイティブセッション参照が保存されていない場合、このフィールドは省略されます。
 
@@ -303,13 +330,13 @@ herdr agent explain --file PATH --agent LABEL [--json|--verbose]
 
 エージェントターゲットは、一意なライブエージェント名、または現在そのエージェントをホストしているペイン ID です。ターミナル ID とエージェント kind のラベルだけでは指定できません。`agent start` で起動するエージェントには名前が必須で、手動で起動したエージェントは名前なしのままペイン ID で指定します。
 
-`agent start` は既存の利用可能なシェルペインを起動対象にします。対話シェル自身がフォアグラウンドを所有し、フォアグラウンドのコマンド、エディタ、エージェントが動いていない必要があります。トポロジーは別に作成します。名前はライブエージェント間で一意で、`[a-z][a-z0-9_-]{0,31}` に一致する必要があります。対応する kind は `pi`、`claude`、`codex`、`gemini`、`cursor`、`devin`、`agy`、`cline`、`omp`、`mastracode`、`opencode`、`copilot`、`kimi`、`kiro`、`droid`、`amp`、`grok`、`hermes`、`kilo`、`qodercli`、`qwen`、`maki`、`muse` です。名前は現在のペイン占有者に属し、そのエージェントの終了、release、置換で消えます。一時的に検出できないだけでは消えません。
+`agent start` は既存の利用可能なシェルペインを起動対象にします。対話シェル自身がフォアグラウンドを所有し、フォアグラウンドのコマンド、エディタ、エージェントが動いていない必要があります。トポロジーは別に作成します。名前はライブエージェント間で一意で、`[a-z][a-z0-9_-]{0,31}` に一致する必要があります。対応する kind は `pi`、`claude`、`codex`、`gemini`、`cursor`、`devin`、`agy`、`cline`、`omp`、`mastracode`、`opencode`、`copilot`、`kimi`、`kiro`、`droid`、`amp`、`grok`、`hermes`、`kilo`、`qodercli`、`qwen`、`letta`、`maki`、`muse` です。名前は現在のペイン占有者に属し、そのエージェントの終了、release、置換で消えます。一時的に検出できないだけでは消えません。
 
 成功した start は、期待したエージェントが同じターミナルを所有し、対話入力の準備ができてから返ります。起動中の検出状態が `blocked` の場合、コマンドは直ちに `agent_not_ready` を返します。名前は `agent read` と `agent send-keys` で引き続き使用でき、検出状態が `idle` になるとプロンプトを送信できるようになります。デフォルトの起動タイムアウトは 30000 ミリ秒で、明示する値は 3000 より大きく 300000 以下でなければなりません。
 
-`agent prompt` は現在の bracketed paste モードを尊重し、working 中でもテキストを送信してから短い遅延の後にエンコード済み Enter を送信します。エージェントがすでに `blocked` の場合は、入力を送信せずに `agent_blocked` を返します。`--wait` を使う場合、別の non-working 状態から受け付けたプロンプトでは、5 秒以内に `working` または `blocked` が観測される必要があります。観測できなければ Herdr は `agent_prompt_stalled` を返し、呼び出し側のタイムアウトが先に切れた場合は通常の `timeout` エラーを返します。これにより、無関係な `idle`、`done`、またはセッションの変化によって待機が誤って完了することを防ぎます。活動を観測した後、要求された最初の安定状態を待ちます。個々のターンは追跡しません。すでに working の場合、進行中ターンの完了が待機を満たすことがあります。`--until` は一致状態を絞り込み、`--wait` なしでは拒否されます。単独の `agent wait` は現在の状態が一致すれば即座に返ります。どちらもデフォルトは `idle`、`done`、`blocked` です。
+`agent prompt` は現在の bracketed paste モードを尊重し、working 中でもテキストと遅延した Enter を順序付きの 1 回の送信として書き込みます。`--wait` なしの成功は書き込みの完了を示し、ターンの開始を保証しません。Windows の Codex では Enter の前にペースト境界が送られるため、送信はプロンプトのサイズに依存しません。呼び出し側のタイムアウトには送信時間も含まれます。エージェントがすでに `blocked` の場合は、入力を送信せずに `agent_blocked` を返します。`--wait` を使う場合、別の non-working 状態から受け付けたプロンプトでは、送信後の最大 5 秒間に `working` または `blocked` が観測される必要があります。観測できなければ Herdr は `agent_prompt_stalled` を返し、呼び出し側のタイムアウトが先に切れた場合は通常の `timeout` エラーを返します。これにより、無関係な `idle`、`done`、またはセッションの変化によって待機が誤って完了することを防ぎます。活動を観測した後、要求された最初の安定状態を待ちます。個々のターンは追跡しません。すでに working の場合、進行中ターンの完了が待機を満たすことがあります。`--until` は一致状態を絞り込み、`--wait` なしでは拒否されます。単独の `agent wait` は現在の状態が一致すれば即座に返ります。どちらもデフォルトは `idle`、`done`、`blocked` です。
 
-`idle` は入力待ちで、そのタブがフォーカス中の Herdr UI ですでに表示済みの状態です。`done` は同じ基礎的な idle 状態ですが、表示していないバックグラウンド作業が完了したときに使われます。そのタブをフォーカスするか `pane focus` / `agent focus` で対象にすると表示済みになりますが、CLI で読み取るだけでは変わりません。`blocked` は承認または質問 UI を Herdr が認識した状態です。`unknown` はエージェントが存在するものの確実に分類できない状態で、作業の成功を意味しません。
+`idle` と `done` はどちらも入力可能な状態です。CLI/API はサーバーの既読状態を使い、未確認の idle を `done` とします。明示的な `pane focus` / `agent focus` は対象を既読にしますが、読み取りでは変わりません。各 TUI クライアントは表示済みの完了を独立して管理するため、Done バッジが CLI やほかのクライアントと異なる場合があります。`blocked` は承認または質問 UI を Herdr が認識した状態です。`unknown` はエージェントが存在するものの確実に分類できない状態で、作業の成功を意味しません。
 
 `agent send-keys` は `enter`、`up`、`esc`、`ctrl+c` などの論理キーを送ります。Herdr は 1 バイトも書き込む前に全キーを検証します。`agent read` は解決されたターミナルストリームを読み、`agent rename` は検出済みエージェントに名前を付けます。
 
@@ -321,11 +348,17 @@ herdr agent explain --file PATH --agent LABEL [--json|--verbose]
 
 ```bash
 herdr terminal attach <terminal_id> [--takeover]
+herdr terminal session control <target> [--takeover] [--cols N] [--rows N]
+herdr terminal session observe <target> [--cols N] [--rows N]
 herdr terminal title set <title>
 herdr terminal title clear
 ```
 
 ダイレクトアタッチからは `ctrl+b q` でデタッチします。リテラルの `ctrl+b` は `ctrl+b ctrl+b` で送ります。
+`terminal session control` は、ペイン、ターミナル、エージェントを対象に書き込み可能なライブストリームを開きます。observe と同じ改行区切り JSON の `terminal.frame` と `terminal.closed` を出力し、標準入力から `terminal.input`、`terminal.resize`、`terminal.scroll`、`terminal.mouse`、`terminal.release` を受け取ります。制御クライアントは同時に 1 つだけで、`--takeover` で置き換えられます。`terminal.mouse` は 0 始まりのセル位置にマウスイベントを 1 つ送ります(例: `{"type":"terminal.mouse","action":"down","button":"left","column":12,"row":5}`)。`action` は `down`、`up`、`drag`、`move` のいずれかで、`button` は `left`(既定)、`right`、`middle`、`modifiers` は省略可能で Shift = 1、Ctrl = 2、Alt = 4 の組み合わせです(既定 0)。クリックは `down` の後に `up` を送ります。Herdr はアプリのマウスモードに合わせてエンコードし、マウス報告を有効にしていないアプリには送らないため、通常のシェルに余計な入力が届くことはありません。`move` はすべてのマウス移動を追跡するアプリにのみ届きます。
+
+`terminal session observe` は同じ対象の読み取り専用ストリームを開きます。base64 の ANSI バイト列を含む `terminal.frame` と、サーバー終了時の `terminal.closed` を改行区切り JSON で出力します。複数の観測クライアントは入力、リサイズ、スクロール、制御権を取得せずに同じターミナルを監視できます。Linux/macOS ではソケットへの書き込みが 30 秒間進まない観測クライアントを切断します。その場合は最後の `terminal.closed` が届かないことがありますが、ペインや他のクライアントは動き続けます。出力のない静かなペインはこのタイムアウトの対象ではありません。
+
 `terminal title clear` は外側ターミナルウィンドウタイトルを `ui.window_title` に戻します。
 
 ## 出力待機
@@ -339,6 +372,8 @@ herdr pane wait-output <pane_id> (--match <text> | --regex <pattern>) [--source 
 通常のコマンドやサーバーには `pane wait-output` を使います。コーディングエージェントには `agent wait` を使います。
 
 `pane wait-output` は選択したスナップショットを最初にすぐ検索するため、すでに存在する出力も一致します。デフォルトのソース名は `recent` で、直近 80 行の描画済みターミナル行を折り返し前の出力として扱います。`--lines` でその行数を変更できます。`--match` は 1 行内のリテラル部分文字列を検索し、`--regex` は Rust の正規表現構文で 1 行ずつ一致します。
+
+タイムアウトや `agent_prompt_stalled` は未送信を保証しません。再試行前にエージェントを確認してください。
 
 `pane wait-output` と `agent wait` は、`--timeout` を省略すると無期限に待ちます。`agent prompt --wait` では、活動を観測した後、またはプロンプト開始時に `working` だった場合の安定状態待機は無期限です。non-working 状態から開始して活動を観測できない場合は、5 秒後に `agent_prompt_stalled` を返します。タイムアウトまたはサーバーエラーは JSON として stderr に出力され、終了コード 1 になります。CLI 使用法のエラーは終了コード 2 です。
 
@@ -359,6 +394,7 @@ herdr integration install hermes
 herdr integration install mastracode
 herdr integration install qodercli
 herdr integration install qwen
+herdr integration install letta
 herdr integration install cursor
 herdr integration uninstall pi
 herdr integration uninstall omp
@@ -374,6 +410,7 @@ herdr integration uninstall hermes
 herdr integration uninstall mastracode
 herdr integration uninstall qodercli
 herdr integration uninstall qwen
+herdr integration uninstall letta
 herdr integration uninstall cursor
 herdr integration status [--outdated-only]
 ```

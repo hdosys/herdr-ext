@@ -1,34 +1,75 @@
 mod args;
 mod attach;
 #[cfg(unix)]
-mod host_unix;
+mod host;
 mod process;
 mod restart_policy;
 mod saved;
+#[cfg(unix)]
+mod ssh_agent;
 mod windows;
 
 pub(crate) use args::*;
 pub(crate) use attach::*;
 #[cfg(unix)]
-pub(crate) use host_unix::run_remote_client_bridge;
+pub(crate) use host::run_remote_client_bridge;
 pub(crate) use saved::*;
 
 pub(crate) fn bridge_allows_start(args: &[String]) -> std::io::Result<bool> {
+    let mut allow_start = true;
+    let mut idle_timeout = false;
+    for argument in args {
+        match argument.as_str() {
+            "--connect-only" if allow_start => allow_start = false,
+            "--idle-timeout-v1"
+                if !idle_timeout && crate::platform::REMOTE_BRIDGE_IDLE_TIMEOUT_SUPPORTED =>
+            {
+                idle_timeout = true;
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "invalid remote bridge arguments",
+                ));
+            }
+        }
+    }
+    Ok(allow_start)
+}
+
+pub(crate) fn run_remote_api_bridge(args: &[String]) -> std::io::Result<()> {
     match args {
-        [] => Ok(true),
-        [flag] if flag == "--connect-only" => Ok(false),
+        [] => {
+            let path = crate::api::socket_path();
+            let stream = crate::ipc::connect_local_stream(&path).map_err(|error| {
+                std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "failed to connect to remote Herdr API socket {}: {error}",
+                        path.display()
+                    ),
+                )
+            })?;
+            crate::platform::forward_remote_bridge_stdio(stream, false)
+        }
+        [flag] if flag == "--check" => {
+            println!("herdr-api-bridge-v1");
+            Ok(())
+        }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "invalid remote bridge arguments",
+            "usage: herdr remote-api-bridge [--check]",
         )),
     }
 }
 
 #[cfg(windows)]
-pub(crate) use windows::run_remote_client_bridge;
+pub(crate) fn run_remote_client_bridge(args: &[String]) -> std::io::Result<()> {
+    windows::run_remote_client_bridge(bridge_allows_start(args)?)
+}
 pub(crate) use windows::{
     adopt_remote_sidecar_lease, configure_remote_sidecar_child, remote_sidecar_active,
-    validate_remote_sidecar_payload, REMOTE_SIDECAR_VALIDATE_ARG,
+    validate_remote_sidecar_payload, WindowsSshShell, REMOTE_SIDECAR_VALIDATE_ARG,
 };
 
 pub(crate) fn reject_remote_sidecar_update_command(args: &[String]) -> Result<(), String> {
@@ -48,6 +89,16 @@ fn update_command_requested(args: &[String]) -> bool {
             .is_some_and(|commands| commands == ["channel", "set"])
 }
 
+pub(crate) fn print_saved_ssh_error_hint(err: &std::io::Error, target: &str) {
+    if is_remote_host_key_error(err) {
+        eprintln!(
+            "hint: saved machines use strict host-key checking; add the host key to the configured known_hosts file, then retry."
+        );
+    } else {
+        print_remote_error_hint(err, target);
+    }
+}
+
 pub(crate) fn print_remote_error_hint(err: &std::io::Error, target: &str) {
     if is_remote_auth_error(err) {
         eprintln!(
@@ -58,6 +109,12 @@ pub(crate) fn print_remote_error_hint(err: &std::io::Error, target: &str) {
             "hint: if your SSH key has a passphrase, load it into ssh-agent with `ssh-add` before running `herdr --remote`."
         );
     }
+}
+
+fn is_remote_host_key_error(err: &std::io::Error) -> bool {
+    let message = err.to_string().to_ascii_lowercase();
+    message.contains("host key verification failed")
+        || message.contains("remote host identification has changed")
 }
 
 fn is_remote_auth_error(err: &std::io::Error) -> bool {
@@ -91,6 +148,19 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_host_key_error_matches_ssh_diagnostics() {
+        for message in [
+            "Host key verification failed.",
+            "REMOTE HOST IDENTIFICATION HAS CHANGED!",
+        ] {
+            assert!(is_remote_host_key_error(&std::io::Error::other(message)));
+        }
+        assert!(!is_remote_host_key_error(&std::io::Error::other(
+            "server closed connection"
+        )));
+    }
 
     #[test]
     fn remote_auth_error_matches_ssh_auth_denied() {

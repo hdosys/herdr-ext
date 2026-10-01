@@ -60,7 +60,11 @@ impl App {
                 self.state.selected,
             );
             let history = self.persist_pane_history.then(|| {
-                crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
+                crate::persist::capture_history(
+                    &snapshot,
+                    &self.state.workspaces,
+                    &self.terminal_runtimes,
+                )
             });
             SessionSaveJob::Save { snapshot, history }
         }
@@ -81,14 +85,15 @@ impl App {
         let job = self.capture_session_save_job();
         self.pane_exit_checkpoint_pending = false;
         self.session_save_deadline = None;
+        let writer = self.session_writer.clone();
         match std::thread::Builder::new()
             .name("herdr-session-save".into())
-            .spawn(move || run_session_save_job(job))
+            .spawn(move || run_session_save_job(job, &writer))
         {
             Ok(thread) => self.session_save_thread = Some(thread),
             Err(err) => {
                 tracing::warn!(err = %err, "failed to spawn session save thread; saving inline");
-                run_session_save_job(self.capture_session_save_job());
+                run_session_save_job(self.capture_session_save_job(), &self.session_writer);
             }
         }
     }
@@ -103,7 +108,7 @@ impl App {
             return;
         }
 
-        run_session_save_job(self.capture_session_save_job());
+        run_session_save_job(self.capture_session_save_job(), &self.session_writer);
         self.pane_exit_checkpoint_pending = false;
         self.session_save_deadline = None;
     }
@@ -135,11 +140,19 @@ impl App {
     }
 }
 
-fn run_session_save_job(job: SessionSaveJob) {
-    match job {
-        SessionSaveJob::Clear => crate::persist::clear(),
-        SessionSaveJob::Save { snapshot, history } => {
-            crate::persist::save(&snapshot, history.as_ref());
+fn run_session_save_job(
+    job: SessionSaveJob,
+    writer: &std::sync::Mutex<crate::persist::SessionWriter>,
+) {
+    let mut writer = match writer.lock() {
+        Ok(writer) => writer,
+        Err(err) => {
+            tracing::warn!(err = %err, "session writer is poisoned; refusing to modify session");
+            return;
         }
+    };
+    match job {
+        SessionSaveJob::Clear => writer.clear(),
+        SessionSaveJob::Save { snapshot, history } => writer.save(&snapshot, history.as_ref()),
     }
 }

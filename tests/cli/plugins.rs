@@ -388,6 +388,36 @@ command = ["sh", "-c", "sleep 5"]
 }
 
 #[test]
+fn plugin_install_usage_errors_include_options_without_installing() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let state_home = base.join("state");
+    fs::create_dir_all(&runtime_dir).unwrap();
+
+    for args in [
+        vec!["plugin", "install"],
+        vec!["plugin", "install", "owner"],
+    ] {
+        let output = run_named_cli_with_env(
+            &config_home,
+            &runtime_dir,
+            &args,
+            &[("XDG_STATE_HOME", &state_home)],
+        );
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("usage: herdr plugin install"), "{stderr}");
+        assert!(stderr.contains("[--ref REF] [--yes|-y]"), "{stderr}");
+        assert!(!config_home.join("herdr-dev/plugins").exists());
+        assert!(!config_home.join("herdr-dev/plugins.json").exists());
+        assert!(!state_home.exists());
+    }
+
+    cleanup_test_base(&base);
+}
+
+#[test]
 fn plugin_install_list_uninstall_offline_cli_smoke_test() {
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -433,6 +463,7 @@ command = ["sh", "-c", "echo bootstrap"]
     )
     .unwrap();
 
+    run_git(&source_repo, &["tag", "v0.43.0"]);
     let install = run_named_cli_with_env(
         &config_home,
         &runtime_dir,
@@ -441,11 +472,14 @@ command = ["sh", "-c", "echo bootstrap"]
             "plugins",
             "plugin",
             "install",
-            "ogulcancelik/herdr-plugin-examples/worktree-bootstrap",
             "--yes",
+            "--ref",
+            "v0.43.0",
+            "ogulcancelik/herdr-plugin-examples/worktree-bootstrap",
         ],
         &[
             ("GIT_CONFIG_GLOBAL", &git_config),
+            ("XDG_STATE_HOME", &base.join("state")),
             ("HERDR_SESSION", Path::new("leaked-session")),
         ],
     );
@@ -467,6 +501,7 @@ command = ["sh", "-c", "echo bootstrap"]
     assert_eq!(plugin["source"]["owner"], "ogulcancelik");
     assert_eq!(plugin["source"]["repo"], "herdr-plugin-examples");
     assert_eq!(plugin["source"]["subdir"], "worktree-bootstrap");
+    assert_eq!(plugin["source"]["requested_ref"], "v0.43.0");
     assert!(plugin["source"]["resolved_commit"].as_str().is_some());
     let managed_path = PathBuf::from(plugin["source"]["managed_path"].as_str().unwrap());
     assert!(managed_path.exists(), "managed checkout should exist");

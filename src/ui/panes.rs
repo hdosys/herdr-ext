@@ -2,7 +2,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
@@ -399,9 +399,10 @@ pub(super) fn render_panes(
     pane_infos: &[PaneInfo],
     split_borders: &[crate::layout::SplitBorder],
 ) {
-    let Some(ws_idx) = target.map(|target| target.workspace_index) else {
+    let Some(target) = target else {
         return;
     };
+    let ws_idx = target.workspace_index;
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return;
     };
@@ -413,6 +414,17 @@ pub(super) fn render_panes(
                 && app.pane_exposes_host_cursor(ws_idx, info.id);
             rt.render(frame, info.inner_rect, show_cursor);
             render_pane_scrollbar(app, frame, info, rt);
+        } else if let Some(reason) = ws
+            .tabs
+            .get(target.tab_index)
+            .and_then(|tab| tab.terminal_id(info.id))
+            .and_then(|id| app.terminals.get(id))
+            .and_then(|terminal| terminal.restore_error.as_deref())
+        {
+            frame.render_widget(
+                Paragraph::new(reason).wrap(Wrap { trim: false }),
+                info.inner_rect,
+            );
         }
     }
 
@@ -852,6 +864,36 @@ mod tests {
         frame: &mut Frame,
     ) {
         render_pane_borders(app, ws, &app.view.pane_infos, split_borders, frame);
+    }
+
+    #[test]
+    fn unavailable_pane_renders_restore_failure_without_a_runtime() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("unavailable")];
+        app.active = Some(0);
+        app.ensure_test_terminals();
+        let pane_id = app.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.workspaces[0].terminal_id(pane_id).unwrap().clone();
+        app.terminals.get_mut(&terminal_id).unwrap().restore_error =
+            Some("Saved directory is unavailable. Restart to retry.".into());
+        let runtimes = TerminalRuntimeRegistry::new();
+        let area = Rect::new(0, 0, 80, 24);
+        let layout = crate::ui::compute_tab_surface_for(
+            &app,
+            &runtimes,
+            Some(crate::ui::TabSurfaceTarget {
+                workspace_index: 0,
+                tab_index: 0,
+            }),
+            area,
+            false,
+            Default::default(),
+        );
+        let (buffer, cursor, _, _) =
+            crate::server::render_stream::render_tab_surface_virtual(&app, &runtimes, layout, area);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("Saved directory is unavailable."));
+        assert!(cursor.is_none_or(|cursor| !cursor.visible));
     }
 
     #[test]

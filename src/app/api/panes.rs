@@ -167,6 +167,22 @@ impl App {
         encode_success(id, ResponseResult::PaneInfo { pane })
     }
 
+    pub(super) fn handle_pane_clear(&mut self, id: String, target: PaneTarget) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        let Some(runtime) =
+            self.state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+        else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        match runtime.clear_screen() {
+            Ok(()) => encode_success(id, ResponseResult::Ok {}),
+            Err(err) => encode_error(id, "pane_clear_failed", err.to_string()),
+        }
+    }
+
     pub(super) fn handle_pane_scroll(&mut self, id: String, params: PaneScrollParams) -> String {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
@@ -1533,29 +1549,45 @@ impl App {
         id: String,
         params: PaneReportAgentParams,
     ) -> String {
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
         let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
             return invalid_agent(id);
         };
+        if let Err(message) = validate_optional_resume_argv(params.resume_argv.as_deref()) {
+            return encode_error(id, "invalid_resume_argv", message);
+        }
+        let report_is_newer = self
+            .pane_terminal(ws_idx, pane_id)
+            .is_some_and(|terminal| terminal.hook_report_is_newer(&params.source, params.seq));
+        let session_ref = crate::agent_resume::session_ref_from_report(
+            &params.source,
+            &agent_label,
+            params.agent_session_id,
+            params.agent_session_path,
+        );
         self.handle_internal_event(crate::events::AppEvent::HookStateReported {
             pane_id,
-            session_ref: crate::agent_resume::session_ref_from_report(
-                &params.source,
-                &agent_label,
-                params.agent_session_id,
-                params.agent_session_path,
-            ),
-            source: params.source,
-            agent_label,
+            session_ref: session_ref.clone(),
+            source: params.source.clone(),
+            agent_label: agent_label.clone(),
             state: detect_state_from_api(params.state),
             message: params.message,
             seq: params.seq,
             suppress_completion: params.suppress_completion,
         });
-
-        encode_success(id, ResponseResult::Ok {})
+        let applied =
+            report_is_newer && self.session_report_applied(ws_idx, pane_id, session_ref.as_ref());
+        self.report_agent_resume(
+            id,
+            ws_idx,
+            pane_id,
+            params.source,
+            agent_label,
+            params.seq.filter(|_| applied),
+            applied.then_some(params.resume_argv).flatten(),
+        )
     }
 
     pub(super) fn handle_pane_report_agent_session(
@@ -1563,28 +1595,100 @@ impl App {
         id: String,
         params: PaneReportAgentSessionParams,
     ) -> String {
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
         let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
             return invalid_agent(id);
         };
+        if let Err(message) = validate_optional_resume_argv(params.resume_argv.as_deref()) {
+            return encode_error(id, "invalid_resume_argv", message);
+        }
+        let report_is_newer = self
+            .pane_terminal(ws_idx, pane_id)
+            .is_some_and(|terminal| terminal.hook_report_is_newer(&params.source, params.seq));
+        let session_ref = crate::agent_resume::session_ref_from_report(
+            &params.source,
+            &agent_label,
+            params.agent_session_id,
+            params.agent_session_path,
+        );
         self.handle_internal_event(crate::events::AppEvent::AgentSessionReported {
             pane_id,
-            session_ref: crate::agent_resume::session_ref_from_report(
-                &params.source,
-                &agent_label,
-                params.agent_session_id,
-                params.agent_session_path,
-            ),
-            source: params.source,
-            agent_label,
+            session_ref: session_ref.clone(),
+            source: params.source.clone(),
+            agent_label: agent_label.clone(),
             seq: params.seq,
             session_start_source: crate::agent_resume::normalize_session_start_source(
                 params.session_start_source,
             ),
         });
+        let applied =
+            report_is_newer && self.session_report_applied(ws_idx, pane_id, session_ref.as_ref());
+        self.report_agent_resume(
+            id,
+            ws_idx,
+            pane_id,
+            params.source,
+            agent_label,
+            params.seq.filter(|_| applied),
+            applied.then_some(params.resume_argv).flatten(),
+        )
+    }
 
+    /// A resume command belongs to the session it was reported with, so it is
+    /// kept only when Herdr accepted that session.
+    fn session_report_applied(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        session_ref: Option<&crate::agent_resume::AgentSessionRef>,
+    ) -> bool {
+        session_ref.is_none_or(|session_ref| {
+            self.pane_terminal(ws_idx, pane_id)
+                .is_some_and(|terminal| terminal.session_ref_is_current(session_ref))
+        })
+    }
+
+    fn pane_terminal(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<&crate::terminal::TerminalState> {
+        let pane = self.state.workspaces.get(ws_idx)?.pane_state(pane_id)?;
+        self.state.terminals.get(&pane.attached_terminal_id)
+    }
+
+    fn report_agent_resume(
+        &mut self,
+        id: String,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        source: String,
+        agent_label: String,
+        seq: Option<u64>,
+        resume_argv: Option<Vec<String>>,
+    ) -> String {
+        let Some(argv) = resume_argv else {
+            return encode_success(id, ResponseResult::Ok {});
+        };
+        let can_record = self
+            .pane_terminal(ws_idx, pane_id)
+            .is_some_and(|terminal| terminal.can_record_reported_resume(&source, &agent_label));
+        if !can_record {
+            return encode_error(
+                id,
+                "resume_not_accepted",
+                "resume_argv requires the reporter to hold the pane; report its state with pane.report_agent first",
+            );
+        }
+        self.handle_internal_event(crate::events::AppEvent::AgentResumeReported {
+            pane_id,
+            source,
+            agent_label,
+            seq,
+            argv,
+        });
         encode_success(id, ResponseResult::Ok {})
     }
 
@@ -2199,6 +2303,10 @@ fn invalid_agent(id: String) -> String {
     encode_error(id, "invalid_agent", "agent label must not be empty")
 }
 
+fn validate_optional_resume_argv(argv: Option<&[String]>) -> Result<(), String> {
+    argv.map_or(Ok(()), crate::agent_resume::validate_resume_argv)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2378,6 +2486,26 @@ mod tests {
         assert_eq!(success.result, ResponseResult::Ok {});
         assert_eq!(rx.try_recv().unwrap(), bytes::Bytes::from_static(b"\x1b[Z"));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn api_clear_pane_mutates_endpoint_owned_history() {
+        let (mut app, public_pane_id, pane_id) = app_with_scrollback_runtime();
+        let request = crate::api::schema::Request {
+            id: "clear".into(),
+            method: crate::api::schema::Method::PaneClear(PaneTarget {
+                pane_id: public_pane_id,
+            }),
+        };
+        assert!(crate::api::request_changes_ui(&request));
+        let response = app.handle_api_request(request);
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.result, ResponseResult::Ok {});
+        let runtime = app
+            .state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+            .unwrap();
+        assert_eq!(runtime.scroll_metrics().unwrap().max_offset_from_bottom, 0);
     }
 
     #[tokio::test]
@@ -2723,6 +2851,35 @@ mod tests {
         assert_eq!(rx.try_recv().unwrap(), bytes::Bytes::from(vec![0x03]));
         assert_eq!(rx.try_recv().unwrap(), bytes::Bytes::from(vec![0x03]));
         assert_eq!(rx.try_recv().unwrap(), bytes::Bytes::from(vec![0x03]));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn api_pane_send_keys_preserves_super_chord_in_legacy_pane() {
+        let (mut app, pane_id, mut rx) = app_with_send_key_runtime(1);
+        let internal_pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        assert_eq!(
+            app.lookup_runtime_sender(0, internal_pane_id)
+                .unwrap()
+                .keyboard_protocol(),
+            crate::input::KeyboardProtocol::Legacy
+        );
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::PaneSendKeys(PaneSendKeysParams {
+                pane_id,
+                keys: vec!["cmd+c".into()],
+            }),
+        });
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.id, "req");
+        assert_eq!(success.result, ResponseResult::Ok {});
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            bytes::Bytes::from_static(b"\x1b[99;9u")
+        );
         assert!(rx.try_recv().is_err());
     }
 

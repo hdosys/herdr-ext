@@ -128,6 +128,9 @@ fn client_protocol_accepts_hello(socket_path: &Path, read_timeout: Duration) -> 
         mouse_capture: false,
         surface_active: false,
         surface_cursor_color: false,
+        surface_reuse: false,
+        surface_delta: false,
+        surface_scroll: false,
         snapshot_codecs: vec![SNAPSHOT_CODEC_V1.into()],
         surface_codecs: vec![SURFACE_CODEC_V1.into()],
         input_codecs: vec![INPUT_CODEC_V1.into()],
@@ -365,6 +368,14 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
 /// 2. If no server → spawn server daemon → wait for socket readiness
 /// 3. Run the thin client (which connects to the server)
 pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
+    // The client requires terminal geometry before it can attach. Reject an
+    // unusable terminal before socket lookup creates directories or starts a daemon.
+    crate::platform::terminal_grid_size().map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("cannot attach without a usable terminal: {err}; run inside a terminal"),
+        )
+    })?;
     let socket_path = client_socket_path();
     info!(path = %socket_path.display(), "auto-detect launch starting");
 
@@ -410,6 +421,7 @@ mod startup_diagnostic_tests {
                 ),
                 surface_interest: true,
                 health_check: true,
+                ssh_agent_registration: false,
             }),
         };
         assert!(validate_running_server_compatibility(Some(status.clone()), true).is_ok());

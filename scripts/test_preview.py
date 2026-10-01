@@ -18,21 +18,14 @@ VALID_RELEASE_TAG = f"v{VALID_RELEASE_VERSION}"
 
 
 class PreviewNotesTests(unittest.TestCase):
-    def test_humanize_groups_conventional_subjects(self):
+    def test_notes_contain_only_build_and_comparison_link(self):
         self.assertEqual(
-            preview.humanize_subject("feat(update): add preview channel"),
-            ("Added", "Add preview channel"),
-        )
-        self.assertEqual(
-            preview.humanize_subject("fix: handle preview manifest"),
-            ("Fixed", "Handle preview manifest"),
-        )
-        self.assertEqual(
-            preview.humanize_subject("not conventional"),
-            ("Other", "Not conventional"),
+            preview.build_notes("previous-sha", "current-sha", "2026-09-16-abcdef123456", "herdrdev/herdr"),
+            "Preview build 2026-09-16-abcdef123456\n\n"
+            "[View changes](https://github.com/herdrdev/herdr/compare/previous-sha...current-sha)\n",
         )
 
-    def test_build_manifest_archives_current_assets(self):
+    def test_build_manifest_archives_assets_with_selected_source_generation(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "preview.json"
             notes = "Preview notes\n"
@@ -345,23 +338,6 @@ class PreviewNotesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "run_attempt"):
             preview.candidate_build_id("a" * 40, "b" * 40, "1", 0)
 
-    def test_hidden_subjects_include_preview_manifest_commits(self):
-        self.assertTrue(preview.hidden_subject("docs: update preview manifest"))
-        self.assertTrue(preview.hidden_subject("docs: update website manifest"))
-        self.assertFalse(preview.hidden_subject("release: v0.7.0"))
-        self.assertFalse(preview.hidden_subject("fix: repair preview manifest"))
-
-    def test_latest_publishable_commit_keeps_release_commits(self):
-        output = "\n".join(
-            [
-                "manifest\x00docs: update website manifest for v0.7.0",
-                "release\x00release: v0.7.0",
-                "feature\x00feat: add plugin v1 system",
-            ]
-        )
-        with mock.patch.object(preview, "run_git", return_value=output):
-            self.assertEqual(preview.latest_publishable_commit("origin/master"), "release")
-
     def test_preview_range_base_advances_to_stable_tag(self):
         with (
             mock.patch.object(preview, "latest_stable_tag", return_value="v0.7.0"),
@@ -374,7 +350,10 @@ class PreviewNotesTests(unittest.TestCase):
 
     def test_preview_range_base_keeps_previous_preview_for_unreleased_work(self):
         def is_ancestor(ancestor: str, descendant: str) -> bool:
-            return (ancestor, descendant) == ("v0.7.0", "new-feature")
+            return (ancestor, descendant) in {
+                ("v0.7.0", "new-feature"),
+                ("previous-preview", "new-feature"),
+            }
 
         with (
             mock.patch.object(preview, "latest_stable_tag", return_value="v0.7.0"),
@@ -385,7 +364,14 @@ class PreviewNotesTests(unittest.TestCase):
                 "previous-preview",
             )
 
-    def test_post_stable_history_selects_release_and_bases_range_on_stable_tag(self):
+    def test_hotfix_preview_uses_stable_base_instead_of_newer_master_preview(self):
+        with (
+            mock.patch.object(preview, "latest_stable_tag", return_value="v0.7.0"),
+            mock.patch.object(preview, "git_is_ancestor", return_value=False),
+        ):
+            self.assertEqual(preview.preview_range_base("newer-master", "hotfix"), "v0.7.0")
+
+    def test_post_stable_history_bases_range_on_stable_tag(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
 
@@ -412,13 +398,9 @@ class PreviewNotesTests(unittest.TestCase):
             release = git("rev-parse", "HEAD")
             git("tag", "v0.7.0")
 
-            marker.write_text("manifest\n", encoding="utf-8")
-            git("commit", "-am", "docs: update website manifest for v0.7.0")
-
             original_cwd = os.getcwd()
             try:
                 os.chdir(repo)
-                self.assertEqual(preview.latest_publishable_commit("HEAD"), release)
                 self.assertEqual(
                     preview.preview_range_base(previous_preview, release),
                     "v0.7.0",

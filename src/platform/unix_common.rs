@@ -8,6 +8,123 @@ pub(crate) fn classify_child_exit(status: &portable_pty::ExitStatus) -> super::C
     }
 }
 
+pub(crate) fn read_fd(fd: std::os::fd::RawFd, data: &mut [u8]) -> std::io::Result<usize> {
+    let result = unsafe { libc::read(fd, data.as_mut_ptr().cast(), data.len()) };
+    if result < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(result as usize)
+    }
+}
+
+pub(crate) fn poll_fd_readable(fd: std::os::fd::RawFd, timeout_ms: i32) -> std::io::Result<bool> {
+    let mut descriptor = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+    if result < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(result > 0)
+    }
+}
+
+pub(crate) fn shutdown_client_stream(stream: &crate::ipc::LocalStream) -> std::io::Result<()> {
+    let crate::ipc::LocalStream::UdSocket(stream) = stream;
+    stream.inner().shutdown(std::net::Shutdown::Both)
+}
+
+pub(crate) struct ClientStreamReader<'a>(pub(crate) &'a mut crate::ipc::LocalStream);
+
+impl std::io::Read for ClientStreamReader<'_> {
+    fn read(&mut self, data: &mut [u8]) -> std::io::Result<usize> {
+        use std::os::fd::AsRawFd as _;
+
+        loop {
+            match self.0.read(data) {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    let crate::ipc::LocalStream::UdSocket(stream) = &*self.0;
+                    let mut descriptor = libc::pollfd {
+                        fd: stream.inner().as_raw_fd(),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    // Sleep until input or shutdown, without polling quiet observers.
+                    if unsafe { libc::poll(&mut descriptor, 1, -1) } < 0 {
+                        let error = std::io::Error::last_os_error();
+                        if error.kind() != std::io::ErrorKind::Interrupted {
+                            return Err(error);
+                        }
+                    }
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
+pub(crate) fn write_client_stream(
+    stream: &crate::ipc::LocalStream,
+    mut data: &[u8],
+) -> std::io::Result<()> {
+    use std::io::{self, Write as _};
+    use std::os::fd::AsRawFd as _;
+    use std::time::Instant;
+
+    let crate::ipc::LocalStream::UdSocket(socket) = stream;
+    let mut socket = socket.inner();
+    let Some(timeout) = socket.write_timeout()? else {
+        return socket.write_all(data);
+    };
+    let timed_out = || {
+        // Dropping the writer clone alone would leave the reader blocked.
+        let _ = shutdown_client_stream(stream);
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "terminal observer stopped receiving output",
+        )
+    };
+    let mut progress = Instant::now();
+    while !data.is_empty() {
+        match socket.write(data) {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(written) => {
+                data = &data[written..];
+                progress = Instant::now();
+                continue;
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error),
+        }
+        let remaining = timeout
+            .checked_sub(progress.elapsed())
+            .ok_or_else(timed_out)?;
+        let mut descriptor = libc::pollfd {
+            fd: socket.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        let wait_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let ready = unsafe { libc::poll(&mut descriptor, 1, wait_ms) };
+        if ready == 0 {
+            return Err(timed_out());
+        }
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn wait_client_stream_readable(stream: &crate::ipc::LocalStream) -> std::io::Result<()> {
     use std::os::fd::{AsFd as _, AsRawFd as _};
     let crate::ipc::LocalStream::UdSocket(stream) = stream;
@@ -25,6 +142,100 @@ pub(crate) fn wait_client_stream_readable(stream: &crate::ipc::LocalStream) -> s
         }
     }
     Ok(())
+}
+
+pub(crate) fn forward_remote_bridge_stdio(
+    stream: crate::ipc::LocalStream,
+    idle_timeout: bool,
+) -> std::io::Result<()> {
+    forward_remote_bridge_stdio_with_timeout(
+        stream,
+        idle_timeout.then_some(super::remote_bridge::IDLE_TIMEOUT),
+    )
+}
+
+pub(super) fn forward_remote_bridge_stdio_with_timeout(
+    stream: crate::ipc::LocalStream,
+    idle_timeout: Option<std::time::Duration>,
+) -> std::io::Result<()> {
+    use super::remote_bridge::{Activity, TrackedIo};
+    use interprocess::TryClone as _;
+
+    let activity = idle_timeout.map(Activity::start).transpose()?;
+    let mut stdout = TrackedIo::new(std::io::stdout().lock(), activity.clone());
+    let mut socket_to_stdout = TrackedIo::new(stream.try_clone()?, activity.clone());
+    let mut stdin_to_socket = stream;
+    let _upload = std::thread::spawn(move || {
+        let mut stdin = TrackedIo::new(std::io::stdin(), activity.clone());
+        let _ = copy_flush(
+            &mut stdin,
+            &mut TrackedIo::new(&mut stdin_to_socket, activity),
+        );
+        let crate::ipc::LocalStream::UdSocket(stream) = stdin_to_socket;
+        let _ = stream.inner().shutdown(std::net::Shutdown::Write);
+    });
+    copy_flush(&mut socket_to_stdout, &mut stdout)
+}
+
+fn copy_flush<R: std::io::Read, W: std::io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+) -> std::io::Result<()> {
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(read) => read,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        };
+        writer.write_all(&buffer[..read])?;
+        writer.flush()?;
+    }
+}
+
+pub(crate) struct RemoteBridgeWake {
+    reader: std::os::unix::net::UnixStream,
+    writer: std::os::unix::net::UnixStream,
+}
+
+impl RemoteBridgeWake {
+    pub(crate) fn new() -> std::io::Result<Self> {
+        let (reader, writer) = std::os::unix::net::UnixStream::pair()?;
+        Ok(Self { reader, writer })
+    }
+
+    pub(crate) fn cancel(&self) -> std::io::Result<()> {
+        // EOF stays readable, including when cancellation precedes the wait.
+        self.writer.shutdown(std::net::Shutdown::Write)
+    }
+
+    pub(crate) fn wait(&self, stream: &crate::ipc::LocalStream) -> std::io::Result<()> {
+        use std::os::fd::{AsFd as _, AsRawFd as _};
+        let crate::ipc::LocalStream::UdSocket(stream) = stream;
+        let mut descriptors = [
+            libc::pollfd {
+                fd: stream.as_fd().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: self.reader.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        loop {
+            // SAFETY: both descriptors remain borrowed and the array has two entries.
+            if unsafe { libc::poll(descriptors.as_mut_ptr(), 2, -1) } >= 0 {
+                return Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
 }
 
 pub(super) fn read_terminal_grid_size() -> std::io::Result<(u16, u16)> {

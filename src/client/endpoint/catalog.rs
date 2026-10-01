@@ -11,7 +11,7 @@ const CATALOG_VERSION: u32 = 1;
 const SELECTION_VERSION: u32 = 1;
 const MAX_CATALOG_BYTES: u64 = 64 * 1024;
 const MAX_PROFILES: usize = 64;
-const MAX_LABEL_BYTES: usize = 128;
+pub(crate) const MAX_LABEL_BYTES: usize = 128;
 const MAX_TARGET_BYTES: usize = 1024;
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(1);
 
@@ -331,7 +331,11 @@ fn load_selection_from_path(path: &Path) -> Result<Option<EndpointSelection>, St
     Ok(Some(selection))
 }
 
-fn store_private_json(path: &Path, content: &[u8], description: &str) -> Result<(), String> {
+pub(super) fn store_private_json(
+    path: &Path,
+    content: &[u8],
+    description: &str,
+) -> Result<(), String> {
     if content.len() as u64 > MAX_CATALOG_BYTES {
         return Err(format!("{description} exceeds the storage limit"));
     }

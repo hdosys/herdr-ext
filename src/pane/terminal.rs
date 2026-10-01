@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
@@ -33,8 +32,7 @@ use super::{
     },
     kitty_keyboard::KittyKeyboardTracker,
     osc::{
-        contains_scrollback_clear_sequence, current_transient_default_color_owner,
-        maybe_filter_primary_screen_scrollback_clear, parse_reported_cwd,
+        current_transient_default_color_owner, parse_reported_cwd,
         restore_host_terminal_theme_if_needed, write_host_terminal_theme_selective,
         AgentOscStateTracker, DefaultColorEvent, DefaultColorEventTracker, DefaultColorOscTracker,
         DefaultColorQuery, DefaultColorTrackedEvent, OscDebugTracker,
@@ -196,7 +194,10 @@ pub(crate) struct GhosttyPaneTerminal {
 }
 
 pub(crate) struct GhosttyPaneCore {
+    #[cfg(test)]
+    pub dirty_collection_hook: Option<Box<dyn FnOnce() + Send>>,
     pub terminal: crate::ghostty::Terminal,
+    synchronized_output_epoch: u64,
     #[cfg(windows)]
     recent_fallback: windows_recent_fallback::Cache,
     pub render_state: crate::ghostty::RenderState,
@@ -259,6 +260,10 @@ impl PaneTerminal {
 
     pub fn scroll_reset(&self) {
         self.ghostty.scroll_reset();
+    }
+
+    pub fn clear_screen(&self) -> Result<(), String> {
+        self.ghostty.clear_screen()
     }
 
     pub fn set_scroll_offset_from_bottom(&self, lines: usize) {
@@ -481,6 +486,10 @@ impl PaneTerminal {
         self.ghostty.synchronized_output_active()
     }
 
+    pub(crate) fn synchronized_output_state(&self) -> (bool, u64) {
+        self.ghostty.synchronized_output_state()
+    }
+
     pub fn visible_text(&self) -> String {
         self.ghostty.visible_text()
     }
@@ -545,6 +554,19 @@ impl PaneTerminal {
         self.ghostty.visible_hyperlinks(area)
     }
 
+    pub(crate) fn link_regions_at(
+        &self,
+        col: u16,
+        row: u16,
+        resolve: fn(&str, usize) -> Option<std::ops::Range<usize>>,
+    ) -> Vec<crate::api::schema::PaneLinkRegion> {
+        self.ghostty.link_regions_at(col, row, resolve)
+    }
+
+    pub(crate) fn link_target_at(&self, col: u16, row: u16) -> Option<crate::ghostty::LinkTarget> {
+        self.ghostty.link_target_at(col, row)
+    }
+
     pub(crate) fn kitty_graphics_may_have_placements(&self) -> bool {
         self.ghostty.kitty_graphics_may_have_placements()
     }
@@ -558,6 +580,10 @@ impl PaneTerminal {
     {
         self.ghostty
             .kitty_image_placements_with_data_filter(needs_data)
+    }
+
+    pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
+        self.ghostty.kitty_image_fingerprints(image_ids)
     }
 
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
@@ -1150,7 +1176,10 @@ impl GhosttyPaneTerminal {
         key_encoder.set_from_terminal(&terminal);
         Ok(Self {
             core: Mutex::new(GhosttyPaneCore {
+                #[cfg(test)]
+                dirty_collection_hook: None,
                 terminal,
+                synchronized_output_epoch: 0,
                 #[cfg(windows)]
                 recent_fallback: windows_recent_fallback::Cache::default(),
                 render_state,
@@ -1347,43 +1376,22 @@ impl GhosttyPaneTerminal {
         }
         let terminal_title_changed = core.agent_osc_state.observe(bytes);
 
-        let alternate_screen = core
-            .terminal
-            .active_screen()
-            .map(|screen| screen == crate::ghostty::ActiveScreen::Alternate)
-            .unwrap_or(false);
-        let filtered_bytes = if shell_pid > 0 {
-            let foreground_job = (!alternate_screen && contains_scrollback_clear_sequence(bytes))
-                .then(|| crate::detect::foreground_job(shell_pid))
-                .flatten();
-            maybe_filter_primary_screen_scrollback_clear(
-                bytes,
-                alternate_screen,
-                foreground_job.as_ref(),
-            )
-        } else {
-            Cow::Borrowed(bytes)
-        };
-        if filtered_bytes.len() != bytes.len() {
-            debug!(
-                pane = pane_id.raw(),
-                shell_pid, "ignored scrollback clear sequence for droid compatibility"
-            );
-        }
-
-        core.kitty_keyboard.observe(filtered_bytes.as_ref());
+        core.kitty_keyboard.observe(bytes);
         let mut terminal_responses = Vec::new();
-        core.default_color_event_tracker
-            .observe(filtered_bytes.as_ref());
-        core.c1_xtgettcap_tracker.observe(filtered_bytes.as_ref());
+        core.default_color_event_tracker.observe(bytes);
+        core.c1_xtgettcap_tracker.observe(bytes);
         let c1_xtgettcap_responses = core.c1_xtgettcap_tracker.drain_pending();
-        core.decscusr_tracker.observe(filtered_bytes.as_ref());
+        core.decscusr_tracker.observe(bytes);
         let in_progress_default_color_event = core.default_color_event_tracker.in_progress_event();
         let default_color_events = core.default_color_event_tracker.drain_pending();
+        let synchronized_output_before = core
+            .terminal
+            .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+            .unwrap_or(false);
         let write_started = crate::render_prof::timer();
         self.write_pty_bytes_with_ordered_responses(
             &mut core,
-            filtered_bytes.as_ref(),
+            bytes,
             default_color_events,
             in_progress_default_color_event,
             c1_xtgettcap_responses,
@@ -1401,8 +1409,8 @@ impl GhosttyPaneTerminal {
         windows_recent_fallback::update_after_write(&mut core);
         crate::render_prof::duration_since("pty.ghostty_write", write_started);
 
-        let has_kitty_graphics_sequence = crate::kitty_graphics::is_enabled()
-            && contains_kitty_graphics_sequence(filtered_bytes.as_ref());
+        let has_kitty_graphics_sequence =
+            crate::kitty_graphics::is_enabled() && contains_kitty_graphics_sequence(bytes);
         if has_kitty_graphics_sequence {
             debug!(pane = pane_id.raw(), "processed kitty graphics sequence");
         }
@@ -1413,6 +1421,10 @@ impl GhosttyPaneTerminal {
             .terminal
             .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
             .unwrap_or(false);
+        if synchronized_output != synchronized_output_before {
+            core.synchronized_output_epoch = core.synchronized_output_epoch.wrapping_add(1);
+        }
+        // Intermediate synchronized-frame positions must not become settled cursors.
         if CURSOR_POSITION_SETTLE_ENABLED && !synchronized_output {
             let cursor_started = crate::render_prof::timer();
             let cursor_after_write = current_cursor_state(&mut core);
@@ -1655,6 +1667,10 @@ impl GhosttyPaneTerminal {
         cell_height_px: u32,
     ) -> Vec<Bytes> {
         if let Ok(mut core) = self.core.lock() {
+            let synchronized_output_before = core
+                .terminal
+                .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+                .unwrap_or(false);
             #[cfg(windows)]
             windows_recent_fallback::refresh_if_needed(&mut core);
             let offset_from_bottom = core
@@ -1693,6 +1709,13 @@ impl GhosttyPaneTerminal {
             let _ = core
                 .terminal
                 .resize(cols, rows, cell_width_px, cell_height_px);
+            let synchronized_output_after = core
+                .terminal
+                .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+                .unwrap_or(false);
+            if synchronized_output_after != synchronized_output_before {
+                core.synchronized_output_epoch = core.synchronized_output_epoch.wrapping_add(1);
+            }
             let terminal_responses = self.drain_pending_pty_responses();
 
             let bottom_is_blank = ghostty_detection_text(&mut core)
@@ -1746,6 +1769,21 @@ impl GhosttyPaneTerminal {
         if let Ok(mut core) = self.core.lock() {
             core.terminal.scroll_viewport_bottom();
         }
+    }
+
+    pub fn clear_screen(&self) -> Result<(), String> {
+        let mut core = self
+            .core
+            .lock()
+            .map_err(|_| "terminal lock poisoned".to_owned())?;
+        if core.terminal.clear_screen() {
+            #[cfg(windows)]
+            {
+                core.recent_fallback = windows_recent_fallback::Cache::default();
+                windows_recent_fallback::update(&mut core);
+            }
+        }
+        Ok(())
     }
 
     pub fn set_scroll_offset_from_bottom(&self, lines: usize) {
@@ -1951,6 +1989,20 @@ impl GhosttyPaneTerminal {
             .unwrap_or(false)
     }
 
+    pub(crate) fn synchronized_output_state(&self) -> (bool, u64) {
+        self.core
+            .lock()
+            .map(|core| {
+                (
+                    core.terminal
+                        .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+                        .unwrap_or(false),
+                    core.synchronized_output_epoch,
+                )
+            })
+            .unwrap_or((true, 0))
+    }
+
     pub fn encode_terminal_key(
         &self,
         key: crate::input::TerminalKey,
@@ -1962,6 +2014,10 @@ impl GhosttyPaneTerminal {
                 .kitty_keyboard_flags()
                 .is_ok_and(|flags| flags == 0)
                 && !core.kitty_keyboard.modify_other_keys_enabled()
+                && core
+                    .terminal
+                    .modify_other_keys_enabled()
+                    .is_ok_and(|enabled| !enabled)
         }) {
             if let Some(bytes) = crate::platform::encode_windows_conpty_fallback(&key) {
                 return bytes;
@@ -1986,6 +2042,24 @@ impl GhosttyPaneTerminal {
         key: crate::input::TerminalKey,
         protocol: crate::input::KeyboardProtocol,
     ) -> Vec<u8> {
+        // Ghostty emits extended Enter sequences even without negotiation.
+        // Ordinary shells need legacy input unless the child enabled an extension.
+        if key.code == crossterm::event::KeyCode::Enter
+            && !key.modifiers.is_empty()
+            && self.core.lock().is_ok_and(|core| {
+                core.terminal
+                    .kitty_keyboard_flags()
+                    .is_ok_and(|flags| flags == 0)
+                    && core.kitty_keyboard.modify_other_keys_level() == 0
+                    && core
+                        .terminal
+                        .modify_other_keys_enabled()
+                        .is_ok_and(|enabled| !enabled)
+            })
+        {
+            return crate::input::encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy);
+        }
+
         if matches!(protocol, crate::input::KeyboardProtocol::Legacy)
             && key.code == crossterm::event::KeyCode::Tab
             && key.modifiers == crossterm::event::KeyModifiers::CONTROL
@@ -2194,6 +2268,40 @@ impl GhosttyPaneTerminal {
             .unwrap_or_default()
     }
 
+    pub(crate) fn link_regions_at(
+        &self,
+        col: u16,
+        row: u16,
+        resolve: fn(&str, usize) -> Option<std::ops::Range<usize>>,
+    ) -> Vec<crate::api::schema::PaneLinkRegion> {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| {
+                core.terminal
+                    .viewport_link_regions(col, u32::from(row), resolve)
+                    .ok()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .map(|region| crate::api::schema::PaneLinkRegion {
+                row: region.row,
+                start_col: region.start_col,
+                end_col: region.end_col,
+            })
+            .collect()
+    }
+
+    pub(crate) fn link_target_at(&self, col: u16, row: u16) -> Option<crate::ghostty::LinkTarget> {
+        self.core
+            .lock()
+            .ok()?
+            .terminal
+            .viewport_link_target(col, u32::from(row))
+            .ok()
+            .flatten()
+    }
+
     pub fn extract_selection(&self, selection: &crate::selection::Selection) -> Option<String> {
         self.core
             .lock()
@@ -2235,10 +2343,25 @@ impl GhosttyPaneTerminal {
             .unwrap_or_default()
     }
 
+    pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| core.terminal.kitty_image_fingerprints(image_ids).ok())
+            .unwrap_or_else(|| vec![None; image_ids.len()])
+    }
+
     pub fn render(&self, frame: &mut Frame, area: Rect, show_cursor: bool) {
         let Ok(mut core) = self.core.lock() else {
             return;
         };
+        if core
+            .terminal
+            .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+            .unwrap_or(false)
+        {
+            return;
+        }
         let host_theme = core.host_terminal_theme;
         let initial_default_foreground = core.initial_default_foreground;
         let initial_default_background = core.initial_default_background;
@@ -2357,7 +2480,20 @@ impl GhosttyPaneTerminal {
         self.core
             .lock()
             .ok()
-            .map(|mut core| ghostty_collect_dirty_patch(&mut core, area_width, area_height))
+            .map(|mut core| {
+                if core
+                    .terminal
+                    .mode_get(crate::ghostty::MODE_SYNCHRONIZED_OUTPUT)
+                    .unwrap_or(false)
+                {
+                    return TerminalDirtyPatchOutcome::Fallback;
+                }
+                #[cfg(test)]
+                if let Some(hook) = core.dirty_collection_hook.take() {
+                    hook();
+                }
+                ghostty_collect_dirty_patch(&mut core, area_width, area_height)
+            })
             .unwrap_or(TerminalDirtyPatchOutcome::Fallback)
     }
 }
@@ -2543,6 +2679,7 @@ fn ghostty_collect_dirty_patch(
     let mut grapheme_bytes = Vec::new();
     let mut symbol_scratch = String::new();
     let mut patch_rows = Vec::new();
+    let blank = blank_cell_data(default_fg, default_bg);
     while let Some(y) = rows.next_dirty() {
         if y >= area_height {
             break;
@@ -2558,6 +2695,15 @@ fn ghostty_collect_dirty_patch(
         let mut patch_cells = Vec::with_capacity(usize::from(area_width));
         let mut x = 0u16;
         while x < area_width && cells.next() {
+            match cells.is_default_blank() {
+                Ok(true) => {
+                    patch_cells.push(blank.clone());
+                    x += 1;
+                    continue;
+                }
+                Ok(false) => {}
+                Err(_) => fallback!("raw_cell_error"),
+            }
             let Ok(basic) = cells.basic_data() else {
                 fallback!("basic_data_error");
             };
@@ -2586,10 +2732,7 @@ fn ghostty_collect_dirty_patch(
             patch_cells.push(cell_data_from_style(symbol, style));
             x += 1;
         }
-        while x < area_width {
-            patch_cells.push(blank_cell_data(default_fg, default_bg));
-            x += 1;
-        }
+        patch_cells.resize(usize::from(area_width), blank.clone());
         patch_rows.push((y, patch_cells));
     }
 
@@ -4687,6 +4830,126 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_legacy_modified_enter_is_shell_compatible() {
+        use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+        let protocol = crate::input::KeyboardProtocol::Legacy;
+
+        for modifiers in [
+            KeyModifiers::empty(),
+            KeyModifiers::SHIFT,
+            KeyModifiers::CONTROL,
+            KeyModifiers::SUPER,
+            KeyModifiers::ALT,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            KeyModifiers::ALT | KeyModifiers::SHIFT,
+            KeyModifiers::ALT | KeyModifiers::CONTROL | KeyModifiers::SUPER,
+        ] {
+            let key = crate::input::TerminalKey::new(KeyCode::Enter, modifiers);
+            let expected = if modifiers.contains(KeyModifiers::ALT) {
+                b"\x1b\r".as_slice()
+            } else {
+                b"\r".as_slice()
+            };
+            for kind in [KeyEventKind::Press, KeyEventKind::Repeat] {
+                assert_eq!(
+                    pane.encode_terminal_key(key.clone().with_kind(kind), protocol),
+                    expected,
+                    "{modifiers:?} {kind:?}"
+                );
+            }
+            assert_eq!(
+                pane.encode_terminal_key(key.clone().with_repeat_count(3), protocol),
+                expected.repeat(3),
+                "{modifiers:?} grouped repeat"
+            );
+            assert!(
+                pane.encode_terminal_key(key.with_kind(KeyEventKind::Release), protocol)
+                    .is_empty(),
+                "{modifiers:?} release"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_modified_enter_tracks_live_protocol_negotiation() {
+        use crossterm::event::{KeyCode, KeyModifiers};
+
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+        let legacy = ["\r", "\r", "\r", "\x1b\r"];
+        let mode_one = ["\x1b[27;2;13~", "\x1b[27;5;13~", "\x1b[27;9;13~", "\x1b\r"];
+        let mode_two = [
+            "\x1b[27;2;13~",
+            "\x1b[27;5;13~",
+            "\x1b[27;9;13~",
+            "\x1b[27;3;13~",
+        ];
+        let kitty = ["\x1b[13;2u", "\x1b[13;5u", "\x1b[13;9u", "\x1b[13;3u"];
+
+        for (sequence, expected) in [
+            ("", legacy),
+            ("\x1b[>4;1m", mode_one),
+            ("\x1b[>4;2m", mode_two),
+            ("\x1b[>4n", legacy),
+            ("\x1b[>4;2m", mode_two),
+            ("\x1b[>4;0m", legacy),
+            ("\x1b[>5u", kitty),
+            ("\x1b[<u", legacy),
+            ("\x1b[>4;2m\x1b[>1u", kitty),
+            ("\x1b[<u", mode_two),
+            ("\x1b[>4;0m", legacy),
+            ("\x1b[>4;1m", mode_one),
+            ("\x1b[>04n", legacy),
+            ("\x1b[>4;2m", mode_two),
+            ("\x1b[>4", mode_two),
+            ("n", legacy),
+        ] {
+            pane.process_pty_bytes(pane_id, 0, sequence.as_bytes(), &tx);
+            for (modifiers, expected) in [
+                KeyModifiers::SHIFT,
+                KeyModifiers::CONTROL,
+                KeyModifiers::SUPER,
+                KeyModifiers::ALT,
+            ]
+            .into_iter()
+            .zip(expected)
+            {
+                let key = crate::input::TerminalKey::new(KeyCode::Enter, modifiers);
+                assert_eq!(
+                    pane.encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy),
+                    expected.as_bytes(),
+                    "{modifiers:?} after {sequence:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ghostty_modified_enter_respects_existing_terminal_mode() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.write(b"\x1b[>4;2m");
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+        let key = crate::input::TerminalKey::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::SHIFT,
+        );
+
+        assert_eq!(
+            pane.encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy),
+            b"\x1b[27;2;13~"
+        );
+    }
+
     #[test]
     fn ghostty_enter_backspace_release_in_legacy_pane_emits_nothing() {
         let (tx, _rx) = mpsc::channel(4);
@@ -4757,7 +5020,7 @@ mod tests {
         let encoded = pane.encode_terminal_key(
             crate::input::TerminalKey::new(
                 crossterm::event::KeyCode::Char('a'),
-                crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
+                crossterm::event::KeyModifiers::CONTROL,
             ),
             crate::input::KeyboardProtocol::Legacy,
         );
@@ -5034,6 +5297,33 @@ mod tests {
             pane.encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy),
             b"\x1b[13;28;13;1;16;1_"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ghostty_default_pane_sends_legacy_modified_enter() {
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        for (modifiers, expected) in [
+            // Shift+Enter keeps using the native ConPTY fallback so the child
+            // receives a real key record rather than a CSI 27 sequence.
+            (
+                crossterm::event::KeyModifiers::SHIFT,
+                b"\x1b[13;28;13;1;16;1_".as_slice(),
+            ),
+            (crossterm::event::KeyModifiers::CONTROL, b"\r".as_slice()),
+            (crossterm::event::KeyModifiers::SUPER, b"\r".as_slice()),
+            (crossterm::event::KeyModifiers::ALT, b"\x1b\r".as_slice()),
+        ] {
+            let key = crate::input::TerminalKey::new(crossterm::event::KeyCode::Enter, modifiers);
+            assert_eq!(
+                pane.encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy),
+                expected,
+                "{modifiers:?}"
+            );
+        }
     }
 
     #[test]
@@ -5776,6 +6066,23 @@ mod tests {
     }
 
     #[test]
+    fn enabling_in_band_size_reports_after_alt_screen_resize_reports_current_size() {
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(91, 24, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+        pane.process_pty_bytes(pane_id, 0, b"\x1b[?1049h", &tx);
+        assert!(pane.resize(24, 92, 9, 18).is_empty());
+
+        let result = pane.process_pty_bytes(pane_id, 0, b"\x1b[?2048h", &tx);
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![Bytes::from_static(b"\x1b[48;24;92;432;828t")]
+        );
+    }
+
+    #[test]
     fn resize_returns_in_band_size_report_response() {
         let (tx, _rx) = mpsc::channel(4);
         let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
@@ -5797,14 +6104,21 @@ mod tests {
         let pane_terminal = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
         let pane_id = PaneId::from_raw(1);
 
+        assert_eq!(pane_terminal.synchronized_output_state(), (false, 0));
+        pane_terminal.process_pty_bytes(pane_id, 0, b"ordinary output", &tx);
+        assert_eq!(pane_terminal.synchronized_output_state(), (false, 0));
+
         let begin = pane_terminal.process_pty_bytes(pane_id, 0, b"\x1b[?2026h", &tx);
         assert!(!begin.request_render);
+        assert_eq!(pane_terminal.synchronized_output_state(), (true, 1));
 
         let body = pane_terminal.process_pty_bytes(pane_id, 0, b"hello", &tx);
         assert!(!body.request_render);
+        assert_eq!(pane_terminal.synchronized_output_state(), (true, 1));
 
         let end = pane_terminal.process_pty_bytes(pane_id, 0, b"\x1b[?2026l", &tx);
         assert!(end.request_render);
+        assert_eq!(pane_terminal.synchronized_output_state(), (false, 2));
     }
 
     #[test]

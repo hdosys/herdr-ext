@@ -16,8 +16,14 @@ impl App {
         &mut self,
         request: Request,
         respond_to: std::sync::mpsc::Sender<String>,
+        client_local: bool,
     ) -> bool {
         match request.method {
+            crate::api::schema::Method::WorktreeList(_)
+            | crate::api::schema::Method::WorktreeOpen(_) => {
+                self.start_api_worktree_read(request, respond_to, client_local);
+                true
+            }
             crate::api::schema::Method::WorktreeCreate(params) => {
                 self.start_api_worktree_create(request.id, params, respond_to);
                 true

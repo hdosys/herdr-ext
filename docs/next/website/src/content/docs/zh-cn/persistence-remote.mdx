@@ -27,6 +27,8 @@ herdr session delete side-project
 
 命名会话拥有自己的窗格、标签页、工作区、socket 和运行时状态。它仍然共享同一个全局配置文件。
 
+删除会话时，请使用 `herdr session list` 显示的完整名称，大小写必须一致。在不区分大小写的文件系统上，`herdr session delete foo` 会拒绝删除名为 `Foo` 的会话。
+
 脚本中使用 `--json`:
 
 ```bash
@@ -67,7 +69,7 @@ Host workbox
 herdr --remote workbox
 ```
 
-远程连接支持 Linux、macOS 和 Windows 本地客户端连接 x86_64 与 aarch64 的 Linux 和 macOS 主机。Herdr 会检查远程平台,优先使用远程 `PATH` 上兼容的 `herdr`，然后检查常见的直接安装、Homebrew、mise 和 Nix profile 路径。只要两端都支持稳定端点代数，客户端和服务器的发行版本就不必一致。如果没有兼容的二进制文件，交互式运行会询问是否安装到 `~/.local/bin/herdr`;非交互式运行则直接失败,不会修改主机。如果 `~/.local/bin` 不在远程 `PATH` 上,Herdr 会在安装后发出警告。Windows 不能作为远程主机。
+远程连接和已保存的 SSH 机器支持 Linux、macOS 和 Windows 客户端，目标可以是 x86_64 或 aarch64 的 Linux/macOS 主机，也可以是 x86_64 的 Windows 主机。只要两端支持稳定端点代数，版本就不必一致。Linux/macOS 上优先使用远程 `PATH` 中兼容的 `herdr`，再检查常见的直接安装、Homebrew、mise 和 Nix profile 路径。Windows 上检查 `PATH` 和当前有效的托管版本。如果没有兼容的二进制文件，交互式运行会询问是否安装或更新；非交互式运行直接失败，不修改主机。Linux/macOS 安装到 `~/.local/bin/herdr`，Windows 安装包含应用本地 ConPTY 运行时的完整软件包。如果 `~/.local/bin` 不在远程 `PATH` 中，Herdr 会发出警告。
 
 默认情况下,`herdr --remote` 通过一个临时 SSH 配置运行远程设置和桥接: 先包含你的 SSH 配置,再补充兜底的保活设置。已有的用户保活设置优先。Linux 和 macOS 客户端还会添加一个私有的单次连接 control socket 来复用连接;Windows OpenSSH 不使用此方式。设置 `[remote].manage_ssh_config = false` 可以不用 Herdr 生成的配置或 control socket,而使用普通 `ssh`。
 
@@ -88,9 +90,9 @@ herdr --remote workbox --handoff
 
 如果你先 SSH 到服务器再在那里运行 `herdr`,Herdr 就完全运行在服务器上。这种模式简单实用,但除了普通的终端文本粘贴之外,它无法访问你本地桌面的剪贴板。
 
-当本地和远程平台一致时,对于直接安装,Herdr 可以直接复制当前本地二进制文件。对于 Homebrew、mise 和 Nix 安装,或平台不一致时,它会从 `https://herdr.dev/latest.json` 下载与当前客户端版本匹配的发布产物。
+对于 Linux/macOS 主机，平台一致的直接安装可以复制当前本地二进制文件。Homebrew、mise、Nix 安装、平台不一致或目标为 Windows 时，会从 `https://herdr.dev/latest.json` 下载与当前客户端版本对应的发布产物。
 
-对于本地构建或自定义二进制文件,在远程连接前设置 `HERDR_REMOTE_BINARY` 指向本地文件路径。
+对于本地构建或自定义软件包，在远程连接前设置 `HERDR_REMOTE_BINARY` 指向本地文件。Linux/macOS 目标使用 Herdr 可执行文件，Windows 目标必须使用完整的 `herdr-windows-x86_64.zip` 软件包。
 
 ```bash
 HERDR_REMOTE_BINARY=target/release/herdr herdr --remote workbox
@@ -146,4 +148,4 @@ herdr terminal session observe w1:p1 --cols 120 --rows 40
 herdr terminal session control w1:p1 --takeover --cols 120 --rows 40
 ```
 
-控制模式输出相同的帧，并从标准输入读取逐行 JSON 命令。`terminal.input` 发送文本或 base64 数据，`terminal.resize` 更改视口尺寸，`terminal.scroll` 滚动视口，`terminal.release` 关闭控制器。同一时间只有一个控制器能拥有输入和调整尺寸的权限。
+控制模式输出相同的帧，并从标准输入读取逐行 JSON 命令。`terminal.input` 发送文本或 base64 数据，`terminal.resize` 更改视口尺寸，`terminal.scroll` 滚动视口，`terminal.mouse` 向已开启鼠标报告的应用发送单元格位置的鼠标事件，`terminal.release` 关闭控制器。同一时间只有一个控制器能拥有输入和调整尺寸的权限。

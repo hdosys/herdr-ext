@@ -410,7 +410,7 @@
           "key": "terminal.default_shell",
           "type": "string",
           "default": "\"\"",
-          "description": "Executable used for new interactive panes. Empty means SHELL, then /bin/sh."
+          "description": "Executable used for new interactive panes. Empty means SHELL, then /bin/sh; on Windows, pwsh.exe when present on PATH, otherwise powershell.exe."
         },
         {
           "key": "terminal.shell_mode",
@@ -439,7 +439,7 @@
           "key": "terminal.kitty_graphics",
           "type": "boolean",
           "default": "true",
-          "description": "Render pane images in Kitty graphics-compatible outer terminals. Set false to disable graphics rendering and the pane graphics API. Restart the server or reattach the client after changing it. In remote sessions, server configuration controls parsing and API availability while local client configuration controls outer-terminal output."
+          "description": "Render pane images in Kitty graphics-compatible outer terminals. Applications use the standard Kitty graphics protocol through pane terminal output; the external socket pane-overlay API is no longer available. Set false to disable graphics rendering. Restart the server or reattach the client after changing it. In remote sessions, server configuration controls Kitty graphics parsing while local client configuration controls outer-terminal output."
         }
       ]
     },
@@ -477,9 +477,9 @@
       "keys": [
         {
           "key": "keys.prefix",
-          "type": "string",
+          "type": "keybinding",
           "default": "\"ctrl+b\"",
-          "description": "Prefix key to enter prefix mode (e.g. \"ctrl+b\", \"f12\", \"esc\")."
+          "description": "Prefix key(s) to enter prefix mode (e.g. \"ctrl+b\", \"f12\", \"esc\", or an array to accept several)."
         },
         {
           "key": "keys.help",
@@ -696,6 +696,12 @@
           "type": "keybinding",
           "default": "\"prefix+e\"",
           "description": "Open the focused pane scrollback in $EDITOR."
+        },
+        {
+          "key": "keys.clear_pane",
+          "type": "keybinding",
+          "default": "unset",
+          "description": "Clear the focused pane screen and scrollback, keeping the current cursor line and its visible soft-wrapped rows. Sends no input to the running program and does nothing on the alternate screen (for example, Vim). Unset by default; for example, clear_pane = \"prefix+ctrl+k\"."
         },
         {
           "key": "keys.copy_mode",
@@ -954,9 +960,14 @@
         },
         {
           "key": "ui.pane_borders",
-          "type": "boolean",
-          "default": "true",
-          "description": "Draw borders around split panes."
+          "type": "enum",
+          "default": "\"auto\"",
+          "description": "Draw borders around split panes. auto draws them only for split panes, always also frames a lone pane (only while pane_outer_borders is enabled, since every edge of a lone pane is an outer edge), off disables them. Legacy booleans still parse: true maps to auto and false maps to off.",
+          "values": [
+            "auto",
+            "always",
+            "off"
+          ]
         },
         {
           "key": "ui.pane_outer_borders",
@@ -1052,8 +1063,8 @@
         {
           "key": "ui.sidebar.agents.rows",
           "type": "list of token rows",
-          "default": "[[\"state_icon\", \"workspace\", \"tab\"], [\"agent\"]]",
-          "description": "Default expanded Agent sidebar layout. Entries may be token strings or inline { token, fg, bold, dim } style tables. Supports built-in and $name metadata tokens; at most 16 rows and 16 tokens per row."
+          "default": "[[\"state_icon\", \"machine\", \"workspace\", \"tab\"], [\"agent\"]]",
+          "description": "Default expanded Agent sidebar layout. Entries may be token strings or inline { token, fg, bold, dim, rules } style tables. Text-valued built-ins and $name metadata tokens accept up to 16 ordered rules using equals, contains, starts_with, gt, or lt; the first match overrides specified styles. Text conditions optionally accept ignore_case for ASCII matching; numeric conditions require full finite numbers. state_icon accepts fixed styles only. At most 16 rows and 16 tokens per row."
         },
         {
           "key": "ui.sidebar.agents.rows_by_agent",
@@ -1071,7 +1082,7 @@
           "key": "ui.sidebar.spaces.rows",
           "type": "list of token rows",
           "default": "[[\"state_icon\", \"workspace\"], [\"branch\", \"git_status\"]]",
-          "description": "Expanded Space sidebar layout. Entries may be token strings or inline { token, fg, bold, dim } style tables. Supports built-in and $name metadata tokens; at most 16 rows and 16 tokens per row."
+          "description": "Expanded Space sidebar layout. Entries may be token strings or inline { token, fg, bold, dim, rules } style tables. Text-valued built-ins and $name metadata tokens accept up to 16 ordered rules using equals, contains, starts_with, gt, or lt; the first match overrides specified styles. Text conditions optionally accept ignore_case for ASCII matching; numeric conditions require full finite numbers. state_icon and git_status accept fixed styles only. At most 16 rows and 16 tokens per row."
         },
         {
           "key": "ui.accent",
@@ -1375,6 +1386,17 @@
           ]
         },
         {
+          "key": "ui.sound.agents.letta",
+          "type": "enum",
+          "default": "\"default\"",
+          "description": "Sound override for detected Letta Code agents.",
+          "values": [
+            "default",
+            "on",
+            "off"
+          ]
+        },
+        {
           "key": "ui.sound.agents.maki",
           "type": "enum",
           "default": "\"default\"",
@@ -1407,6 +1429,12 @@
           "type": "boolean",
           "default": "true",
           "description": "Resume supported AI-agent panes into their native conversation sessions when restoring a Herdr session."
+        },
+        {
+          "key": "session.startup_per_agent_delay_ms",
+          "type": "integer",
+          "default": "100",
+          "description": "Milliseconds between automatic agent restores after a server restart. The first agent starts without this delay; 0 disables spacing. Does not delay manual launches or explicit terminal attaches. Restart the server to apply."
         }
       ]
     },
@@ -1478,7 +1506,7 @@
           "key": "experimental.cjk_ime_agents",
           "type": "list of strings",
           "default": "[]",
-          "description": "Restrict `reveal_hidden_cursor_for_cjk_ime` to focused panes whose detected agent matches one of these names (case-insensitive). Empty list means apply to any focused pane. Unknown agent names are ignored; if the list contains no valid names, the reveal does not apply. Accepted names: pi, claude, codex, gemini, cursor, devin, cline, opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder, qwen, qwen-code, maki."
+          "description": "Restrict `reveal_hidden_cursor_for_cjk_ime` to focused panes whose detected agent matches one of these names (case-insensitive). Empty list means apply to any focused pane. Unknown agent names are ignored; if the list contains no valid names, the reveal does not apply. Accepted names: pi, claude, codex, gemini, cursor, devin, cline, opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder, qwen, qwen-code, letta, letta-code, maki."
         },
         {
           "key": "experimental.cjk_ime_cursor_shape",

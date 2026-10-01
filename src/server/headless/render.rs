@@ -46,10 +46,7 @@ impl HeadlessServer {
                     let child_requests_mouse =
                         focused.is_some_and(|(runtime, _)| runtime.mouse_reporting_enabled());
                     let sgr_pixels = client.pixel_mouse
-                        && focused.is_some_and(|(runtime, pane_id)| {
-                            self.app.pane_graphics.active_for_pane(pane_id)
-                                && runtime.sgr_pixel_mouse_enabled()
-                        });
+                        && focused.is_some_and(|(runtime, _)| runtime.sgr_pixel_mouse_enabled());
                     Some((
                         client_id,
                         client.shell_surface_active
@@ -376,6 +373,15 @@ impl HeadlessServer {
     }
 
     pub(super) fn render_and_stream(&mut self) {
+        self.render_and_stream_with_graphics_limit(MAX_GRAPHICS_FRAME_SIZE);
+    }
+
+    #[cfg(all(test, unix))]
+    pub(super) fn render_and_stream_with_test_graphics_limit(&mut self, max: usize) {
+        self.render_and_stream_with_graphics_limit(max);
+    }
+
+    fn render_and_stream_with_graphics_limit(&mut self, graphics_frame_limit: usize) {
         let full_started = crate::render_prof::timer();
         let render_targets = render_targets(&self.clients, self.foreground_client_id);
 
@@ -405,22 +411,158 @@ impl HeadlessServer {
             return;
         }
 
+        // Resize from the controlling client's geometry before drawing any observer.
+        // Retained updates fall back here when a pane changes alternate screens.
+        for (client_id, (cols, rows), cell_size, _, _) in &render_targets {
+            let Some(client) = self.clients.get(client_id) else {
+                continue;
+            };
+            if !client.is_active_shell_client() {
+                continue;
+            }
+            let Some(tab_id) = self.shell_tab_id_for_client(*client_id) else {
+                continue;
+            };
+            if self.tab_geometry_controllers.get(&tab_id) != Some(client_id) {
+                continue;
+            }
+            let changed = client
+                .render_state
+                .last_pane_surface()
+                .is_none_or(|surface| {
+                    surface.panes.iter().any(|pane| {
+                        let Some((workspace_index, pane_id)) =
+                            self.app.parse_pane_id(&pane.pane_id)
+                        else {
+                            return false;
+                        };
+                        self.app
+                            .state
+                            .runtime_for_pane_in_workspace(
+                                &self.app.terminal_runtimes,
+                                workspace_index,
+                                pane_id,
+                            )
+                            .is_some_and(|runtime| {
+                                runtime.alternate_screen_active() != pane.alternate_screen_active
+                            })
+                    })
+                });
+            if changed {
+                if let Some(target) = self.shell_target_for_client(*client_id) {
+                    let area = Rect::new(0, 0, *cols, *rows);
+                    let layout = crate::ui::compute_tab_surface_for(
+                        &self.app.state,
+                        &self.app.terminal_runtimes,
+                        Some(target),
+                        area,
+                        false,
+                        *cell_size,
+                    );
+                    if layout.pane_infos.iter().any(|pane| {
+                        self.app
+                            .state
+                            .runtime_for_pane_in_workspace(
+                                &self.app.terminal_runtimes,
+                                target.workspace_index,
+                                pane.id,
+                            )
+                            .is_some_and(|runtime| runtime.synchronized_output_active())
+                    }) {
+                        continue;
+                    }
+                    crate::ui::resize_tab_surface(
+                        &self.app.state,
+                        &self.app.terminal_runtimes,
+                        target.workspace_index,
+                        target.tab_index,
+                        area,
+                        if cell_size.is_known() {
+                            *cell_size
+                        } else {
+                            crate::kitty_graphics::HostCellSize::default()
+                        },
+                    );
+                }
+            }
+        }
+
         let mut broken_clients: Vec<u64> = Vec::new();
         for (client_id, (cols, rows), cell_size, _is_foreground, mode) in render_targets {
+            #[cfg(unix)]
+            if matches!(mode, ClientConnectionMode::TerminalObserve { .. })
+                && self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.deferred_render() != DeferredRender::None)
+            {
+                // The writer-drained event schedules recovery, even if pane output stops.
+                continue;
+            }
             let area = Rect::new(0, 0, cols, rows);
             let shell_target = self.shell_target_for_client(client_id);
             let shell_tab_id = self.shell_tab_id_for_client(client_id);
             let shell_shows_popup = shell_tab_id.as_deref() == self.popup_owner_tab_id.as_deref();
+            let shell_graphics_delivery = self
+                .clients
+                .get(&client_id)
+                .map(|client| client.shell_graphics_delivery.clone())
+                .unwrap_or_default();
+            let shell_render = if matches!(mode, ClientConnectionMode::ClientShell)
+                && self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.shell_surface_active)
+            {
+                let render_started = crate::render_prof::timer();
+                let render_cell_size = if cell_size.is_known() {
+                    cell_size
+                } else {
+                    crate::kitty_graphics::HostCellSize::default()
+                };
+                let result = render_client_shell_pane_surface(
+                    &mut self.app,
+                    shell_target,
+                    area,
+                    false,
+                    shell_shows_popup,
+                    render_cell_size,
+                    &shell_graphics_delivery,
+                    client_id,
+                );
+                crate::render_prof::duration_since(
+                    "full_render.render_tab_surface_virtual",
+                    render_started,
+                );
+                match result {
+                    Ok(surface) => Some(surface),
+                    Err(reason) => {
+                        if let Some(client) = self.clients.get_mut(&client_id) {
+                            client.render_state.request_recompute();
+                        }
+                        if matches!(
+                            reason,
+                            crate::server::client_shell::SurfaceRenderDeferred::Changed
+                        ) {
+                            self.app.render_dirty.request_generic();
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             let mut shell_projection_revision = 0;
             if matches!(mode, ClientConnectionMode::ClientShell) {
                 let location = self
                     .clients
                     .get(&client_id)
                     .and_then(|client| client.shell_location.clone());
+                let agent_view = self.app.state.agent_view_override.clone();
                 let Some(client) = self.clients.get_mut(&client_id) else {
                     continue;
                 };
-                let mut candidate = client_shell_snapshot(
+                let (mut candidate, mut completions) = client_shell_snapshot(
                     &self.app,
                     &self.client_shell_boot_id,
                     client.shell_projection_revision,
@@ -433,19 +575,67 @@ impl HeadlessServer {
                     self.server_config_diagnostic_without_keybindings.clone()
                 };
                 candidate.revision = client.shell_projection_revision;
-                if client.shell_snapshot.as_ref() != Some(&candidate) {
+                if client.shell_snapshot.as_ref() != Some(&candidate)
+                    || client.shell_agent_completions.as_ref() != Some(&completions)
+                    || client.shell_agent_view != agent_view
+                {
                     client.shell_projection_revision =
                         client.shell_projection_revision.saturating_add(1);
                     candidate.revision = client.shell_projection_revision;
-                    let message = match crate::protocol::endpoint::snapshot_message(&candidate) {
-                        Ok(message) => message,
+                    completions.revision = candidate.revision;
+                    let completion_framed =
+                        match crate::protocol::endpoint::agent_completions_message(&completions)
+                            .map_err(std::io::Error::other)
+                            .and_then(|message| {
+                                Self::frame_server_message(&message).map_err(std::io::Error::other)
+                            }) {
+                            Ok(message) => message,
+                            Err(err) => {
+                                warn!(client_id, err = %err, "failed to frame agent completions");
+                                broken_clients.push(client_id);
+                                continue;
+                            }
+                        };
+                    let projection_message = if agent_view.is_some()
+                        || client.shell_agent_view.is_some()
+                    {
+                        match crate::protocol::endpoint::agent_view_projection_message(
+                            &candidate.boot_id,
+                            candidate.revision,
+                            agent_view.as_ref(),
+                        ) {
+                            Ok(message) => Some(message),
+                            Err(err) => {
+                                warn!(client_id, err = %err, "failed to encode endpoint agent view");
+                                broken_clients.push(client_id);
+                                continue;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let snapshot_message =
+                        match crate::protocol::endpoint::snapshot_message(&candidate) {
+                            Ok(message) => message,
+                            Err(err) => {
+                                warn!(client_id, err = %err, "failed to encode endpoint snapshot");
+                                broken_clients.push(client_id);
+                                continue;
+                            }
+                        };
+                    let projection_framed = match projection_message
+                        .as_ref()
+                        .map(Self::frame_server_message)
+                        .transpose()
+                    {
+                        Ok(framed) => framed,
                         Err(err) => {
-                            warn!(client_id, err = %err, "failed to encode endpoint snapshot");
+                            warn!(client_id, err = %err, "failed to frame endpoint agent view");
                             broken_clients.push(client_id);
                             continue;
                         }
                     };
-                    let framed = match Self::frame_server_message(&message) {
+                    let snapshot_framed = match Self::frame_server_message(&snapshot_message) {
                         Ok(framed) => framed,
                         Err(err) => {
                             warn!(client_id, err = %err, "failed to frame endpoint snapshot");
@@ -457,11 +647,16 @@ impl HeadlessServer {
                         broken_clients.push(client_id);
                         continue;
                     };
-                    if writer.control.send(framed).is_err() {
+                    if projection_framed.is_some_and(|framed| writer.control.send(framed).is_err())
+                        || writer.control.send(completion_framed).is_err()
+                        || writer.control.send(snapshot_framed).is_err()
+                    {
                         broken_clients.push(client_id);
                         continue;
                     }
                     client.shell_snapshot = Some(candidate);
+                    client.shell_agent_completions = Some(completions);
+                    client.shell_agent_view = agent_view;
                 }
                 shell_projection_revision = client.shell_projection_revision;
                 if !client.shell_surface_active {
@@ -469,43 +664,30 @@ impl HeadlessServer {
                     continue;
                 }
             }
-            let shell_graphics_delivery = self
-                .clients
-                .get(&client_id)
-                .map(|client| client.shell_graphics_delivery.clone())
-                .unwrap_or_default();
             let mut surface_parts = None;
+            let mut cursor_color = None;
             let mut direct_cursor_color = None;
             let frame = match mode {
                 ClientConnectionMode::ClientShell => {
-                    let render_started = crate::render_prof::timer();
-                    let render_cell_size = if cell_size.is_known() {
-                        cell_size
-                    } else {
-                        crate::kitty_graphics::HostCellSize::default()
-                    };
                     let crate::server::client_shell::RenderedPaneSurface {
+                        cursor_color: rendered_cursor_color,
                         frame,
                         panes,
                         splits,
                         popup,
                         graphics,
                         graphics_delivery: next_graphics_delivery,
-                    } = render_client_shell_pane_surface(
-                        &mut self.app,
-                        shell_target,
-                        area,
-                        false,
-                        shell_shows_popup,
-                        render_cell_size,
-                        &shell_graphics_delivery,
-                        client_id,
-                    );
-                    crate::render_prof::duration_since(
-                        "full_render.render_tab_surface_virtual",
-                        render_started,
-                    );
-                    surface_parts = Some((panes, splits, popup, graphics, next_graphics_delivery));
+                        graphics_sources,
+                    } = shell_render.expect("active shell surface");
+                    cursor_color = rendered_cursor_color;
+                    surface_parts = Some((
+                        panes,
+                        splits,
+                        popup,
+                        graphics,
+                        next_graphics_delivery,
+                        graphics_sources,
+                    ));
                     frame
                 }
                 ClientConnectionMode::TerminalPending => continue,
@@ -523,6 +705,13 @@ impl HeadlessServer {
                         broken_clients.push(client_id);
                         continue;
                     };
+                    let (synchronized, epoch) = runtime.synchronized_output_state();
+                    if synchronized {
+                        if let Some(client) = self.clients.get_mut(&client_id) {
+                            client.render_state.request_recompute();
+                        }
+                        continue;
+                    }
                     let render_started = crate::render_prof::timer();
                     let (buffer, cursor) =
                         crate::server::render_stream::render_terminal_virtual(runtime, area);
@@ -539,6 +728,16 @@ impl HeadlessServer {
                         "full_render.visible_hyperlinks",
                         hyperlinks_started,
                     );
+                    let (synchronized, after_epoch) = runtime.synchronized_output_state();
+                    if synchronized || after_epoch != epoch {
+                        if let Some(client) = self.clients.get_mut(&client_id) {
+                            client.render_state.request_recompute();
+                        }
+                        if !synchronized {
+                            self.app.render_dirty.request_generic();
+                        }
+                        continue;
+                    }
                     let frame_started = crate::render_prof::timer();
                     let frame = FrameData::from_ratatui_buffer_with_hyperlinks(
                         &buffer,
@@ -550,9 +749,20 @@ impl HeadlessServer {
                 }
             };
 
-            let cursor_color = surface_parts.as_ref().and_then(|(panes, _, popup, _, _)| {
-                crate::server::client_shell::surface_cursor_color(&self.app, panes, popup.is_some())
-            });
+            if surface_parts
+                .as_ref()
+                .is_some_and(|(_, _, _, graphics, _, _)| {
+                    self.defer_changed_native_geometry(client_id, graphics)
+                })
+            {
+                continue;
+            }
+            let mut native_upload =
+                surface_parts
+                    .as_mut()
+                    .and_then(|(_, _, _, graphics, delivery, sources)| {
+                        self.prepare_native_scene(client_id, graphics, delivery, sources)
+                    });
             let Some(client) = self.clients.get_mut(&client_id) else {
                 continue;
             };
@@ -562,66 +772,105 @@ impl HeadlessServer {
             };
             let has_graphics = surface_parts
                 .as_ref()
-                .is_some_and(|(_, _, _, graphics, _)| {
+                .is_some_and(|(_, _, _, graphics, _, _)| {
                     !graphics.assets.is_empty()
                         || !graphics.placements.is_empty()
                         || !graphics.retained_assets.is_empty()
                 });
             let mut next_shell_graphics_delivery = None;
-            let prepared = if let Some((panes, splits, popup, graphics, delivery)) = surface_parts {
-                next_shell_graphics_delivery = Some(delivery);
-                client.render_state.prepare_pane_surface(
-                    protocol::PaneSurfaceFrame {
-                        boot_id: self.client_shell_boot_id.clone(),
-                        projection_revision: shell_projection_revision,
-                        surface_revision: 0,
-                        frame,
-                        panes,
-                        splits,
-                        popup,
-                        graphics,
-                    },
-                    cursor_color,
-                )
-            } else {
-                client
-                    .render_state
-                    .prepare_frame(frame, direct_cursor_color)
-            };
+            let prepared =
+                if let Some((panes, splits, popup, graphics, delivery, _)) = surface_parts {
+                    next_shell_graphics_delivery = Some(delivery);
+                    client.render_state.prepare_pane_surface_with_file(
+                        protocol::PaneSurfaceFrame {
+                            boot_id: self.client_shell_boot_id.clone(),
+                            projection_revision: shell_projection_revision,
+                            surface_revision: 0,
+                            frame,
+                            panes,
+                            splits,
+                            popup,
+                            graphics,
+                        },
+                        native_upload.is_some(),
+                        cursor_color,
+                    )
+                } else {
+                    client
+                        .render_state
+                        .prepare_frame(frame, direct_cursor_color)
+                };
             let Some(mut prepared) = prepared else {
                 client.clear_deferred_render();
                 crate::render_prof::event("full_render.skip_identical");
                 continue;
             };
             let max = if has_graphics {
-                MAX_GRAPHICS_FRAME_SIZE
+                graphics_frame_limit
             } else {
                 crate::protocol::MAX_FRAME_SIZE
             };
             let mut shell_assets_deferred = false;
+            let mut suppress_impossible_asset_retry = false;
+            let mut stripped_assets = Vec::new();
             let mut serialized = match Self::frame_server_message_with_max(prepared.message(), max)
             {
                 Ok(frame) => frame,
                 Err(protocol::FramingError::Oversized { claimed, max }) if has_graphics => {
                     warn!(
                         client_id,
-                        claimed, max, "dropping graphics assets from oversized pane surface"
+                        claimed, max, "trimming inline graphics assets from oversized pane surface"
                     );
-                    if !prepared.strip_pane_surface_assets() {
-                        crate::render_prof::event("full_render.serialize_oversized");
-                        continue;
-                    }
-                    next_shell_graphics_delivery = None;
-                    shell_assets_deferred = true;
-                    match Self::frame_server_message(prepared.message()) {
-                        Ok(framed) => framed,
-                        Err(err) => {
-                            warn!(client_id, err = %err, "failed to serialize pane surface without assets");
-                            broken_clients.push(client_id);
-                            crate::render_prof::event("full_render.serialize_error");
-                            continue;
+                    let framed = loop {
+                        let Some(key) = prepared.pop_pane_surface_asset() else {
+                            break None;
+                        };
+                        stripped_assets.push(key);
+                        match Self::frame_server_message_with_max(prepared.message(), max) {
+                            Ok(framed) => break Some(framed),
+                            Err(protocol::FramingError::Oversized { .. }) => {}
+                            Err(err) => {
+                                warn!(client_id, err = %err, "failed to serialize trimmed pane surface");
+                                broken_clients.push(client_id);
+                                break None;
+                            }
                         }
+                    };
+                    let Some(framed) = framed else {
+                        if stripped_assets.is_empty() && prepared.has_queued_surface_assets() {
+                            // Delta/reuse owns an encoded payload that cannot be trimmed in
+                            // place. Drop its baseline so the bounded full-surface path runs next.
+                            client.render_state.request_repaint();
+                            client.defer_full_render();
+                        } else {
+                            crate::render_prof::event("full_render.serialize_oversized");
+                        }
+                        continue;
+                    };
+                    let made_progress =
+                        native_upload.is_some() || prepared.has_queued_surface_assets();
+                    if let Some(delivery) = next_shell_graphics_delivery.as_mut() {
+                        for key in &stripped_assets {
+                            delivery.forget_asset(key);
+                        }
+                        shell_assets_deferred = made_progress && !stripped_assets.is_empty();
                     }
+                    if let (Some((pending, _)), Some(delivery)) = (
+                        native_upload.as_mut(),
+                        next_shell_graphics_delivery.as_ref(),
+                    ) {
+                        pending.defer_inline_delivery(delivery);
+                    }
+                    if !made_progress {
+                        // Keep the asset absent from the delivery cache, but do not spin on
+                        // an identical frame when no payload can fit beside its metadata.
+                        suppress_impossible_asset_retry = true;
+                        warn!(
+                            client_id,
+                            "inline graphics asset cannot fit in a graphics frame; waiting for a later scene change"
+                        );
+                    }
+                    framed
                 }
                 Err(protocol::FramingError::Oversized { claimed, max }) => {
                     warn!(
@@ -638,9 +887,19 @@ impl HeadlessServer {
                     continue;
                 }
             };
-            let shell_graphics_pending = next_shell_graphics_delivery
-                .as_ref()
-                .is_some_and(crate::kitty_graphics::surface::DeliveryCache::has_pending);
+            let shell_graphics_pending = !suppress_impossible_asset_retry
+                && next_shell_graphics_delivery
+                    .as_ref()
+                    .is_some_and(crate::kitty_graphics::surface::DeliveryCache::has_pending);
+            if let Some((_, message)) = &native_upload {
+                let Ok(file_frame) =
+                    Self::frame_server_message_with_max(message, MAX_GRAPHICS_FRAME_SIZE)
+                else {
+                    client.defer_full_render();
+                    continue;
+                };
+                serialized.extend_from_slice(&file_frame);
+            }
             if let Err(err) =
                 prepared.prepend_cursor_color(&mut serialized, writer.surface_cursor_color)
             {
@@ -648,8 +907,20 @@ impl HeadlessServer {
                 client.defer_full_render();
                 continue;
             }
-            match writer.render.try_send(serialized) {
+            let send = if native_upload.is_some() || self.native_graphics.is_pending(client_id) {
+                writer.render.send_ordered(serialized)
+            } else {
+                writer.render.try_send(serialized)
+            };
+            match send {
                 Ok(()) => {
+                    if let Some((graphics, inline_assets)) = prepared.queued_surface_graphics() {
+                        self.native_graphics
+                            .commit_scene(client_id, graphics, inline_assets);
+                    }
+                    if let Some((pending, _)) = native_upload {
+                        self.native_graphics.commit(client_id, pending);
+                    }
                     if let Some(delivery) = next_shell_graphics_delivery {
                         client.shell_graphics_delivery = delivery;
                     }

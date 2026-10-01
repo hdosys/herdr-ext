@@ -7,10 +7,18 @@ import { tmpdir } from 'node:os';
 const script = resolve(import.meta.dir, 'preview.mjs');
 const temporaryDirectories: string[] = [];
 
+// The fixture shells out to node and git many times. A healthy Windows runner
+// finishes in seconds, but a degraded one can run an order of magnitude slower,
+// so keep a generous ceiling instead of making the suite a load-sensitive flake.
+const fixtureTimeoutMs = process.platform === 'win32' ? 120_000 : 30_000;
+
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+    temporaryDirectories.map((path) =>
+      rm(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
+    ),
   );
+  temporaryDirectories.length = 0;
 });
 
 describe('preview documentation snapshots', () => {
@@ -27,7 +35,7 @@ describe('preview documentation snapshots', () => {
       'selected preview\n',
     );
     await expect(read(root, 'docs/preview/website/stale.mdx')).rejects.toThrow();
-  }, 30_000);
+  }, fixtureTimeoutMs);
 
   test('rejects snapshot drift', async () => {
     const root = await fixture();
@@ -37,7 +45,7 @@ describe('preview documentation snapshots', () => {
     await write(root, 'docs/preview/website/src/content/docs/index.mdx', 'changed\n');
 
     expect(() => runScript(root, ['check'])).toThrow();
-  }, 30_000);
+  }, fixtureTimeoutMs);
 });
 
 async function fixture() {

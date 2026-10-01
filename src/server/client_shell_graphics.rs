@@ -1,19 +1,18 @@
-use crate::kitty_graphics::surface::DeliveryCache;
+use crate::kitty_graphics::surface::{DeliveryCache, SourceFiles};
 use crate::protocol::{ClientShellPopupSurface, SurfaceGraphicsScene};
 
 pub(crate) fn collect_retained(
     app: &crate::app::App,
-    surface: &crate::protocol::PaneSurfaceFrame,
+    panes: &[crate::protocol::PaneSurfacePane],
     target: crate::ui::TabSurfaceTarget,
     cell_size: crate::kitty_graphics::HostCellSize,
     delivered: &DeliveryCache,
     client_id: u64,
-) -> Option<(SurfaceGraphicsScene, DeliveryCache)> {
+) -> Option<(SurfaceGraphicsScene, DeliveryCache, SourceFiles)> {
     let rect = |rect: crate::protocol::SurfaceRect| {
         ratatui::layout::Rect::new(rect.x, rect.y, rect.width, rect.height)
     };
-    let pane_infos = surface
-        .panes
+    let pane_infos = panes
         .iter()
         .map(|pane| {
             let (workspace_index, id) = app.parse_pane_id(&pane.pane_id)?;
@@ -52,7 +51,7 @@ pub(crate) fn collect(
     cell_size: crate::kitty_graphics::HostCellSize,
     delivered: &DeliveryCache,
     client_id: u64,
-) -> (SurfaceGraphicsScene, DeliveryCache) {
+) -> (SurfaceGraphicsScene, DeliveryCache, SourceFiles) {
     let popup_content_size = popup.map(|popup| (popup.frame.width, popup.frame.height));
     crate::kitty_graphics::surface::collect_scene(
         app,

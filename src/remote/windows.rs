@@ -21,8 +21,9 @@ const WINDOWS_PACKAGE_LOCAL_PAYLOAD_SCRIPT: &str =
 pub(crate) const REMOTE_SIDECAR_VALIDATE_ARG: &str = "--herdr-private-validate-remote-sidecar-v1";
 static REMOTE_SIDECAR_ACTIVE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum WindowsSshShell {
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WindowsSshShell {
     Cmd,
     Pwsh,
     WindowsPowerShell,
@@ -277,12 +278,11 @@ fn ensure_remote_server_running() -> io::Result<()> {
 
 #[cfg(test)]
 fn remote_bridge_command(session_name: &str) -> String {
-    let mut arguments = Vec::new();
-    if session_name != crate::session::DEFAULT_SESSION_NAME {
-        arguments.push("--session".to_string());
-        arguments.push(session_name.to_string());
-    }
-    arguments.push("remote-client-bridge".to_string());
+    let arguments = vec![
+        "--session".to_string(),
+        session_name.to_string(),
+        "remote-client-bridge".to_string(),
+    ];
     streaming_herdr_command("herdr.exe", &arguments, false, &WindowsSshShell::Pwsh)
         .expect("test bridge command")
 }
@@ -294,13 +294,16 @@ pub(super) fn streaming_herdr_command(
     shell: &WindowsSshShell,
 ) -> std::io::Result<String> {
     validate_streaming_shell(shell)?;
+    let marker = super::attach::REMOTE_OUTPUT_READY_MARKER;
     match shell {
-        WindowsSshShell::Pwsh => Ok(powershell_herdr_script(
-            Some(executable),
-            arguments,
-            sidecar,
-        )),
-        WindowsSshShell::Cmd => cmd_herdr_command(executable, arguments, sidecar),
+        WindowsSshShell::Pwsh => {
+            let command = powershell_herdr_script(Some(executable), arguments, sidecar);
+            Ok(format!(
+                "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{marker}'); [Console]::Out.Flush(); {command}"
+            ))
+        }
+        WindowsSshShell::Cmd => cmd_herdr_command(executable, arguments, sidecar)
+            .map(|command| format!("echo.&echo {marker}&{command}")),
         WindowsSshShell::WindowsPowerShell | WindowsSshShell::Unsupported(_) => Err(
             std::io::Error::other("validated Windows OpenSSH shell became unsupported"),
         ),
@@ -323,6 +326,39 @@ pub(super) fn validate_streaming_shell(shell: &WindowsSshShell) -> std::io::Resu
     }
 }
 
+pub(super) fn checked_api_bridge_command(
+    executable: &str,
+    arguments: &[String],
+    sidecar: bool,
+    shell: &WindowsSshShell,
+) -> std::io::Result<String> {
+    let stream = streaming_herdr_command(executable, arguments, sidecar, shell)?;
+    let mut probe = powershell_herdr_prefix(Some(executable), sidecar);
+    probe.push_str("; try { $capability = & $herdr");
+    for argument in arguments {
+        probe.push(' ');
+        probe.push_str(&powershell_quote(argument));
+    }
+    probe.push_str(&format!(
+        " --check 2>$null; $valid = $LASTEXITCODE -eq 0 -and $capability -eq 'herdr-api-bridge-v1' }} catch {{ $valid = $false }}; if (-not $valid) {{ [Console]::Error.WriteLine('{}'); exit 78 }}; exit 0",
+        super::attach::STALE_API_METADATA,
+    ));
+    let probe = encoded_powershell_command(&probe);
+    // PowerShell 5.1 is used only for the finite text check. The actual byte
+    // stream runs directly through the already validated Cmd/Pwsh adapter.
+    Ok(match shell {
+        WindowsSshShell::Cmd => format!("{probe} && ({stream})"),
+        WindowsSshShell::Pwsh => {
+            format!("{probe}; if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}; {stream}")
+        }
+        _ => {
+            return Err(std::io::Error::other(
+                "validated Windows SSH shell became unsupported",
+            ))
+        }
+    })
+}
+
 pub(super) fn powershell_herdr_command(
     executable: Option<&str>,
     arguments: &[String],
@@ -336,6 +372,17 @@ fn powershell_herdr_script(
     arguments: &[String],
     sidecar: bool,
 ) -> String {
+    let mut script = powershell_herdr_prefix(executable, sidecar);
+    script.push_str("; & $herdr");
+    for argument in arguments {
+        script.push(' ');
+        script.push_str(&powershell_quote(argument));
+    }
+    script.push_str("; exit $LASTEXITCODE");
+    script
+}
+
+fn powershell_herdr_prefix(executable: Option<&str>, sidecar: bool) -> String {
     let mut script = match executable {
         Some(executable) => format!("$herdr = {}", powershell_quote(executable)),
         None => String::from(
@@ -349,12 +396,6 @@ fn powershell_herdr_script(
             crate::HERDR_ENV_VAR,
         ));
     }
-    script.push_str("; & $herdr");
-    for argument in arguments {
-        script.push(' ');
-        script.push_str(&powershell_quote(argument));
-    }
-    script.push_str("; exit $LASTEXITCODE");
     script
 }
 
@@ -558,7 +599,7 @@ mod tests {
     fn windows_pwsh_remote_bridge_invokes_explicit_binary_for_default_session() {
         assert_eq!(
             remote_bridge_command(crate::session::DEFAULT_SESSION_NAME),
-            "$herdr = 'herdr.exe'; & $herdr 'remote-client-bridge'; exit $LASTEXITCODE"
+            "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('herdr-remote-output-ready:1'); [Console]::Out.Flush(); $herdr = 'herdr.exe'; & $herdr '--session' 'default' 'remote-client-bridge'; exit $LASTEXITCODE"
         );
     }
 
@@ -566,7 +607,7 @@ mod tests {
     fn windows_pwsh_remote_bridge_quotes_named_session() {
         assert_eq!(
             remote_bridge_command("agent's work"),
-            "$herdr = 'herdr.exe'; & $herdr '--session' 'agent''s work' 'remote-client-bridge'; exit $LASTEXITCODE"
+            "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('herdr-remote-output-ready:1'); [Console]::Out.Flush(); $herdr = 'herdr.exe'; & $herdr '--session' 'agent''s work' 'remote-client-bridge'; exit $LASTEXITCODE"
         );
     }
 
@@ -586,7 +627,7 @@ mod tests {
 
         assert_eq!(
             command,
-            r#"set HERDR_REMOTE_SIDECAR_V1=1&&set HERDR_ENV=&&"C:\Users\Can D\herdr.exe" "--session" "work" "remote-client-bridge""#
+            r#"echo.&echo herdr-remote-output-ready:1&set HERDR_REMOTE_SIDECAR_V1=1&&set HERDR_ENV=&&"C:\Users\Can D\herdr.exe" "--session" "work" "remote-client-bridge""#
         );
         assert!(!command.contains("powershell.exe"));
     }

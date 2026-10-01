@@ -403,7 +403,8 @@ test("exhausted delivery resumes on selected-session activity, not a retry daemo
     expect(requests).toHaveLength(5);
     tui.emit("server.connected");
     await new Promise((resolve) => setTimeout(resolve, 125));
-    expect(requests).toHaveLength(6);
+    expect(requests).toHaveLength(7);
+    expect(requestParam(requests[6], "clear_title")).toBe(true);
     tui.dispose();
     expect(inFlight).toBe(0);
   } finally {

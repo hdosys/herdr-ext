@@ -27,6 +27,8 @@ herdr session delete side-project
 
 名前付きセッションは独自のペイン、タブ、ワークスペース、ソケット、ランタイム状態を持ちます。グローバル設定ファイルは共有されます。
 
+セッションを削除するときは、大文字と小文字も含めて `herdr session list` に表示される名前を正確に指定してください。大文字と小文字を区別しないファイルシステムでは、`herdr session delete foo` は `Foo` という名前のセッションの削除を拒否します。
+
 スクリプトでは `--json` を使ってください:
 
 ```bash
@@ -67,7 +69,7 @@ Host workbox
 herdr --remote workbox
 ```
 
-リモートアタッチは、Linux、macOS、Windows のローカルクライアントから、x86_64 と aarch64 の Linux および macOS ホストへの接続をサポートします。Herdr はリモートのプラットフォームを確認し、リモートの `PATH` 上にある互換性のある `herdr` を優先してから、一般的な直接インストール、Homebrew、mise、Nix プロファイルのパスを確認します。両方が安定したエンドポイント世代に対応していれば、ローカルとリモートのバージョンは一致しなくても接続できます。互換性のあるバイナリがない場合、対話的な実行では `~/.local/bin/herdr` へのインストールを提案します。非対話的な実行はホストを変更せずに失敗します。`~/.local/bin` がリモートの `PATH` にない場合、Herdr はインストール後に警告します。Windows をリモートホストとして使うことはできません。
+リモートアタッチと保存済み SSH マシンは、Linux、macOS、Windows のクライアントから、x86_64 または aarch64 の Linux/macOS ホスト、および x86_64 の Windows ホストへの接続に対応します。両端が安定したエンドポイント世代に対応していれば、バージョンは一致しなくても構いません。Linux/macOS ではリモートの `PATH` 上の互換バイナリを優先し、次に一般的な直接インストール、Homebrew、mise、Nix のパスを確認します。Windows では `PATH` と現在有効な管理対象リリースを確認します。互換バイナリがなければ、対話的な実行はインストールや更新の確認を求め、非対話的な実行はホストを変更せず失敗します。Linux/macOS では `~/.local/bin/herdr` に、Windows ではアプリローカル ConPTY ランタイムを含む完全なパッケージをインストールします。リモートの `PATH` に `~/.local/bin` がない場合は警告します。
 
 デフォルトでは、`herdr --remote` はユーザーの SSH config を最初に include し、その後にフォールバックのキープアライブ設定を加えた一時的な SSH config を通してリモートセットアップとブリッジを実行します。既存のユーザーのキープアライブ設定が優先されます。Linux と macOS クライアントは接続再利用用のプライベートなアタッチ単位コントロールソケットも使いますが、Windows OpenSSH では使いません。Herdr が生成する設定やコントロールソケットを使わず通常の `ssh` を使うには `[remote].manage_ssh_config = false` を設定してください。
 
@@ -88,9 +90,9 @@ herdr --remote workbox --handoff
 
 先にサーバーへ SSH してそこで `herdr` を実行した場合、Herdr は完全にサーバー上で動きます。このモードは便利でシンプルですが、通常のターミナルテキスト貼り付けを超えてローカルデスクトップのクリップボードにはアクセスできません。
 
-ローカルとリモートのプラットフォームが一致する場合、直接インストールでは Herdr は現在のローカルバイナリをコピーできます。Homebrew、mise、Nix のインストールの場合、またはプラットフォームが異なる場合は、`https://herdr.dev/latest.json` から現在のクライアントバージョンに一致するリリースアセットをダウンロードします。
+Linux/macOS ホストでは、プラットフォームが一致する直接インストールなら現在のローカルバイナリをコピーできます。Homebrew、mise、Nix のインストール、異なるプラットフォーム、または Windows ホストの場合は、`https://herdr.dev/latest.json` から現在のクライアントバージョンに対応するリリースアセットをダウンロードします。
 
-ローカルビルドやカスタムバイナリの場合は、リモートアタッチの前に `HERDR_REMOTE_BINARY` にローカルファイルパスを設定してください。
+ローカルビルドやカスタムパッケージを使うには、リモートアタッチ前に `HERDR_REMOTE_BINARY` にローカルファイルパスを設定します。Linux/macOS 向けには実行ファイル、Windows 向けには完全な `herdr-windows-x86_64.zip` パッケージを指定してください。
 
 ```bash
 HERDR_REMOTE_BINARY=target/release/herdr herdr --remote workbox
@@ -146,4 +148,4 @@ base64 の ANSI データを含む `terminal.frame` を改行区切り JSON で�
 herdr terminal session control w1:p1 --takeover --cols 120 --rows 40
 ```
 
-同じフレームを出力し、標準入力から改行区切り JSON コマンドを読み取ります。`terminal.input` はテキストまたは base64 データ、`terminal.resize` は表示サイズ、`terminal.scroll` はビューポートのスクロール、`terminal.release` はコントローラーの終了を扱います。入力とリサイズを所有できるコントローラーは 1 つだけです。
+同じフレームを出力し、標準入力から改行区切り JSON コマンドを読み取ります。`terminal.input` はテキストまたは base64 データ、`terminal.resize` は表示サイズ、`terminal.scroll` はビューポートのスクロール、`terminal.mouse` はマウス報告を有効にしたアプリへのセル位置のマウスイベント、`terminal.release` はコントローラーの終了を扱います。入力とリサイズを所有できるコントローラーは 1 つだけです。

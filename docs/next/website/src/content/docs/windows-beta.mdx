@@ -18,7 +18,7 @@ The installed Windows distribution owns its fork CalVer update feed and cannot b
 | Local persistent sessions | supported |
 | Native panes through ConPTY | supported |
 | Windows Terminal / PowerShell app attach | supported |
-| `herdr --remote` to Linux/macOS hosts | supported |
+| `herdr --remote` and saved SSH machines to Linux/macOS/Windows hosts | supported; interactive attach and saved-machine setup can install or update Windows packages after confirmation; background reconnect only discovers installed packages |
 | Remote clipboard images and image-file drops | supported |
 | `cmd.exe` panes | supported |
 | Native keyboard and mouse input | supported |
@@ -66,7 +66,7 @@ switch_ascii_input_source_in_prefix = true
 
 Other Windows IMEs are not supported by this option yet. See [Configuration](/docs/configuration/#prefix-input-source-switching).
 
-Some Windows agents can receive `ctrl+v` and read clipboard images directly. Herdr's own clipboard-image reader is not wired into local native Windows panes, so agent-native image paste remains dependent on the terminal and agent. Agent image-paste shortcuts such as `alt+v` do not add a Herdr-managed local clipboard bridge. Remote clipboard image bridging is supported separately through `herdr --remote`, including Windows target hosts.
+Some Windows agents can receive `ctrl+v` and read clipboard images directly. Herdr's own clipboard-image reader is not wired into local native Windows panes, so agent-native image paste remains dependent on the terminal and agent. Agent image-paste shortcuts such as `alt+v` do not add a Herdr-managed local clipboard bridge. Remote clipboard image bridging is supported separately through `herdr --remote` to Linux, macOS, and Windows hosts.
 
 Kitty graphics is enabled by default and depends on the outer terminal. Herdr emits Kitty graphics protocol output on Windows as it does on other platforms. This path has been exercised with Windows WezTerm hosting Herdr through WSL, but native Windows terminal and ConPTY combinations are not all verified. Windows Terminal does not expose the Kitty graphics path Herdr uses. Set `[terminal].kitty_graphics = false` if the outer terminal mishandles graphics output.
 
@@ -117,7 +117,9 @@ herdr --remote workbox
 herdr --remote workbox --provision --yes --json
 ```
 
-Every supported client can attach to x86_64 and ARM64 Windows hosts. Ordinary attachment and saved machines reuse an endpoint-compatible binary from `PATH` or `%USERPROFILE%\.herdr\remote\herdr.exe`; a version difference alone does not require replacement. Explicit provisioning instead requires the selected deployment's exact runtime identity and validates the complete portable ZIP before any approved server stop. It never runs the managed installer or changes remote `PATH`. Saved reconnects do not install or restart a server, and retain their explicitly selected session. The Windows OpenSSH default shell must be `cmd.exe` or PowerShell 7, and the server starts in the SSH user's existing active desktop session so it survives SSH closure. Windows PowerShell 5.1, an unknown shell, or an ambiguous desktop session fails closed. Windows remote hosts do not support live handoff.
+Every supported client can attach to x86_64 and ARM64 Windows hosts. Ordinary attachment and saved machines reuse an endpoint-compatible binary from `PATH` or `%USERPROFILE%\.herdr\remote\herdr.exe`; a version difference alone does not require replacement. Explicit provisioning instead requires the selected deployment's exact runtime identity and validates the complete portable ZIP before any approved server stop. It never runs the managed installer or changes remote `PATH`. Saved reconnects do not install, stop, replace, restart, or start a missing server, and retain their explicitly selected session. The Windows OpenSSH default shell must be `cmd.exe` or PowerShell 7 (`pwsh.exe`) to preserve the byte-exact binary stream, and the server starts in the SSH user's existing active desktop session so it survives SSH closure. Windows PowerShell 5.1, an unknown shell, or an absent or ambiguous desktop session fails closed. Windows remote hosts do not support live handoff.
+
+Herdr uses the installed Windows OpenSSH client and your SSH configuration. Windows OpenSSH does not use Herdr's Unix control-socket reuse, so key authentication through Windows `ssh-agent` is recommended to avoid repeated prompts during remote setup.
 
 Windows targets must also advertise `windows_remote_host` support. A client-only Windows binary is not sufficient to host the SSH bridge.
 

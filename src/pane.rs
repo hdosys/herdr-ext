@@ -34,13 +34,13 @@ mod terminal;
 mod xtgettcap;
 
 use self::agent_detection::{
-    decide_detection_screen_read, decide_screen_detection_publish,
+    codex_prompt_ready, decide_detection_screen_read, decide_screen_detection_publish,
     detection_update_for_publish_with_osc, mark_detection_content_changed,
     observe_detection_content_change, DetectionPublishDecision, DetectionScreenReadDecision,
     DetectionScreenReadInput, PendingIdleConfirmation, ScreenDetectionPublishInput,
     AGENT_PENDING_IDLE_RECHECK, AGENT_STARTUP_GRACE_WINDOW,
 };
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 pub use self::terminal::InputState;
 use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub(crate) use self::terminal::{
@@ -52,10 +52,20 @@ pub use self::{
     terminal::{ScrollMetrics, TerminalCursorState},
 };
 
+pub(crate) struct TerminalDirtyPatchSnapshot {
+    pub patch: TerminalDirtyPatchOutcome,
+    pub content_revision: u64,
+    pub scroll_metrics: Option<ScrollMetrics>,
+    pub mouse_reporting: bool,
+    pub sgr_pixel_mouse: bool,
+    pub alternate_screen_active: bool,
+    pub graphics_may_have_placements: bool,
+}
+
 const RELEASE_REACQUIRE_SUPPRESSION: std::time::Duration = std::time::Duration::from_secs(1);
 const TERMINAL_COMPRESSION_IDLE: std::time::Duration = std::time::Duration::from_millis(250);
 const TERMINAL_COMPRESSION_STEP: std::time::Duration = std::time::Duration::from_millis(1);
-pub(crate) const PANE_TERM: &str = "xterm-256color";
+pub(crate) const PANE_TERM: &str = crate::ghostty::TERM;
 const PANE_COLORTERM: &str = "truecolor";
 
 fn terminal_compression_permits() -> Arc<tokio::sync::Semaphore> {
@@ -86,7 +96,25 @@ fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
     // when the remote side lacks matching terminfo entries.
     cmd.env("TERM", PANE_TERM);
     cmd.env("COLORTERM", PANE_COLORTERM);
-    cmd.env_remove("WT_SESSION");
+    cmd.env("TERM_PROGRAM", "herdr");
+    cmd.env("TERM_PROGRAM_VERSION", crate::build_info::version());
+    // Host handles refer to the outer terminal, never to this pane.
+    for key in [
+        "ITERM_SESSION_ID",
+        "LC_TERMINAL",
+        "LC_TERMINAL_VERSION",
+        "WEZTERM_PANE",
+        "KITTY_WINDOW_ID",
+        "WT_SESSION",
+        "TMUX",
+        "TMUX_PANE",
+        "STY",
+        "ZELLIJ",
+        "ZELLIJ_SESSION_NAME",
+        "ZELLIJ_PANE_ID",
+    ] {
+        cmd.env_remove(key);
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -136,7 +164,20 @@ impl PaneLaunchEnv {
 }
 
 fn apply_pane_launch_env(cmd: &mut CommandBuilder, launch_env: &PaneLaunchEnv) {
-    cmd.env_remove("CODEX_THREAD_ID");
+    #[cfg(unix)]
+    crate::platform::ssh_agent::apply_pane_env(cmd);
+    // A new pane is not a child agent of the process that started the server.
+    // Explicit launch env below can opt back into an intentional child session.
+    for key in [
+        "CODEX_THREAD_ID",
+        "OMPCODE",
+        "CLAUDECODE",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+    ] {
+        cmd.env_remove(key);
+    }
     for (key, value) in &launch_env.extra {
         cmd.env(key, value);
     }
@@ -249,6 +290,31 @@ async fn publish_agent_process_detected_event(
     }
 }
 
+async fn publish_codex_prompt_observation(
+    state_events: &mpsc::Sender<AppEvent>,
+    pane_id: PaneId,
+    agent: Option<Agent>,
+    content: &str,
+    detection: Option<&crate::detect::AgentDetection>,
+    process_exited: bool,
+    last_ready: &mut bool,
+) {
+    let ready = agent == Some(Agent::Codex)
+        && !process_exited
+        && detection.is_some_and(|detection| detection.state == AgentState::Unknown)
+        && codex_prompt_ready(content);
+    if ready == *last_ready {
+        return;
+    }
+    *last_ready = ready;
+    if let Err(err) = state_events
+        .send(AppEvent::CodexPromptObserved { pane_id, ready })
+        .await
+    {
+        warn!(pane = pane_id.raw(), %err, "failed to deliver Codex prompt observation");
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AgentDetectionPublishUpdate {
     state: AgentState,
@@ -297,6 +363,35 @@ async fn apply_agent_detection_publish_update(
 }
 
 const AGENT_MISS_CONFIRMATION_ATTEMPTS: u8 = 6;
+const SELF_REPORTED_AGENT_SHELL_RECHECK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Herdr cannot identify a self-reported agent's process, so the pane's shell
+/// returning to an idle prompt is the only sign that the agent exited.
+async fn report_self_reported_agent_shell_return(
+    active: &AtomicBool,
+    pid: u32,
+    now: std::time::Instant,
+    last_check: &mut Option<std::time::Instant>,
+    state_events: &mpsc::Sender<AppEvent>,
+    pane_id: PaneId,
+) {
+    if pid == 0 || !active.load(Ordering::Acquire) {
+        *last_check = None;
+        return;
+    }
+    if last_check.is_some_and(|last| now.duration_since(last) < SELF_REPORTED_AGENT_SHELL_RECHECK) {
+        return;
+    }
+    *last_check = Some(now);
+    if crate::detect::pane_shell_is_idle(pid) {
+        let _ = state_events
+            .send(AppEvent::ReportedAgentShellReturned {
+                pane_id,
+                observed_at: now,
+            })
+            .await;
+    }
+}
 const PROCESS_RECHECK_IDENTIFIED: std::time::Duration = std::time::Duration::from_secs(5);
 const PROCESS_RECHECK_MISSING_FOREGROUND_GROUP: std::time::Duration =
     std::time::Duration::from_secs(30);
@@ -700,6 +795,7 @@ fn spawn_basic_detection_task(
     terminal: Arc<PaneTerminal>,
     detection_content_seq: Arc<AtomicU64>,
     full_lifecycle_authority_active: Arc<AtomicBool>,
+    self_reported_agent_active: Arc<AtomicBool>,
     state_events: mpsc::Sender<AppEvent>,
 ) -> (
     tokio::task::AbortHandle,
@@ -730,6 +826,8 @@ fn spawn_basic_detection_task(
         let mut last_screen_scan_detection_content_seq = None;
         let mut agent_startup_grace_until = None;
         let mut pending_idle = PendingIdleConfirmation::default();
+        let mut last_codex_prompt_ready = false;
+        let mut last_self_reported_shell_check = None;
 
         loop {
             let sleep_duration = if pending_idle.active() {
@@ -740,6 +838,10 @@ fn spawn_basic_detection_task(
             tokio::select! {
                 _ = tokio::time::sleep(sleep_duration) => {}
                 _ = detect_reset.notified() => {
+                    publish_codex_prompt_observation(
+                        &state_events, pane_id, Some(Agent::Codex), "", None, false,
+                        &mut last_codex_prompt_ready,
+                    ).await;
                     agent_presence = AgentDetectionPresence::from_agent(None);
                     state = AgentState::Unknown;
                     last_visible_idle = false;
@@ -774,6 +876,15 @@ fn spawn_basic_detection_task(
             let mut agent = agent_presence.current_agent();
             let lifecycle_authority_active =
                 full_lifecycle_authority_active.load(Ordering::Acquire);
+            report_self_reported_agent_shell_return(
+                &self_reported_agent_active,
+                pid,
+                now,
+                &mut last_self_reported_shell_check,
+                &state_events,
+                pane_id,
+            )
+            .await;
             let foreground_pgid = (pid > 0)
                 .then(|| crate::detect::foreground_process_group_id(pid))
                 .flatten();
@@ -847,6 +958,7 @@ fn spawn_basic_detection_task(
                             == ForegroundShellAgentAction::ReportReplacementProcess;
                     if agent_changed {
                         pending_idle.clear();
+                        last_codex_prompt_ready = false;
                         last_screen_scan_detection_content_seq = None;
                         // A replacement agent must not inherit OSC evidence
                         // from the previous process; a first acquisition keeps
@@ -920,10 +1032,29 @@ fn spawn_basic_detection_task(
             last_screen_scan_detection_content_seq = current_detection_content_seq;
             let content_changed = content != last_detection_text;
             last_detection_text.clone_from(&content);
-            if !process_exited && crate::detect::should_skip_state_update(agent, &content) {
+            let osc_title = terminal.agent_osc_title();
+            let osc_progress = terminal.agent_osc_progress();
+            let screen_detection = detection_update_for_publish_with_osc(
+                agent,
+                &content,
+                &osc_title,
+                &osc_progress,
+                process_exited,
+            );
+            publish_codex_prompt_observation(
+                &state_events,
+                pane_id,
+                agent,
+                &content,
+                screen_detection.as_ref(),
+                process_exited,
+                &mut last_codex_prompt_ready,
+            )
+            .await;
+            let Some(screen_detection) = screen_detection else {
                 pending_idle.clear();
                 continue;
-            }
+            };
             sync_content_change_acquisition(
                 agent_presence.current_agent(),
                 suppressed_agent,
@@ -933,19 +1064,6 @@ fn spawn_basic_detection_task(
                 &mut acquisition_started_at,
                 &mut last_content_change_at,
             );
-
-            let osc_title = terminal.agent_osc_title();
-            let osc_progress = terminal.agent_osc_progress();
-            let Some(screen_detection) = detection_update_for_publish_with_osc(
-                agent,
-                &content,
-                &osc_title,
-                &osc_progress,
-                process_exited,
-            ) else {
-                pending_idle.clear();
-                continue;
-            };
             match decide_screen_detection_publish(
                 ScreenDetectionPublishInput {
                     screen_detection,
@@ -1065,7 +1183,7 @@ impl TerminalCompressionWake {
 /// Drives libghostty-vt's caller-owned compression after terminal activity settles.
 struct TerminalCompressionTask {
     wake: TerminalCompressionWake,
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     completed_passes: Arc<AtomicU64>,
     handle: tokio::task::AbortHandle,
 }
@@ -1084,9 +1202,9 @@ impl TerminalCompressionTask {
         };
         let task_notify = wake.notify.clone();
         let task_generation = wake.generation.clone();
-        #[cfg(test)]
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         let completed_passes = Arc::new(AtomicU64::new(0));
-        #[cfg(test)]
+        #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
         let task_completed_passes = completed_passes.clone();
         let handle = tokio::spawn(async move {
             run_terminal_compression_task(
@@ -1094,7 +1212,7 @@ impl TerminalCompressionTask {
                 terminal,
                 task_notify,
                 task_generation,
-                #[cfg(test)]
+                #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
                 task_completed_passes,
             )
             .await;
@@ -1102,7 +1220,7 @@ impl TerminalCompressionTask {
         .abort_handle();
         Self {
             wake,
-            #[cfg(test)]
+            #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
             completed_passes,
             handle,
         }
@@ -1120,7 +1238,7 @@ impl TerminalCompressionTask {
         self.handle.abort();
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     fn completed_passes(&self) -> u64 {
         self.completed_passes.load(Ordering::Acquire)
     }
@@ -1131,7 +1249,9 @@ async fn run_terminal_compression_task(
     terminal: Arc<PaneTerminal>,
     notify: Arc<Notify>,
     generation: Arc<AtomicU64>,
-    #[cfg(test)] completed_passes: Arc<AtomicU64>,
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))] completed_passes: Arc<
+        AtomicU64,
+    >,
 ) {
     let mut observed_generation = generation.load(Ordering::Acquire);
     let mut activity = loop {
@@ -1214,7 +1334,7 @@ async fn run_terminal_compression_task(
                 TerminalCompressionStep::Compressed(
                     crate::ghostty::TerminalCompressionResult::Complete,
                 ) => {
-                    #[cfg(test)]
+                    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
                     completed_passes.fetch_add(1, Ordering::Release);
                     loop {
                         notify.notified().await;
@@ -1240,12 +1360,15 @@ pub struct PaneRuntime {
     current_size: Cell<(u16, u16, u32, u32)>,
     child_pid: Arc<AtomicU32>,
     reported_cwd: Arc<Mutex<Option<std::path::PathBuf>>>,
+    persistence_cwd: Mutex<Option<std::path::PathBuf>>,
+    cwd_process_exited: Arc<AtomicBool>,
     child_wait_completed: Option<Arc<AtomicBool>>,
     kitty_keyboard_flags: Arc<AtomicU16>,
     content_seq: Arc<AtomicU64>,
     content_write_lock: Arc<Mutex<()>>,
     detection_content_seq: Arc<AtomicU64>,
     full_lifecycle_authority_active: Arc<AtomicBool>,
+    self_reported_agent_active: Arc<AtomicBool>,
     detect_reset_notify: Arc<Notify>,
     pending_release: Arc<Mutex<Option<PendingAgentRelease>>>,
     preserve_processes_on_drop: bool,
@@ -1590,7 +1713,134 @@ fn pane_shell_from(configured_shell: &str, env_shell: Option<String>) -> String 
 
 #[cfg(windows)]
 fn default_pane_shell() -> String {
-    "powershell.exe".into()
+    default_windows_pane_shell(std::env::var_os("PATH"))
+}
+
+/// Windows has no `$SHELL`, so an unset `[terminal] default_shell` has to name
+/// a concrete executable. `powershell.exe` (5.1) is the only one guaranteed to
+/// exist, but `pwsh` (7+) is what every other Windows terminal prefers when it
+/// is installed. Return the first launchable `pwsh.exe` on `PATH` as a full
+/// path so the pane launches exactly the binary that was validated; keep the
+/// inbox shell when none is found. An explicit `default_shell` still wins.
+#[cfg(any(windows, test))]
+fn default_windows_pane_shell(path: Option<std::ffi::OsString>) -> String {
+    path.as_deref()
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .filter(|dir| dir.is_absolute())
+        .map(|dir| dir.join("pwsh.exe"))
+        .find(|candidate| is_windows_executable_file(candidate))
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .unwrap_or_else(|| "powershell.exe".into())
+}
+
+/// Validate that `path` looks like a Windows executable image the current
+/// machine can launch: a DOS `MZ` header whose `e_lfanew` points at a `PE\0\0`
+/// signature with a non-empty, executable-image COFF header for a compatible
+/// machine and a PE32/PE32+ optional header that fits in the file.
+///
+/// `portable-pty` resolves the configured shell with `Path::exists` and hands
+/// it straight to `CreateProcessW`, which does not fall back to later `PATH`
+/// entries, so a malformed, DLL, or foreign-architecture `pwsh.exe` must be
+/// skipped here instead of selected. Actually launching the candidate is the
+/// only way to prove it loads, and this deliberately does not do that.
+#[cfg(any(windows, test))]
+fn is_windows_executable_file(path: &std::path::Path) -> bool {
+    is_windows_executable_file_for_host(path, windows_host_native_machine())
+}
+
+/// Native processor architecture of the host. Non-Windows builds only reach
+/// this from the cross-platform unit tests, which model an x64 host.
+#[cfg(any(windows, test))]
+fn windows_host_native_machine() -> u16 {
+    #[cfg(windows)]
+    {
+        crate::platform::native_machine_type()
+    }
+    #[cfg(not(windows))]
+    {
+        0x8664
+    }
+}
+
+#[cfg(any(windows, test))]
+fn is_windows_executable_file_for_host(path: &std::path::Path, native_machine: u16) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+
+    const PE_OFFSET_FIELD: usize = 0x3c;
+    const DOS_HEADER_LEN: u64 = 0x40;
+    const PE_SIGNATURE: &[u8; 4] = b"PE\0\0";
+    const COFF_HEADER_LEN: usize = 20;
+    const SECTION_HEADER_LEN: u64 = 40;
+    const OPTIONAL_HEADER_MAGIC_LEN: u64 = 2;
+    const IMAGE_FILE_EXECUTABLE_IMAGE: u16 = 0x0002;
+    const IMAGE_FILE_DLL: u16 = 0x2000;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let Ok(len) = file.metadata().map(|metadata| metadata.len()) else {
+        return false;
+    };
+
+    let mut dos_header = [0u8; DOS_HEADER_LEN as usize];
+    if file.read_exact(&mut dos_header).is_err() || &dos_header[..2] != b"MZ" {
+        return false;
+    }
+    let pe_offset = u32::from_le_bytes([
+        dos_header[PE_OFFSET_FIELD],
+        dos_header[PE_OFFSET_FIELD + 1],
+        dos_header[PE_OFFSET_FIELD + 2],
+        dos_header[PE_OFFSET_FIELD + 3],
+    ]) as u64;
+    let pe_header_len = PE_SIGNATURE.len() as u64 + COFF_HEADER_LEN as u64;
+    if pe_offset < DOS_HEADER_LEN || pe_offset.saturating_add(pe_header_len) > len {
+        return false;
+    }
+    if file.seek(SeekFrom::Start(pe_offset)).is_err() {
+        return false;
+    }
+
+    let mut header = [0u8; 4 + COFF_HEADER_LEN];
+    if file.read_exact(&mut header).is_err() || &header[..4] != PE_SIGNATURE {
+        return false;
+    }
+    let machine = u16::from_le_bytes([header[4], header[5]]);
+    let number_of_sections = u16::from_le_bytes([header[4 + 2], header[4 + 3]]);
+    let optional_header_len = u16::from_le_bytes([header[4 + 16], header[4 + 17]]) as u64;
+    let characteristics = u16::from_le_bytes([header[4 + 18], header[4 + 19]]);
+
+    if !windows_executable_machine_is_compatible(machine, native_machine)
+        || number_of_sections == 0
+        || characteristics & IMAGE_FILE_EXECUTABLE_IMAGE == 0
+        || characteristics & IMAGE_FILE_DLL != 0
+        || optional_header_len < OPTIONAL_HEADER_MAGIC_LEN
+        || pe_offset.saturating_add(
+            pe_header_len + optional_header_len + number_of_sections as u64 * SECTION_HEADER_LEN,
+        ) > len
+    {
+        return false;
+    }
+
+    let mut magic = [0u8; 2];
+    file.read_exact(&mut magic).is_ok() && matches!(u16::from_le_bytes(magic), 0x010b | 0x020b)
+}
+
+/// Whether a Windows host can launch a given `IMAGE_FILE_MACHINE_*` image.
+/// A native host runs its own architecture; ARM64 Windows also runs x64 and
+/// x86 through emulation, and x64 Windows runs x86 through WOW64. An unknown
+/// host (detection failed) is treated as the x64 build Herdr ships.
+#[cfg(any(windows, test))]
+fn windows_executable_machine_is_compatible(machine: u16, native_machine: u16) -> bool {
+    const MACHINE_I386: u16 = 0x014c;
+    const MACHINE_AMD64: u16 = 0x8664;
+    const MACHINE_ARM64: u16 = 0xaa64;
+
+    match native_machine {
+        MACHINE_ARM64 => matches!(machine, MACHINE_I386 | MACHINE_AMD64 | MACHINE_ARM64),
+        MACHINE_I386 => machine == MACHINE_I386,
+        _ => matches!(machine, MACHINE_I386 | MACHINE_AMD64),
+    }
 }
 
 #[cfg(not(windows))]
@@ -1715,6 +1965,30 @@ fn resolve_shell_for_login_mode(shell: &str) -> io::Result<String> {
 /// prompt would show success after a failed command (verified on 5.1).
 pub(crate) const WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND: &str = r"if ($null -eq $global:__HerdrOriginalPrompt) { $global:__HerdrOriginalPrompt = $function:prompt; function global:prompt { $out = @(& $global:__HerdrOriginalPrompt) -join ' '; $loc = $ExecutionContext.SessionState.Path.CurrentLocation; if ($loc.Provider.Name -eq 'FileSystem') { try { [Environment]::CurrentDirectory = $loc.ProviderPath } catch {}; $esc = [string][char]27; $out += $esc + ']9;9;' + $loc.ProviderPath + $esc + '\' }; $out } }";
 
+/// Login flags appended when launching POSIX-style shells on Windows.
+///
+/// `portable-pty`'s default-program path resolves to `%ComSpec%` (cmd.exe) on
+/// Windows and ignores the `SHELL` env override, and the Unix argv0-prefix
+/// login convention does not exist there. A login shell therefore has to be
+/// launched directly with the shell's own login flag. Only POSIX-style shells
+/// that define one (the sh family, fish, and csh/tcsh) get it; Windows-native
+/// shells such as cmd.exe and PowerShell have no login concept and launch
+/// plain.
+fn windows_login_shell_args(shell: &str) -> &'static [&'static str] {
+    let name = shell
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(shell)
+        .to_ascii_lowercase();
+    let name = name.strip_suffix(".exe").unwrap_or(&name);
+    match name {
+        "sh" | "bash" | "zsh" | "ksh" | "dash" | "ash" | "mksh" | "fish" | "csh" | "tcsh" => {
+            &["-l"]
+        }
+        _ => &[],
+    }
+}
+
 fn pane_shell_command_builder_for_target(
     shell_config: PaneShellConfig<'_>,
     target: ShellLaunchTarget,
@@ -1725,21 +1999,30 @@ fn pane_shell_command_builder_for_target(
     } else {
         shell
     };
-    if shell_mode_uses_login_shell(shell_config.mode, target) {
+    // Unix login shells go through portable-pty's default-program builder so
+    // they receive the login argv0 convention. Windows has no such convention
+    // and the default-program builder would launch cmd.exe, so Windows login
+    // shells are built directly below like every other direct-shell target.
+    if shell_mode_uses_login_shell(shell_config.mode, target)
+        && target != ShellLaunchTarget::Windows
+    {
         let mut cmd = CommandBuilder::new_default_prog();
         cmd.env("SHELL", resolve_shell_for_login_mode(&shell)?);
-        Ok(cmd)
-    } else {
-        let mut cmd = CommandBuilder::new(&shell);
-        if uses_windows_powershell_pane_shell_for_target(shell_config, target) {
-            cmd.args([
-                "-NoExit",
-                "-Command",
-                WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND,
-            ]);
-        }
-        Ok(cmd)
+        return Ok(cmd);
     }
+
+    let mut cmd = CommandBuilder::new(&shell);
+    if shell_mode_uses_login_shell(shell_config.mode, target) {
+        cmd.args(windows_login_shell_args(&shell));
+    }
+    if uses_windows_powershell_pane_shell_for_target(shell_config, target) {
+        cmd.args([
+            "-NoExit",
+            "-Command",
+            WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND,
+        ]);
+    }
+    Ok(cmd)
 }
 
 fn pane_shell_command_builder(shell_config: PaneShellConfig<'_>) -> io::Result<CommandBuilder> {
@@ -1757,9 +2040,10 @@ fn uses_windows_powershell_pane_shell_for_target(
     shell_config: PaneShellConfig<'_>,
     target: ShellLaunchTarget,
 ) -> bool {
-    target == ShellLaunchTarget::Windows
-        && !shell_mode_uses_login_shell(shell_config.mode, target)
-        && is_powershell_shell(&shell_config.resolved_shell())
+    // Login mode no longer routes Windows through the default-program builder,
+    // so login PowerShell panes are launched directly and can carry the same
+    // prompt-based cwd reporting as non-login panes.
+    target == ShellLaunchTarget::Windows && is_powershell_shell(&shell_config.resolved_shell())
 }
 
 fn is_powershell_shell(shell: &str) -> bool {
@@ -1910,6 +2194,7 @@ impl PaneRuntime {
             input_state: self.input_state(),
             terminal_title: self.terminal_title(),
             initial_history_ansi: None,
+            agent_state: None,
         }
     }
 
@@ -1988,7 +2273,7 @@ impl PaneRuntime {
         let windows_powershell_prompt_cwd_reporting =
             uses_windows_powershell_pane_shell(shell_config);
         let mut cmd = pane_shell_command_builder(shell_config)?;
-        cmd.cwd(cwd);
+        cmd.cwd(crate::platform::normalize_cwd_for_launch(&cwd));
         apply_pane_terminal_env(&mut cmd);
         apply_pane_launch_env(&mut cmd, launch_env);
         Self::spawn_command_builder(
@@ -2030,7 +2315,7 @@ impl PaneRuntime {
         render_dirty: Arc<RenderSignal>,
     ) -> std::io::Result<Self> {
         let mut cmd = crate::platform::pane_custom_command_pty_builder(command);
-        cmd.cwd(cwd);
+        cmd.cwd(crate::platform::normalize_cwd_for_launch(&cwd));
         apply_pane_terminal_env(&mut cmd);
         apply_pane_launch_env(&mut cmd, launch_env);
         Self::spawn_command_builder(
@@ -2077,7 +2362,7 @@ impl PaneRuntime {
         for arg in args {
             cmd.arg(arg);
         }
-        cmd.cwd(cwd);
+        cmd.cwd(crate::platform::normalize_cwd_for_launch(&cwd));
         apply_pane_terminal_env(&mut cmd);
         apply_pane_launch_env(&mut cmd, launch_env);
         Self::spawn_command_builder(
@@ -2120,6 +2405,7 @@ impl PaneRuntime {
             input_state,
             terminal_title,
             initial_history_ansi,
+            agent_state: _,
         } = state;
         let pane_id = PaneId::from_raw(pane_id);
         use std::os::fd::FromRawFd;
@@ -2156,6 +2442,7 @@ impl PaneRuntime {
         let compression = TerminalCompressionTask::spawn(pane_id, terminal.clone());
         let child_pid = Arc::new(AtomicU32::new(child_pid));
         let reported_cwd = Arc::new(Mutex::new(None));
+        let cwd_process_exited = Arc::new(AtomicBool::new(false));
         let kitty_keyboard_flags = Arc::new(AtomicU16::new(keyboard_protocol_flags));
         let content_seq = Arc::new(AtomicU64::new(0));
         let content_write_lock = Arc::new(Mutex::new(()));
@@ -2222,7 +2509,9 @@ impl PaneRuntime {
                 }
             });
             let exit_events = events.clone();
+            let cwd_process_exited = cwd_process_exited.clone();
             let on_reader_exit = Box::new(move || {
+                cwd_process_exited.store(true, Ordering::Release);
                 // Imported handoff panes have no child wait handle, so their exit cause is
                 // unknowable. Checkpoint conservatively; normal autosave settles clean exits.
                 let _ = rt.block_on(exit_events.send(AppEvent::PaneDied {
@@ -2241,12 +2530,14 @@ impl PaneRuntime {
         };
 
         let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
+        let self_reported_agent_active = Arc::new(AtomicBool::new(false));
         let (detect_handle, detect_reset_notify, pending_release) = spawn_basic_detection_task(
             pane_id,
             child_pid.clone(),
             terminal.clone(),
             detection_content_seq.clone(),
             full_lifecycle_authority_active.clone(),
+            self_reported_agent_active.clone(),
             events,
         );
 
@@ -2257,12 +2548,15 @@ impl PaneRuntime {
             current_size: Cell::new((rows, cols, cell_width_px, cell_height_px)),
             child_pid,
             reported_cwd,
+            persistence_cwd: Mutex::new(None),
+            cwd_process_exited,
             child_wait_completed: None,
             kitty_keyboard_flags,
             content_seq,
             content_write_lock,
             detection_content_seq,
             full_lifecycle_authority_active,
+            self_reported_agent_active,
             detect_reset_notify,
             pending_release,
             preserve_processes_on_drop: true,
@@ -2322,6 +2616,7 @@ impl PaneRuntime {
         let content_seq = Arc::new(AtomicU64::new(0));
         let detection_content_seq = Arc::new(AtomicU64::new(0));
         let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
+        let self_reported_agent_active = Arc::new(AtomicBool::new(false));
         {
             let child_pid = child_pid.clone();
             let child_wait_completed = child_wait_completed.clone();
@@ -2445,6 +2740,7 @@ impl PaneRuntime {
             let state_events = events.clone();
             let detection_content_seq = detection_content_seq.clone();
             let full_lifecycle_authority_active_for_task = full_lifecycle_authority_active.clone();
+            let self_reported_agent_active_for_task = self_reported_agent_active.clone();
             let render_notify = render_notify.clone();
             let render_dirty = render_dirty.clone();
             let detect_reset_notify = Arc::new(Notify::new());
@@ -2475,6 +2771,8 @@ impl PaneRuntime {
                 let mut last_screen_scan_detection_content_seq = None;
                 let mut agent_startup_grace_until = None;
                 let mut pending_idle = PendingIdleConfirmation::default();
+                let mut last_codex_prompt_ready = false;
+                let mut last_self_reported_shell_check = None;
 
                 tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -2495,6 +2793,10 @@ impl PaneRuntime {
                     tokio::select! {
                         _ = tokio::time::sleep(tick) => {}
                         _ = detect_reset.notified() => {
+                            publish_codex_prompt_observation(
+                                &state_events, pane_id, Some(Agent::Codex), "", None, false,
+                                &mut last_codex_prompt_ready,
+                            ).await;
                             agent_presence = AgentDetectionPresence::from_agent(None);
                             state = AgentState::Unknown;
                             last_visible_idle = false;
@@ -2528,6 +2830,15 @@ impl PaneRuntime {
                     let mut agent = agent_presence.current_agent();
                     let lifecycle_authority_active =
                         full_lifecycle_authority_active_for_task.load(Ordering::Acquire);
+                    report_self_reported_agent_shell_return(
+                        &self_reported_agent_active_for_task,
+                        pid,
+                        now,
+                        &mut last_self_reported_shell_check,
+                        &state_events,
+                        pane_id,
+                    )
+                    .await;
                     let process_probe_input = ProcessProbeInput {
                         current_agent: agent,
                         suppressed_agent,
@@ -2638,6 +2949,7 @@ impl PaneRuntime {
                                         == ForegroundShellAgentAction::ReportReplacementProcess
                                 {
                                     pending_idle.clear();
+                                    last_codex_prompt_ready = false;
                                     last_screen_scan_detection_content_seq = None;
                                     // A replacement agent must not inherit OSC
                                     // evidence from the previous process; a first
@@ -2745,10 +3057,29 @@ impl PaneRuntime {
                     last_screen_scan_detection_content_seq = current_detection_content_seq;
                     let content_changed = content != last_detection_text;
                     last_detection_text.clone_from(&content);
-                    if detect::should_skip_state_update(agent, &content) {
+                    let osc_title = terminal.agent_osc_title();
+                    let osc_progress = terminal.agent_osc_progress();
+                    let screen_detection = detection_update_for_publish_with_osc(
+                        agent,
+                        &content,
+                        &osc_title,
+                        &osc_progress,
+                        process_exited,
+                    );
+                    publish_codex_prompt_observation(
+                        &state_events,
+                        pane_id,
+                        agent,
+                        &content,
+                        screen_detection.as_ref(),
+                        process_exited,
+                        &mut last_codex_prompt_ready,
+                    )
+                    .await;
+                    let Some(screen_detection) = screen_detection else {
                         pending_idle.clear();
                         continue;
-                    }
+                    };
                     sync_content_change_acquisition(
                         agent_presence.current_agent(),
                         suppressed_agent,
@@ -2758,19 +3089,6 @@ impl PaneRuntime {
                         &mut acquisition_started_at,
                         &mut last_content_change_at,
                     );
-
-                    let osc_title = terminal.agent_osc_title();
-                    let osc_progress = terminal.agent_osc_progress();
-                    let Some(screen_detection) = detection_update_for_publish_with_osc(
-                        agent,
-                        &content,
-                        &osc_title,
-                        &osc_progress,
-                        process_exited,
-                    ) else {
-                        pending_idle.clear();
-                        continue;
-                    };
                     match decide_screen_detection_publish(
                         ScreenDetectionPublishInput {
                             screen_detection,
@@ -2833,12 +3151,15 @@ impl PaneRuntime {
             current_size: Cell::new((rows, cols, 0, 0)),
             child_pid,
             reported_cwd,
+            persistence_cwd: Mutex::new(None),
+            cwd_process_exited: child_wait_completed.clone(),
             child_wait_completed: Some(child_wait_completed),
             kitty_keyboard_flags,
             content_seq,
             content_write_lock,
             detection_content_seq,
             full_lifecycle_authority_active,
+            self_reported_agent_active,
             detect_reset_notify,
             pending_release,
             preserve_processes_on_drop: false,
@@ -2864,6 +3185,11 @@ impl PaneRuntime {
     #[cfg(test)]
     pub(crate) fn agent_detection_reset_notify_for_test(&self) -> Arc<Notify> {
         self.detect_reset_notify.clone()
+    }
+
+    pub fn set_self_reported_agent_active(&self, active: bool) {
+        self.self_reported_agent_active
+            .store(active, Ordering::Release);
     }
 
     pub fn set_full_lifecycle_authority_active(&self, active: bool) {
@@ -2933,6 +3259,20 @@ impl PaneRuntime {
         self.compression.wake();
     }
 
+    pub fn clear_screen(&self) -> Result<(), String> {
+        let guard = match self.content_write_lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        self.content_seq.fetch_add(1, Ordering::AcqRel);
+        let result = self.terminal.clear_screen();
+        self.content_seq.fetch_add(1, Ordering::Release);
+        drop(guard);
+        self.compression.wake();
+        mark_detection_content_changed(&self.detection_content_seq);
+        result
+    }
+
     /// Reset scroll to live view (offset = 0).
     pub fn scroll_reset(&self) {
         self.terminal.scroll_reset();
@@ -2998,7 +3338,7 @@ impl PaneRuntime {
         result
     }
 
-    #[cfg(any(unix, test))]
+    #[cfg(unix)]
     pub fn input_state(&self) -> Option<InputState> {
         self.terminal.input_state()
     }
@@ -3046,6 +3386,10 @@ impl PaneRuntime {
 
     pub fn synchronized_output_active(&self) -> bool {
         self.terminal.synchronized_output_active()
+    }
+
+    pub(crate) fn synchronized_output_state(&self) -> (bool, u64) {
+        self.terminal.synchronized_output_state()
     }
 
     pub fn visible_text(&self) -> String {
@@ -3117,16 +3461,53 @@ impl PaneRuntime {
         self.terminal.render(frame, area, show_cursor);
     }
 
-    pub(crate) fn collect_dirty_patch(
+    pub(crate) fn collect_dirty_patch_snapshot(
         &self,
         area_width: u16,
         area_height: u16,
-    ) -> TerminalDirtyPatchOutcome {
-        self.terminal.collect_dirty_patch(area_width, area_height)
+    ) -> Option<TerminalDirtyPatchSnapshot> {
+        // PTY/resize writers announce changes before locking the terminal core.
+        // Exclude them until rows and metadata have been paired with their revision.
+        let _content_guard = self
+            .content_write_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let revision = self.content_seq();
+        if !revision.is_multiple_of(2) {
+            return None;
+        }
+        let patch = self.terminal.collect_dirty_patch(area_width, area_height);
+        if matches!(patch, TerminalDirtyPatchOutcome::Fallback) {
+            return None;
+        }
+        let snapshot = TerminalDirtyPatchSnapshot {
+            patch,
+            content_revision: revision,
+            scroll_metrics: self.scroll_metrics(),
+            mouse_reporting: self.mouse_reporting_enabled(),
+            sgr_pixel_mouse: self.sgr_pixel_mouse_enabled(),
+            alternate_screen_active: self.alternate_screen_active(),
+            graphics_may_have_placements: crate::kitty_graphics::is_enabled()
+                && self.kitty_graphics_may_have_placements(),
+        };
+        (self.content_seq() == revision).then_some(snapshot)
     }
 
     pub fn visible_hyperlinks(&self, area: Rect) -> Vec<((u16, u16), String, String)> {
         self.terminal.visible_hyperlinks(area)
+    }
+
+    pub(crate) fn link_regions_at(
+        &self,
+        col: u16,
+        row: u16,
+        resolve: fn(&str, usize) -> Option<std::ops::Range<usize>>,
+    ) -> Vec<crate::api::schema::PaneLinkRegion> {
+        self.terminal.link_regions_at(col, row, resolve)
+    }
+
+    pub(crate) fn link_target_at(&self, col: u16, row: u16) -> Option<crate::ghostty::LinkTarget> {
+        self.terminal.link_target_at(col, row)
     }
 
     pub(crate) fn kitty_graphics_may_have_placements(&self) -> bool {
@@ -3142,6 +3523,10 @@ impl PaneRuntime {
     {
         self.terminal
             .kitty_image_placements_with_data_filter(needs_data)
+    }
+
+    pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
+        self.terminal.kitty_image_fingerprints(image_ids)
     }
 
     pub fn keyboard_protocol(&self) -> crate::input::KeyboardProtocol {
@@ -3299,6 +3684,27 @@ impl PaneRuntime {
             .is_ok_and(|reported_cwd| reported_cwd.is_some())
     }
 
+    pub fn cwd_for_persistence(&self) -> Option<std::path::PathBuf> {
+        let pid = self.child_pid.load(Ordering::Acquire);
+        let exited = self.cwd_process_exited.load(Ordering::Acquire);
+        if let Some(cwd) = (!exited)
+            .then(|| crate::platform::process_cwd(pid))
+            .flatten()
+            .filter(|cwd| cwd.is_absolute())
+        {
+            // Persistence observations must not change OSC authority or follow-cwd behavior.
+            if let Ok(mut known) = self.persistence_cwd.lock() {
+                *known = Some(cwd.clone());
+            }
+            return Some(cwd);
+        }
+        self.persistence_cwd
+            .lock()
+            .ok()
+            .and_then(|cwd| cwd.clone())
+            .or_else(|| self.reported_cwd.lock().ok().and_then(|cwd| cwd.clone()))
+    }
+
     pub fn child_pid(&self) -> Option<u32> {
         let pid = self.child_pid.load(Ordering::Acquire);
         (pid > 0).then_some(pid)
@@ -3349,6 +3755,13 @@ impl PaneRuntime {
 
 #[cfg(test)]
 impl PaneRuntime {
+    #[cfg(unix)]
+    pub(crate) fn test_enable_kitty_source_forwarding(&self) {
+        let mut core = self.terminal.ghostty.core.lock().unwrap();
+        core.terminal.enable_kitty_graphics().unwrap();
+        core.terminal.set_kitty_source_forwarding(true).unwrap();
+    }
+
     pub(crate) fn test_with_channel(cols: u16, rows: u16) -> (Self, mpsc::Receiver<Bytes>) {
         Self::test_with_channel_and_scrollback_bytes(cols, rows, 0, &[], 4)
     }
@@ -3363,6 +3776,60 @@ impl PaneRuntime {
 
     pub(crate) fn test_with_screen_bytes(cols: u16, rows: u16, bytes: &[u8]) -> Self {
         Self::test_with_scrollback_bytes(cols, rows, 0, bytes)
+    }
+
+    pub(crate) fn test_contend_during_dirty_collection(
+        &self,
+        bytes: Vec<u8>,
+    ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<bool>) {
+        let terminal = self.terminal.clone();
+        let sequence = self.content_seq.clone();
+        let write_lock = self.content_write_lock.clone();
+        let pane_id = self.pane_id;
+        let (start_tx, start_rx) = std::sync::mpsc::channel();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        self.terminal
+            .ghostty
+            .core
+            .lock()
+            .unwrap()
+            .dirty_collection_hook = Some(Box::new(move || {
+            start_tx.send(()).unwrap();
+            ready_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+        }));
+        let writer = std::thread::spawn(move || {
+            start_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            let guard = match write_lock.try_lock() {
+                Ok(guard) => Some(guard),
+                Err(std::sync::TryLockError::WouldBlock) => None,
+                Err(error) => panic!("poisoned content lock: {error}"),
+            };
+            let announced = guard.is_some();
+            if announced {
+                sequence.fetch_add(1, Ordering::AcqRel);
+                assert!(matches!(
+                    terminal.ghostty.core.try_lock(),
+                    Err(std::sync::TryLockError::WouldBlock)
+                ));
+            }
+            ready_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+            let _guard = guard.unwrap_or_else(|| {
+                let guard = write_lock.lock().unwrap();
+                sequence.fetch_add(1, Ordering::AcqRel);
+                guard
+            });
+            let (tx, _rx) = mpsc::channel(1);
+            let _ = terminal.process_pty_bytes(pane_id, 0, &bytes, &tx);
+            sequence.fetch_add(1, Ordering::Release);
+            announced
+        });
+        (release_tx, writer)
     }
 
     pub(crate) fn test_process_pty_bytes(&self, bytes: &[u8]) {
@@ -3415,12 +3882,15 @@ impl PaneRuntime {
                 current_size: Cell::new((rows, cols, 0, 0)),
                 child_pid: Arc::new(AtomicU32::new(0)),
                 reported_cwd: Arc::new(Mutex::new(None)),
+                persistence_cwd: Mutex::new(None),
+                cwd_process_exited: Arc::new(AtomicBool::new(false)),
                 child_wait_completed: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
                 content_seq: Arc::new(AtomicU64::new(0)),
                 content_write_lock: Arc::new(Mutex::new(())),
                 detection_content_seq: Arc::new(AtomicU64::new(0)),
                 full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
+                self_reported_agent_active: Arc::new(AtomicBool::new(false)),
                 detect_reset_notify: Arc::new(Notify::new()),
                 pending_release: Arc::new(Mutex::new(None)),
                 preserve_processes_on_drop: true,
@@ -3435,25 +3905,194 @@ impl PaneRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
 
-    #[test]
-    fn pane_launch_env_removes_outer_codex_thread_id() {
-        let mut cmd = CommandBuilder::new("shell");
-        cmd.env("CODEX_THREAD_ID", "outer-session");
+    #[tokio::test]
+    async fn clear_pane_preserves_wrapped_input_and_unfinished_vt_sequence() {
+        let (runtime, mut rx) = PaneRuntime::test_with_channel_and_scrollback_bytes(
+            10,
+            5,
+            100_000,
+            b"old\r\nold\r\nold\r\nold\r\nold\r\n\x1b[32m$ abcdefghijklmnop\x1b[1A\x1b[4G\x1b[",
+            4,
+        );
+        let before = runtime.content_seq();
+        runtime.scroll_up(1);
+        runtime.clear_screen().unwrap();
+        let snapshot = runtime.collect_dirty_patch_snapshot(10, 5).unwrap();
+        assert!(snapshot.content_revision > before);
+        assert!(!matches!(snapshot.patch, TerminalDirtyPatchOutcome::Clean));
+        let metrics = runtime.scroll_metrics().unwrap();
+        assert_eq!(metrics.max_offset_from_bottom, 0);
+        assert_eq!(metrics.offset_from_bottom, 0);
+        let text = runtime.recent_unwrapped_text_snapshot(100).text;
+        assert!(text.contains("$ abcdefghijklmnop"), "{text:?}");
+        assert!(!text.contains("old"), "{text:?}");
+        runtime.test_process_pty_bytes(b"5 q");
+        assert!(!runtime.visible_text().contains("5 q"));
+        assert!(rx.try_recv().is_err(), "clear must not send child input");
+    }
 
-        apply_pane_launch_env(&mut cmd, &PaneLaunchEnv::default());
+    #[tokio::test]
+    async fn clear_pane_preserves_alternate_screen_and_primary_history() {
+        let runtime = PaneRuntime::test_with_scrollback_bytes(
+            20,
+            4,
+            100_000,
+            b"one\r\ntwo\r\nthree\r\nfour\r\nfive\x1b[?1049halt app",
+        );
+        let before = runtime.visible_text();
+        runtime.clear_screen().unwrap();
+        assert_eq!(runtime.visible_text(), before);
+        runtime.test_process_pty_bytes(b"\x1b[?1049l");
+        assert!(runtime
+            .recent_unwrapped_text_snapshot(100)
+            .text
+            .contains("one"));
+        runtime.clear_screen().unwrap();
+        assert!(!runtime
+            .recent_unwrapped_text_snapshot(100)
+            .text
+            .contains("one"));
+        assert!(runtime.visible_text().contains("five"));
+    }
 
-        assert!(cmd.get_env("CODEX_THREAD_ID").is_none());
+    #[tokio::test]
+    async fn dirty_patch_snapshot_keeps_clean_metadata_and_terminal_fallback() {
+        let (runtime, _rx) = PaneRuntime::test_with_channel(20, 4);
+        runtime
+            .collect_dirty_patch_snapshot(20, 4)
+            .expect("initial snapshot");
+        runtime.test_process_pty_bytes(b"\x1b[?1003h\x1b[?1016h");
+        let snapshot = runtime
+            .collect_dirty_patch_snapshot(20, 4)
+            .expect("mode snapshot");
+        assert!(matches!(snapshot.patch, TerminalDirtyPatchOutcome::Clean));
+        assert_eq!(snapshot.content_revision, runtime.content_seq());
+        assert!(snapshot.content_revision.is_multiple_of(2));
+        assert!(snapshot.mouse_reporting);
+        assert!(snapshot.sgr_pixel_mouse);
+        assert!(!snapshot.alternate_screen_active);
+
+        runtime.test_process_pty_bytes(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\");
+        assert!(runtime.collect_dirty_patch_snapshot(20, 4).is_none());
+        assert!(runtime.content_write_lock.try_lock().is_ok());
+    }
+
+    #[tokio::test]
+    async fn dirty_patch_snapshot_tracks_serialized_scroll_and_resize() {
+        let runtime = PaneRuntime::test_with_scrollback_bytes(
+            20,
+            4,
+            100_000,
+            b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix",
+        );
+        runtime
+            .collect_dirty_patch_snapshot(20, 4)
+            .expect("live snapshot");
+        runtime.scroll_up(1);
+        let scrolled = runtime
+            .collect_dirty_patch_snapshot(20, 4)
+            .expect("scrolled snapshot");
+        assert_eq!(
+            scrolled.scroll_metrics.expect("metrics").offset_from_bottom,
+            1
+        );
+        runtime.scroll_reset();
+        runtime.resize(5, 24, 0, 0);
+        let resized = runtime
+            .collect_dirty_patch_snapshot(24, 5)
+            .expect("resized snapshot");
+        let metrics = resized.scroll_metrics.expect("resized metrics");
+        assert_eq!(metrics.offset_from_bottom, 0);
+        assert_eq!(metrics.viewport_rows, 5);
+        assert!(resized.content_revision.is_multiple_of(2));
+        let TerminalDirtyPatchOutcome::Patch(patch) = resized.patch else {
+            panic!("resize must dirty the viewport");
+        };
+        assert_eq!(patch.rows.len(), 5);
+        assert!(patch.rows.iter().all(|(_, cells)| cells.len() == 24));
     }
 
     #[test]
-    fn pane_terminal_identity_removes_outer_windows_terminal_session() {
+    fn pane_launch_env_removes_outer_agent_identity() {
+        let keys = [
+            "CODEX_THREAD_ID",
+            "OMPCODE",
+            "CLAUDECODE",
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_MESSAGING_TOKEN",
+        ];
         let mut cmd = CommandBuilder::new("shell");
-        cmd.env("WT_SESSION", "outer-session");
+        for key in keys {
+            cmd.env(key, "outer-session");
+        }
+        cmd.env("ANTHROPIC_API_KEY", "fake-api-key");
+        cmd.env("DISPLAY", ":42");
+
+        apply_pane_launch_env(&mut cmd, &PaneLaunchEnv::default());
+
+        for key in keys {
+            assert!(cmd.get_env(key).is_none(), "{key} must not leak into panes");
+        }
+        assert_eq!(
+            cmd.get_env("ANTHROPIC_API_KEY"),
+            Some(OsStr::new("fake-api-key"))
+        );
+        assert_eq!(cmd.get_env("DISPLAY"), Some(OsStr::new(":42")));
+    }
+
+    #[test]
+    fn pane_terminal_identity_removes_outer_terminal_identity() {
+        let keys = [
+            "ITERM_SESSION_ID",
+            "LC_TERMINAL",
+            "LC_TERMINAL_VERSION",
+            "WEZTERM_PANE",
+            "KITTY_WINDOW_ID",
+            "WT_SESSION",
+            "TMUX",
+            "TMUX_PANE",
+            "STY",
+            "ZELLIJ",
+            "ZELLIJ_SESSION_NAME",
+            "ZELLIJ_PANE_ID",
+        ];
+        let mut cmd = CommandBuilder::new("shell");
+        for key in keys {
+            cmd.env(key, "outer-session");
+        }
+        cmd.env("TERM_PROGRAM", "iTerm.app");
+        cmd.env("TERM_PROGRAM_VERSION", "outer-version");
 
         apply_pane_terminal_env(&mut cmd);
 
-        assert!(cmd.get_env("WT_SESSION").is_none());
+        for key in keys {
+            assert!(cmd.get_env(key).is_none(), "{key} must not leak into panes");
+        }
+        assert_eq!(cmd.get_env("TERM_PROGRAM"), Some(OsStr::new("herdr")));
+        assert_eq!(
+            cmd.get_env("TERM_PROGRAM_VERSION"),
+            Some(OsStr::new(&crate::build_info::version()))
+        );
+    }
+
+    #[test]
+    fn pane_launch_env_allows_explicit_session_identity() {
+        let extra = vec![
+            ("CLAUDE_CODE_CHILD_SESSION".into(), "1".into()),
+            ("CLAUDE_CODE_SESSION_ID".into(), "intentional-child".into()),
+            ("CLAUDE_CODE_MESSAGING_TOKEN".into(), "fake-token".into()),
+            ("ITERM_SESSION_ID".into(), "intentional-host".into()),
+        ];
+        let mut cmd = CommandBuilder::new("shell");
+        apply_pane_terminal_env(&mut cmd);
+        apply_pane_launch_env(&mut cmd, &PaneLaunchEnv::from_extra(extra.clone()));
+
+        for (key, value) in extra {
+            assert_eq!(cmd.get_env(key), Some(OsStr::new(&value)));
+        }
     }
 
     #[tokio::test]
@@ -3630,6 +4269,201 @@ mod tests {
         assert_eq!(pane_shell_from("", None), default_pane_shell());
     }
 
+    const TEST_EXECUTABLE_IMAGE: u16 = 0x0002;
+    const TEST_DLL: u16 = 0x2000;
+    const TEST_MACHINE_AMD64: u16 = 0x8664;
+
+    /// Structurally valid PE32+ image, with fields chosen so tests can make it
+    /// malformed one way at a time.
+    fn windows_test_pe(machine: u16, characteristics: u16, number_of_sections: u16) -> Vec<u8> {
+        const PE_OFFSET: u32 = 0x80;
+        const COFF_HEADER_LEN: usize = 20;
+        const OPTIONAL_HEADER_LEN: u16 = 0x70;
+        const SECTION_HEADER_LEN: usize = 40;
+
+        let pe = PE_OFFSET as usize;
+        let mut bytes = vec![
+            0u8;
+            pe + 4
+                + COFF_HEADER_LEN
+                + OPTIONAL_HEADER_LEN as usize
+                + number_of_sections as usize * SECTION_HEADER_LEN
+        ];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&PE_OFFSET.to_le_bytes());
+        bytes[pe..pe + 4].copy_from_slice(b"PE\0\0");
+        bytes[pe + 4..pe + 6].copy_from_slice(&machine.to_le_bytes());
+        bytes[pe + 4 + 2..pe + 4 + 4].copy_from_slice(&number_of_sections.to_le_bytes());
+        bytes[pe + 4 + 16..pe + 4 + 18].copy_from_slice(&OPTIONAL_HEADER_LEN.to_le_bytes());
+        bytes[pe + 4 + 18..pe + 4 + 20].copy_from_slice(&characteristics.to_le_bytes());
+        bytes[pe + 24..pe + 26].copy_from_slice(&0x020bu16.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn windows_default_pane_shell_prefers_pwsh_on_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-windows-default-shell-pwsh-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pwsh = dir.join("pwsh.exe");
+        let image = windows_test_pe(TEST_MACHINE_AMD64, TEST_EXECUTABLE_IMAGE, 1);
+        std::fs::write(&pwsh, image).unwrap();
+        let path = std::env::join_paths([&dir]).unwrap();
+
+        let resolved = default_windows_pane_shell(Some(path));
+        let expected = pwsh.into_os_string().into_string().unwrap();
+
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn windows_default_pane_shell_falls_back_to_inbox_powershell() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-windows-default-shell-fallback-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file that is not a launchable executable must not be selected.
+        std::fs::write(dir.join("pwsh.exe"), b"not a PE image").unwrap();
+        let path = std::env::join_paths([&dir]).unwrap();
+
+        let invalid = default_windows_pane_shell(Some(path));
+
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(invalid, "powershell.exe");
+        assert_eq!(default_windows_pane_shell(None), "powershell.exe");
+    }
+
+    #[test]
+    fn windows_default_pane_shell_rejects_non_executable_pe_images() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-windows-default-shell-invalid-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pwsh = dir.join("pwsh.exe");
+        let path = || std::env::join_paths([&dir]).unwrap();
+
+        let truncated_header = {
+            let mut bytes = b"MZ".to_vec();
+            bytes.resize(0x40, 0);
+            bytes[0x3c..0x40].copy_from_slice(&0x50u32.to_le_bytes());
+            bytes
+        };
+        // One declared section, but the file ends before its 40-byte header.
+        let truncated_section_table = {
+            let mut bytes = windows_test_pe(TEST_MACHINE_AMD64, TEST_EXECUTABLE_IMAGE, 1);
+            bytes.truncate(bytes.len() - 1);
+            bytes
+        };
+        let cases: [(&str, Vec<u8>); 7] = [
+            ("empty", Vec::new()),
+            ("dos signature only", b"MZ".to_vec()),
+            ("truncated pe header", truncated_header),
+            ("truncated section table", truncated_section_table),
+            (
+                "dll",
+                windows_test_pe(TEST_MACHINE_AMD64, TEST_EXECUTABLE_IMAGE | TEST_DLL, 1),
+            ),
+            (
+                "no executable bit",
+                windows_test_pe(TEST_MACHINE_AMD64, 0, 1),
+            ),
+            (
+                "foreign machine",
+                windows_test_pe(0x0200, TEST_EXECUTABLE_IMAGE, 1),
+            ),
+        ];
+
+        for (label, bytes) in cases {
+            std::fs::write(&pwsh, &bytes).unwrap();
+            assert_eq!(
+                default_windows_pane_shell(Some(path())),
+                "powershell.exe",
+                "case {label:?}"
+            );
+        }
+
+        std::fs::write(
+            &pwsh,
+            windows_test_pe(TEST_MACHINE_AMD64, TEST_EXECUTABLE_IMAGE, 0),
+        )
+        .unwrap();
+        assert_eq!(
+            default_windows_pane_shell(Some(path())),
+            "powershell.exe",
+            "case zero sections"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn windows_executable_machine_compatibility_tracks_native_host() {
+        const I386: u16 = 0x014c;
+        const AMD64: u16 = 0x8664;
+        const ARM64: u16 = 0xaa64;
+
+        assert!(windows_executable_machine_is_compatible(I386, AMD64));
+        assert!(windows_executable_machine_is_compatible(AMD64, AMD64));
+        assert!(!windows_executable_machine_is_compatible(ARM64, AMD64));
+        assert!(windows_executable_machine_is_compatible(I386, ARM64));
+        assert!(windows_executable_machine_is_compatible(AMD64, ARM64));
+        assert!(windows_executable_machine_is_compatible(ARM64, ARM64));
+        assert!(windows_executable_machine_is_compatible(I386, I386));
+        assert!(!windows_executable_machine_is_compatible(AMD64, I386));
+        assert!(!windows_executable_machine_is_compatible(0x0200, AMD64));
+    }
+
+    #[test]
+    fn windows_executable_file_rejects_arm64_image_on_amd64_host() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-windows-default-shell-arm64-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pwsh = dir.join("pwsh.exe");
+        std::fs::write(&pwsh, windows_test_pe(0xaa64, TEST_EXECUTABLE_IMAGE, 1)).unwrap();
+
+        let on_amd64 = is_windows_executable_file_for_host(&pwsh, 0x8664);
+        let on_arm64 = is_windows_executable_file_for_host(&pwsh, 0xaa64);
+        let on_x86 = is_windows_executable_file_for_host(&pwsh, 0x014c);
+
+        let _ = std::fs::remove_dir_all(dir);
+        assert!(!on_amd64, "x64 Windows cannot launch a pure ARM64 image");
+        assert!(on_arm64);
+        assert!(!on_x86);
+    }
+
+    #[test]
+    fn windows_default_pane_shell_skips_invalid_pwsh_candidates() {
+        let base = std::env::temp_dir().join(format!(
+            "herdr-windows-default-shell-skip-{}",
+            std::process::id()
+        ));
+        let invalid_dir = base.join("invalid");
+        let valid_dir = base.join("valid");
+        std::fs::create_dir_all(&invalid_dir).unwrap();
+        std::fs::create_dir_all(&valid_dir).unwrap();
+        std::fs::write(invalid_dir.join("pwsh.exe"), b"MZ").unwrap();
+        let pwsh = valid_dir.join("pwsh.exe");
+        std::fs::write(
+            &pwsh,
+            windows_test_pe(TEST_MACHINE_AMD64, TEST_EXECUTABLE_IMAGE, 1),
+        )
+        .unwrap();
+        let path = std::env::join_paths([&invalid_dir, &valid_dir]).unwrap();
+
+        let resolved = default_windows_pane_shell(Some(path));
+        let expected = pwsh.into_os_string().into_string().unwrap();
+
+        let _ = std::fs::remove_dir_all(base);
+        assert_eq!(resolved, expected);
+    }
+
     #[test]
     fn shell_mode_auto_uses_login_shell_only_on_macos() {
         assert!(shell_mode_uses_login_shell(
@@ -3682,6 +4516,122 @@ mod tests {
             cmd.get_env("SHELL").and_then(std::ffi::OsStr::to_str),
             Some("/bin/sh")
         );
+    }
+
+    #[test]
+    fn windows_login_shell_builder_launches_configured_shell_with_login_flag() {
+        let cmd = pane_shell_command_builder_for_target(
+            PaneShellConfig::new("bash.exe", crate::config::ShellModeConfig::Login),
+            ShellLaunchTarget::Windows,
+        )
+        .unwrap();
+
+        assert!(
+            !cmd.is_default_prog(),
+            "Windows login mode must not fall back to the default program (cmd.exe)"
+        );
+        assert_eq!(
+            cmd.get_argv(),
+            &[
+                std::ffi::OsString::from("bash.exe"),
+                std::ffi::OsString::from("-l"),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_login_shell_builder_launches_native_shells_without_flag() {
+        for shell in ["cmd.exe", "C:\\Windows\\System32\\cmd.exe"] {
+            let cmd = pane_shell_command_builder_for_target(
+                PaneShellConfig::new(shell, crate::config::ShellModeConfig::Login),
+                ShellLaunchTarget::Windows,
+            )
+            .unwrap();
+
+            assert!(!cmd.is_default_prog(), "shell {shell:?}");
+            assert_eq!(
+                cmd.get_argv(),
+                &[std::ffi::OsString::from(shell)],
+                "shell {shell:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_login_powershell_builder_injects_prompt_cwd_shell_integration() {
+        for shell in [
+            "powershell.exe",
+            "pwsh.exe",
+            "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        ] {
+            let cmd = pane_shell_command_builder_for_target(
+                PaneShellConfig::new(shell, crate::config::ShellModeConfig::Login),
+                ShellLaunchTarget::Windows,
+            )
+            .unwrap();
+
+            assert_eq!(
+                cmd.get_argv(),
+                &[
+                    std::ffi::OsString::from(shell),
+                    std::ffi::OsString::from("-NoExit"),
+                    std::ffi::OsString::from("-Command"),
+                    std::ffi::OsString::from(WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND),
+                ],
+                "shell {shell:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_login_shell_args_maps_posix_shells_to_login_flag() {
+        for shell in [
+            "sh",
+            "sh.exe",
+            "bash",
+            "bash.exe",
+            "BASH.EXE",
+            "zsh",
+            "zsh.exe",
+            "ksh",
+            "dash",
+            "ash",
+            "mksh",
+            "fish",
+            "fish.exe",
+            "csh",
+            "csh.exe",
+            "tcsh",
+            "tcsh.exe",
+            "C:\\Program Files\\Git\\bin\\bash.exe",
+        ] {
+            assert_eq!(
+                windows_login_shell_args(shell),
+                &["-l"],
+                "shell {shell:?} should get the login flag"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_login_shell_args_omits_flag_for_shells_without_login_concept() {
+        for shell in [
+            "cmd",
+            "cmd.exe",
+            "powershell",
+            "powershell.exe",
+            "pwsh",
+            "pwsh.exe",
+            "nu",
+            "nu.exe",
+            "C:\\Windows\\System32\\cmd.exe",
+        ] {
+            assert_eq!(
+                windows_login_shell_args(shell),
+                &[] as &[&str],
+                "shell {shell:?} must not get a login flag"
+            );
+        }
     }
 
     #[test]
@@ -3785,26 +4735,31 @@ mod tests {
     }
 
     #[test]
-    fn windows_powershell_pane_shell_predicate_requires_windows_and_non_login() {
-        let pwsh = PaneShellConfig::new("pwsh.exe", crate::config::ShellModeConfig::NonLogin);
-        assert!(uses_windows_powershell_pane_shell_for_target(
-            pwsh,
-            ShellLaunchTarget::Windows
-        ));
-        assert!(!uses_windows_powershell_pane_shell_for_target(
-            pwsh,
-            ShellLaunchTarget::OtherUnix
-        ));
-        assert!(!uses_windows_powershell_pane_shell_for_target(
-            pwsh,
-            ShellLaunchTarget::Macos
-        ));
-        assert!(!uses_windows_powershell_pane_shell_for_target(
-            PaneShellConfig::new("pwsh.exe", crate::config::ShellModeConfig::Login),
-            ShellLaunchTarget::Windows
-        ));
+    fn windows_powershell_pane_shell_predicate_requires_windows_and_powershell() {
+        for mode in [
+            crate::config::ShellModeConfig::NonLogin,
+            crate::config::ShellModeConfig::Login,
+        ] {
+            let pwsh = PaneShellConfig::new("pwsh.exe", mode);
+            assert!(
+                uses_windows_powershell_pane_shell_for_target(pwsh, ShellLaunchTarget::Windows),
+                "mode {mode:?}"
+            );
+            assert!(!uses_windows_powershell_pane_shell_for_target(
+                pwsh,
+                ShellLaunchTarget::OtherUnix
+            ));
+            assert!(!uses_windows_powershell_pane_shell_for_target(
+                pwsh,
+                ShellLaunchTarget::Macos
+            ));
+        }
         assert!(!uses_windows_powershell_pane_shell_for_target(
             PaneShellConfig::new("cmd.exe", crate::config::ShellModeConfig::NonLogin),
+            ShellLaunchTarget::Windows
+        ));
+        assert!(!uses_windows_powershell_pane_shell_for_target(
+            PaneShellConfig::new("cmd.exe", crate::config::ShellModeConfig::Login),
             ShellLaunchTarget::Windows
         ));
     }
@@ -3920,6 +4875,23 @@ mod tests {
         );
 
         assert!(runtime.handoff_history_ansi().is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ended_handoff_keeps_persistence_cwd_when_pid_is_reused() {
+        let (runtime, _rx) = PaneRuntime::test_with_channel(80, 24);
+        assert!(runtime.child_wait_completed.is_none());
+        let saved = std::env::temp_dir().join("saved-handoff-cwd");
+        *runtime.persistence_cwd.lock().unwrap() = Some(saved.clone());
+        // A different live process now owns the imported shell's numeric PID.
+        runtime
+            .child_pid
+            .store(std::process::id(), Ordering::Release);
+        runtime.cwd_process_exited.store(true, Ordering::Release);
+        assert_eq!(runtime.cwd_for_persistence(), Some(saved));
+        *runtime.persistence_cwd.lock().unwrap() = None;
+        assert_eq!(runtime.cwd_for_persistence(), None);
     }
 
     #[cfg(unix)]
@@ -4079,6 +5051,9 @@ mod tests {
         ));
         let compression = TerminalCompressionTask::spawn(pane_id, terminal.clone());
         let runtime = PaneRuntime {
+            self_reported_agent_active: Arc::new(AtomicBool::new(false)),
+            cwd_process_exited: Arc::new(AtomicBool::new(false)),
+            persistence_cwd: Mutex::new(None),
             pane_id,
             terminal,
             io: PaneRuntimeIo::TestChannel {
@@ -4116,6 +5091,9 @@ mod tests {
         ));
         let compression = TerminalCompressionTask::spawn(pane_id, terminal.clone());
         let runtime = PaneRuntime {
+            self_reported_agent_active: Arc::new(AtomicBool::new(false)),
+            cwd_process_exited: Arc::new(AtomicBool::new(false)),
+            persistence_cwd: Mutex::new(None),
             pane_id,
             terminal,
             io: PaneRuntimeIo::TestChannel {
@@ -4993,6 +5971,106 @@ mod tests {
                 process_exited: false,
                 observed_at: _,
             } if delivered_pane == pane_id
+        ));
+    }
+
+    #[tokio::test]
+    async fn codex_prompt_observation_revokes_on_working_or_skipped_screen() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let pane_id = PaneId::from_raw(42);
+        let detection = crate::detect::AgentDetection {
+            state: AgentState::Unknown,
+            skip_state_update: false,
+            visible_idle: false,
+            visible_blocker: false,
+            visible_working: false,
+        };
+        let mut last_ready = false;
+        let prompt = "› Ask Codex to do anything";
+        publish_codex_prompt_observation(
+            &tx,
+            pane_id,
+            Some(Agent::Codex),
+            prompt,
+            Some(&detection),
+            false,
+            &mut last_ready,
+        )
+        .await;
+        assert!(matches!(
+            rx.recv().await,
+            Some(AppEvent::CodexPromptObserved { ready: true, .. })
+        ));
+        publish_codex_prompt_observation(
+            &tx,
+            pane_id,
+            Some(Agent::Codex),
+            prompt,
+            Some(&detection),
+            false,
+            &mut last_ready,
+        )
+        .await;
+        assert!(rx.try_recv().is_err());
+        let working = crate::detect::AgentDetection {
+            state: AgentState::Working,
+            ..detection
+        };
+        publish_codex_prompt_observation(
+            &tx,
+            pane_id,
+            Some(Agent::Codex),
+            prompt,
+            Some(&working),
+            false,
+            &mut last_ready,
+        )
+        .await;
+        assert!(matches!(
+            rx.recv().await,
+            Some(AppEvent::CodexPromptObserved { ready: false, .. })
+        ));
+        publish_codex_prompt_observation(
+            &tx,
+            pane_id,
+            Some(Agent::Codex),
+            prompt,
+            Some(&detection),
+            false,
+            &mut last_ready,
+        )
+        .await;
+        assert!(matches!(
+            rx.recv().await,
+            Some(AppEvent::CodexPromptObserved { ready: true, .. })
+        ));
+        publish_codex_prompt_observation(
+            &tx,
+            pane_id,
+            Some(Agent::Codex),
+            prompt,
+            None,
+            false,
+            &mut last_ready,
+        )
+        .await;
+        assert!(matches!(
+            rx.recv().await,
+            Some(AppEvent::CodexPromptObserved { ready: false, .. })
+        ));
+        publish_codex_prompt_observation(
+            &tx,
+            pane_id,
+            Some(Agent::Codex),
+            prompt,
+            Some(&detection),
+            false,
+            &mut last_ready,
+        )
+        .await;
+        assert!(matches!(
+            rx.recv().await,
+            Some(AppEvent::CodexPromptObserved { ready: true, .. })
         ));
     }
 }

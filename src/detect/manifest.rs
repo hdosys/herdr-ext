@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock, RwLock},
+    sync::{Arc, Mutex, OnceLock, RwLock},
 };
 
 use regex::Regex;
@@ -123,7 +123,8 @@ pub struct RuleEvidence {
 #[derive(Debug, Clone)]
 struct LoadedManifest {
     manifest: AgentManifest,
-    compiled_rules: Vec<CompiledRule>,
+    // Keep Regex search caches warm across manifest loads and pane polling.
+    compiled_rules: Arc<[CompiledRule]>,
     source: ManifestSource,
     warning: Option<String>,
     cached_remote_version: Option<String>,
@@ -251,6 +252,7 @@ const BUNDLED_MANIFESTS: &[(&str, &str)] = &[
     ("kilo", include_str!("manifests/kilo.toml")),
     ("kimi", include_str!("manifests/kimi.toml")),
     ("kiro", include_str!("manifests/kiro.toml")),
+    ("letta", include_str!("manifests/letta.toml")),
     ("maki", include_str!("manifests/maki.toml")),
     ("muse", include_str!("manifests/muse.toml")),
     ("opencode", include_str!("manifests/opencode.toml")),
@@ -414,23 +416,6 @@ pub fn explain_for_label(agent_label: &str, screen_content: &str) -> DetectionEx
     explain(agent, screen_content)
 }
 
-pub fn should_skip_state_update(agent: Agent, screen_content: &str) -> bool {
-    let Some(loaded) = load_manifest(agent) else {
-        return false;
-    };
-    evaluate_loaded_manifest(
-        agent,
-        DetectionInput {
-            screen: screen_content,
-            osc_title: "",
-            osc_progress: "",
-        },
-        loaded,
-        false,
-    )
-    .skip_state_update
-}
-
 impl DetectionExplain {
     fn into_detection(self) -> AgentDetection {
         AgentDetection {
@@ -452,7 +437,12 @@ fn evaluate_loaded_manifest(
     let mut matched: Option<(&ManifestRule, String)> = None;
     let mut evaluated_rules = Vec::new();
 
-    for (rule, compiled_rule) in loaded.manifest.rules.iter().zip(&loaded.compiled_rules) {
+    for (rule, compiled_rule) in loaded
+        .manifest
+        .rules
+        .iter()
+        .zip(loaded.compiled_rules.iter())
+    {
         let region_text = region(input, &rule.region);
         let matched_rule = compiled_rule_matches(compiled_rule, region_text);
         evaluated_rules.push(EvaluatedRule {
@@ -550,14 +540,14 @@ fn fallback_explain(
             )
         })
         .unwrap_or((None, Vec::new(), None, None, None, false));
-    let known_agent = agent.is_some();
+    let assume_idle = agent.is_some_and(|agent| agent != Agent::Codex);
     let remote_update_status = include_update_status
         .then(|| agent.and_then(remote_update_status))
         .flatten();
 
     DetectionExplain {
         agent: agent.map(|agent| agent_label(agent).to_string()),
-        state: if known_agent {
+        state: if assume_idle {
             AgentState::Idle
         } else {
             AgentState::Unknown
@@ -570,7 +560,11 @@ fn fallback_explain(
         visible_working: false,
         skip_state_update: false,
         skipped_update_reason: None,
-        fallback_reason: known_agent.then(|| DEFAULT_KNOWN_AGENT_IDLE_FALLBACK.to_string()),
+        fallback_reason: match agent {
+            Some(Agent::Codex) => Some("codex_state_ambiguous".to_string()),
+            Some(_) => Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK.to_string()),
+            None => None,
+        },
         evaluated_rules,
         warning,
         manifest_version,
@@ -702,7 +696,7 @@ fn loaded_manifest(
     cached_remote_version: Option<String>,
     local_override_shadowing_remote: bool,
 ) -> Result<LoadedManifest, String> {
-    let compiled_rules = compile_manifest(&manifest)?;
+    let compiled_rules = compile_manifest(&manifest)?.into();
     Ok(LoadedManifest {
         manifest,
         compiled_rules,

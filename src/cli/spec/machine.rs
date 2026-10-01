@@ -30,13 +30,13 @@ pub(super) fn command() -> Command {
                         .required(true),
                 )
                 .arg(
-                    option("label", "LABEL")
-                        .required(true)
-                        .help("Set the machine label shown in the sidebar"),
+                    option("label", "LABEL").help(
+                        "Set the machine label shown in the sidebar (defaults to the SSH host, or host/session)",
+                    ),
                 )
                 .arg(
                     option("remote-session", "NAME")
-                        .help("Set the explicit Herdr session on the remote machine"),
+                        .help("Select a session explicitly (default without an interactive terminal)"),
                 ),
         )
         .subcommand(

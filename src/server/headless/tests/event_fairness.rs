@@ -13,7 +13,6 @@ fn queue_requests(server: &mut HeadlessServer, count: usize) -> std::sync::mpsc:
                 },
                 respond_to: respond_to.clone(),
                 response_write_complete: None,
-                stream_active: None,
             })
             .unwrap();
     }
@@ -120,7 +119,6 @@ async fn server_loop_drains_api_backlog_and_runs_scheduled_work() {
                 },
                 respond_to: respond_to.clone(),
                 response_write_complete: None,
-                stream_active: None,
             })
             .unwrap();
     }

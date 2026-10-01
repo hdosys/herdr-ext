@@ -7,6 +7,11 @@ import { tmpdir } from 'node:os';
 const script = resolve(import.meta.dir, 'versions.mjs');
 const temporaryDirectories: string[] = [];
 
+// The fixture shells out to node and git many times. A healthy Windows runner
+// finishes in seconds, but a degraded one can run an order of magnitude slower,
+// so keep a generous ceiling instead of making the suite a load-sensitive flake.
+const fixtureTimeoutMs = process.platform === 'win32' ? 120_000 : 30_000;
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
@@ -95,15 +100,26 @@ describe('documentation release publishing', () => {
       correctedArchivedDocs,
     );
     const linkedPage = resolve(archivedDocsRoot, 'linked.mdx');
-    await symlink('index.mdx', linkedPage);
-    expect(() => runScript(root, ['check'])).toThrow();
-    await rm(linkedPage);
+    if (process.platform === 'win32') {
+      // A normal Windows terminal cannot create file symlinks without Developer
+      // Mode or elevation, but a directory junction is creatable without
+      // either. Link to an empty directory outside the snapshot so the walk
+      // stays finite and only the non-ordinary-file rejection can satisfy the
+      // assertion below.
+      const linkTarget = await mkdtemp(join(tmpdir(), 'herdr-docs-link-'));
+      temporaryDirectories.push(linkTarget);
+      await symlink(linkTarget, linkedPage, 'junction');
+    } else {
+      await symlink('index.mdx', linkedPage);
+    }
+    expect(() => runScript(root, ['check'])).toThrow(/is not an ordinary documentation file/);
+    await rm(linkedPage, { recursive: true, force: true });
     runScript(root, ['check']);
 
     delete archivedManifest.versions[0].commit;
     await write(root, 'docs/versions/manifest.json', `${JSON.stringify(archivedManifest)}\n`);
     expect(() => runScript(root, ['check'])).toThrow();
-  }, 30_000);
+  }, fixtureTimeoutMs);
 });
 
 async function write(root: string, path: string, content: string) {

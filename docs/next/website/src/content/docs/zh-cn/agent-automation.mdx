@@ -41,7 +41,7 @@ review_pane=$(printf '%s\n' "$split" | jq -r '.result.pane.pane_id')
 
 可用的 shell 窗格必须停在交互式 shell 提示符,由 shell 自身占用前台,没有正在前台运行的命令、编辑器或智能体。调用 `agent start` 前先让窗格回到提示符。
 
-`--kind` 选择受支持的智能体及其标准可执行文件。支持的 kind 是 `pi`、`claude`、`codex`、`gemini`、`cursor`、`devin`、`agy`、`cline`、`omp`、`mastracode`、`opencode`、`copilot`、`kimi`、`kiro`、`droid`、`amp`、`grok`、`hermes`、`kilo`、`qodercli`、`qwen`、`maki` 和 `muse`。`--` 后的参数会原样传给该可执行文件。
+`--kind` 选择受支持的智能体及其标准可执行文件。支持的 kind 是 `pi`、`claude`、`codex`、`gemini`、`cursor`、`devin`、`agy`、`cline`、`omp`、`mastracode`、`opencode`、`copilot`、`kimi`、`kiro`、`droid`、`amp`、`grok`、`hermes`、`kilo`、`qodercli`、`qwen`、`letta`、`maki` 和 `muse`。`--` 后的参数会原样传给该可执行文件。
 
 成功的 `agent start` 只有在 Herdr 于同一终端检测到预期智能体,并确认它可接受交互输入后才返回。如果启动期间检测到 `blocked`,命令会立即返回 `agent_not_ready`。该名称仍可用于 `agent read` 和 `agent send-keys`,检测变为 `idle` 后即可用于发送提示。默认等待启动 30 秒;`--timeout` 必须大于 3000 且不超过 300000 毫秒。
 
@@ -73,9 +73,11 @@ herdr agent rename w1:p2 reviewer
 
 窗格输入直接指定终端,不关心当前进程。智能体输入会解析实时智能体;如果该智能体已不再控制此窗格,操作会被拒绝。
 
-如果智能体已经是 `blocked`，`agent prompt --wait` 会返回 `agent_blocked`，不会发送输入或开始等待。否则，它会将提示文本和延迟的 Enter 作为一次有序提交写入，然后等待状态。Windows 上 Codex 的提交延迟随提示大小增加；调用方的超时包含提交时间。如果提示从其他非 working 状态开始，提交后最多等待五秒来观察 `working` 或 `blocked`。如果没有观察到，Herdr 返回 `agent_prompt_stalled`；如果调用方的超时先到期，则返回普通的 `timeout` 错误。这可防止无关的 `idle`、`done` 或会话变化错误地完成等待。观察到活动后，它会等待请求的稳定状态。它不会跟踪单独的轮次。如果智能体已经处于 working，当前轮次的完成可能满足等待。独立的 `agent wait` 会观察当前智能体；如果状态已经匹配，就会立即返回。两者默认匹配 `idle`、`done` 或 `blocked`。可以重复使用 `--until` 接受多个精确状态，例如 `--until idle --until done`；需要 `unknown` 时请明确使用 `--until unknown`。在 `agent prompt` 中，`--until` 必须与 `--wait` 一起使用。
+如果智能体已经是 `blocked`，`agent prompt --wait` 会返回 `agent_blocked`，不会发送输入或开始等待。否则，它会将提示文本和延迟的 Enter 作为一次有序提交写入，然后等待状态。在 Windows 上，Codex 在 Enter 前会收到粘贴边界，因此提交不依赖提示大小；调用方的超时包含提交时间。如果提示从其他非 working 状态开始，提交后最多等待五秒来观察 `working` 或 `blocked`。如果没有观察到，Herdr 返回 `agent_prompt_stalled`；如果调用方的超时先到期，则返回普通的 `timeout` 错误。这可防止无关的 `idle`、`done` 或会话变化错误地完成等待。观察到活动后，它会等待请求的稳定状态。它不会跟踪单独的轮次。如果智能体已经处于 working，当前轮次的完成可能满足等待。独立的 `agent wait` 会观察当前智能体；如果状态已经匹配，就会立即返回。两者默认匹配 `idle`、`done` 或 `blocked`。可以重复使用 `--until` 接受多个精确状态，例如 `--until idle --until done`；需要 `unknown` 时请明确使用 `--until unknown`。在 `agent prompt` 中，`--until` 必须与 `--wait` 一起使用。
 
 `idle` 和 `done` 都表示可以接受输入。CLI/API 使用服务器的已查看状态：`done` 表示尚未标记为已查看的 idle；显式 `pane focus` / `agent focus` 会标记目标，读取不会。每个 TUI 客户端独立记录它已显示的完成状态，因此其 Done 标记可能与 CLI 或其他客户端不同。`blocked` 表示 Herdr 识别到了审批或提问界面。`unknown` 表示智能体存在,但 Herdr 无法可靠判断其生命周期;它不代表工作成功完成。区别重要时,请指定精确的 `--until` 状态。
+
+启动就绪、恢复空闲对话和切换智能体对话都不算工作完成。立即开始工作的智能体可以在 Herdr 首次看到空闲提示前完成第一个任务。智能体响应可能包含 `completion_seq`,它会独立于谁查看过响应,将当前 idle 转换标识为已完成的工作。该值与此次转换的 `state_change_seq` 相同;启动和会话切换不会设置它。旧服务器可能省略此字段。连接到旧服务器的客户端使用观察到的 working 状态来保护 Done 标记,因此可能漏掉在两次更新之间开始并完成的轮次。
 
 超时或 `agent_prompt_stalled` 并不意味着没有发送输入。重试前请先读取智能体，避免重复提交同一提示。ID 和智能体名称只在所属服务器内有效；在 TUI 中切换机器不会改变已有窗格中 CLI 命令的目标。
 

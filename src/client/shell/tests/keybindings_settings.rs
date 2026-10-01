@@ -165,6 +165,39 @@ fn tab_bar_renders_endpoint_status_ellipses_and_clamps_to_useful_scroll() {
 }
 
 #[test]
+fn inactive_auto_named_tab_label_does_not_stack_terminal_faint() {
+    let mut projected = snapshot();
+    projected.tabs.push(ClientShellTab {
+        tab_id: "tab_2".into(),
+        workspace_id: "ws_1".into(),
+        number: 2,
+        label: "beta".into(),
+        custom_label: false,
+        zoomed: false,
+        focused: false,
+        agent_status: AgentStatus::Idle,
+    });
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 20).expect("tab bar frame");
+    let rect = state
+        .hits
+        .tabs
+        .iter()
+        .find(|(_, tab_id)| tab_id == "tab_2")
+        .expect("inactive tab hit")
+        .0;
+    let buffer = frame.to_ratatui_buffer().expect("tab bar buffer");
+    let (x, y) = cell_symbol_position(&frame, rect, "beta");
+    let cell = buffer.cell((x, y)).expect("inactive tab cell");
+    assert!(
+        !cell.modifier.contains(Modifier::DIM),
+        "inactive tab label at ({x},{y}) should not stack terminal faint: {cell:?}"
+    );
+}
+
+#[test]
 fn configured_prefix_is_client_owned_and_renders_its_bar() {
     let config = toml::from_str::<Config>(
         r#"
@@ -342,7 +375,7 @@ command = "local-only"
     .unwrap();
     let remote_local = ClientShellConfig::from_config(&local)
         .with_keybinding_source(ClientShellKeybindingSource::RemoteLocal);
-    assert_eq!(remote_local.keybinds.prefix.0, KeyCode::Char('a'));
+    assert_eq!(remote_local.keybinds.prefix[0].0, KeyCode::Char('a'));
     assert!(remote_local.keybinds.keybinds.custom_commands.is_empty());
     assert_eq!(
         remote_local.keybinds.keybinds.new_tab.label().as_deref(),
@@ -437,7 +470,7 @@ new_tab = "prefix+n"
         });
     state.set_snapshot(Box::new(projection));
 
-    assert_eq!(state.config.keybinds.prefix.0, KeyCode::Char('x'));
+    assert_eq!(state.config.keybinds.prefix[0].0, KeyCode::Char('x'));
     assert_eq!(
         state.config.keybinds.keybinds.new_tab.label().as_deref(),
         Some("prefix+n")

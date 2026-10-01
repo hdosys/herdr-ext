@@ -260,6 +260,7 @@ pub(super) fn render_settings_overlay(
     );
 
     Some(OverlayRender {
+        area: popup,
         primary,
         cancel: close,
         settings_popup: popup,
@@ -332,7 +333,7 @@ fn render_integrations(
         area.x,
         area.y + 1,
         area.width,
-        "let agents report state directly instead of relying only on process detection",
+        "enable session restore and, where supported, direct status updates",
         Style::default().fg(palette.overlay1).bg(palette.panel_bg),
     );
     if settings.loading_integrations {

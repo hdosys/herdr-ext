@@ -11,19 +11,21 @@ Most commands print JSON responses for deterministic automation in scripts.
 
 ```bash
 herdr                         # launch or attach to the default session
-herdr --session work          # launch or attach to a named session
 herdr --remote workbox        # attach through SSH, using local keybindings
-herdr --remote workbox --remote-keybindings server
-herdr --remote workbox --handoff
 herdr --default-config        # print default config
 herdr update                  # download and install from the configured channel
-herdr update --handoff        # opt into live handoff for supported running servers
 herdr completion zsh          # generate a zsh completion script
 herdr channel show            # print stable or preview
 herdr channel set preview     # opt into preview builds
 herdr channel set stable      # return a direct install to stable
 herdr --version               # print version
 ```
+
+Optional launch and update settings:
+
+- Add `--session <name>` to use a named session instead of the default.
+- Add `--remote-keybindings server` to remote attach to use server keybindings instead of local ones.
+- Experimental live handoff requires explicit `--handoff` on `herdr --remote` or `herdr update`. It is not the normal setup or connection path; see [Updates](/docs/install/#update).
 
 Status commands:
 
@@ -48,19 +50,39 @@ with the installed binary. Use `--json` for the full JSON Schema document, or
 ## Saved SSH machines
 
 ```bash
-herdr machine list [--json]
-herdr machine add workbox --label "Build machine" [--remote-session agents]
+herdr machine list
+herdr machine add workbox
+herdr machine add workbox --label "Build machine"
 herdr machine rename <profile-id> --label "New name"
 herdr machine disable <profile-id>
 herdr machine enable <profile-id>
 herdr machine remove <profile-id>
 ```
 
-`machine add` checks the remote installation's capabilities, installs or updates with approval only when needed, and starts the requested session's background server before saving. Compatible release versions do not need to match. Run setup in an interactive terminal when installation or restart approval is required; failed or cancelled setup does not save a profile.
+In an interactive terminal, `machine add` discovers running sessions and lets you choose when several are running. No running sessions, or no Herdr installation, uses `default`; failed queries against an installed binary require an explicit choice. Add `--remote-session <name>` to skip discovery. Non-interactive commands use `default` unless that flag is supplied. `machine list` accepts optional `--json` for scripts. See [Connecting machines](/docs/connecting-machines/) for the full setup and connection guide.
+
+`machine add` checks the remote installation's capabilities, installs or updates with approval only when needed, and starts the requested session's background server before saving. Compatible release versions do not need to match. Run setup in an interactive terminal when installation or restart approval is required; failed or cancelled setup does not save a profile. Replacing a running server requires explicit approval with a default answer of No, and stops its pane processes. `machine add` never enables experimental handoff implicitly.
 
 Changes apply automatically to open local Herdr clients, normally within a second. Added or enabled machines connect in the background; renaming does not reconnect. Removing or disabling disconnects only that machine and leaves its remote sessions running. Removing the machine you are viewing returns to Local, or shows Local as unavailable until it reconnects. Each profile stores an opaque ID, label, SSH target, explicit remote session, and enabled state in client state. Herdr does not store passwords, private keys, or other SSH credentials.
 
-Automatic connections and reconnects are non-interactive. If a host key, password, key passphrase, MFA step, install, update, or restart needs approval, the machine shows Attention instead of opening a hidden prompt. Run the standalone command printed by Herdr, such as `herdr --remote workbox --session agents --handoff`, to complete that setup in the foreground, then restart the client.
+Use `herdr machine status [<label-or-id>] [--json]` for fresh, noninteractive SSH and remote Herdr checks. `reachable` describes this check, not a TUI's current connection. Use `herdr machine reconnect <label-or-id>` in a terminal for SSH authentication and verification; it does not install or update Herdr. Open clients retry failed connections within 30 seconds. Clicking `! auth` or `! error` shows the latest error and CLI guidance; collapsed sidebars show `!`. See [Recovering SSH authentication](/docs/connecting-machines/#recovering-ssh-authentication) for platform limits. For remote setup, use `herdr --remote workbox`, adding `--session <name>` only for a named session.
+
+Workspace, tab, pane IDs, and agent names belong to a single server. Selecting a machine in the UI does not retarget CLI commands. Use the global **prefix** `--machine <label-or-id>` to route API commands to a saved SSH machine:
+
+```bash
+herdr --machine "Build machine" agent list
+herdr --machine <profile-id> pane list
+herdr --machine "Build machine" agent prompt w1:p1 "review this change"
+herdr --machine "Build machine" worktree create --cwd /srv/project --branch review
+```
+
+The selector must match an enabled saved profile ID or a unique, case-sensitive label, not an arbitrary SSH hostname. The saved remote session is used; combining `--machine` with `--session` or `--remote` is an error. Without the prefix, commands retain their existing local session/socket behavior.
+
+Supported commands are `workspace`, `worktree`, `tab`, `pane`, `notification`, `agent` (except `attach` and local `explain --file`), `api snapshot`, `status server`, and API-backed plugin commands (`link`, `unlink`, `enable`, `disable`, `list`, `action`, `log`, `pane`). Server commands support `stop`, `reload-config`, `agent-manifests`, and `reload-agent-manifests`. Local installation/configuration commands, plugin installation, session management, and interactive terminal attachment are not forwarded.
+
+Requests and responses travel through the JSON API over non-interactive SSH; API payloads are not interpolated into the SSH shell command. No open TUI is required, and the bridge never installs, starts, or restarts a server. Update the local CLI and remote Herdr installation to support machine forwarding, and keep the running remote server's API protocol compatible. Authentication, unavailable machines, and incompatible versions fail without falling back to Local. Requests are not automatically retried after connection failure.
+
+Local pane IDs are not inherited by remote commands. Use explicit remote IDs; `--current` cannot refer to the caller's local pane. Remote worktree paths must be absolute, `~`, or start with `~/` (expanded on the server); plugin link paths must be absolute. The prefix targets one machine at a time; combined listings and routing through another TUI's connections are not included.
 
 ## Shell completions
 
@@ -176,6 +198,8 @@ herdr tab close <tab_id>
 
 A tab is another terminal layout inside a workspace. Without `--workspace`, `tab create` uses the active workspace and fails if none exists. Its JSON response exposes `.result.tab.tab_id` and `.result.root_pane.pane_id`. Closing a workspace's last tab also closes the workspace, matching the TUI close-tab action. If `confirm_close` is enabled and closing the tab would also close a whole worktree group, `tab close` returns a `confirmation_required` error instead.
 
+With `ui.confirm_close` enabled, the TUI asks for confirmation before closing a workspace's last tab from a keybinding or the tab menu. Ordinary CLI/API tab closes remain immediate.
+
 Workspace and tab creation, and pane splitting, leave focus unchanged by default. `--focus` selects the new layout; `--no-focus` states the default explicitly. Without `--cwd`, new terminals follow the configured `terminal.new_cwd` policy, which follows the source pane or workspace by default. Each `--env KEY=VALUE` adds or replaces that variable in the new root shell.
 
 ## Panes
@@ -204,8 +228,9 @@ herdr pane close <pane_id>
 
 For pane commands that accept `--current`, Herdr uses the calling pane's
 `HERDR_PANE_ID` when the command runs inside a Herdr pane. For `pane split`,
-an explicit pane id or `--pane ID` splits that pane, `--current` splits the
-calling pane, and an omitted target keeps using the UI-focused pane.
+an explicit pane id or `--pane ID` splits that pane. An omitted target splits
+the calling pane when `HERDR_PANE_ID` is available, otherwise the focused pane.
+`--current` requires a calling pane and errors when `HERDR_PANE_ID` is unavailable.
 The split response exposes the new pane ID as `.result.pane.pane_id`.
 
 `pane input --right-click pane` forwards unmodified right-click gestures to a
@@ -253,7 +278,8 @@ herdr pane report-agent <pane_id> \
   [--message TEXT] \
   [--seq N] \
   [--agent-session-id ID] \
-  [--agent-session-path PATH]
+  [--agent-session-path PATH] \
+  [-- RESUME_COMMAND...]
 
 herdr pane report-agent-session <pane_id> \
   --source ID \
@@ -261,7 +287,8 @@ herdr pane report-agent-session <pane_id> \
   [--seq N] \
   [--agent-session-id ID] \
   [--agent-session-path PATH] \
-  [--session-start-source SOURCE]
+  [--session-start-source SOURCE] \
+  [-- RESUME_COMMAND...]
 
 herdr pane release-agent <pane_id> \
   --source ID \
@@ -270,6 +297,8 @@ herdr pane release-agent <pane_id> \
 ```
 
 `report-agent-session` updates native session identity without reporting lifecycle state. `release-agent` ends that source's lifecycle authority when its agent process exits.
+
+Arguments after `--` are the command Herdr runs to resume this session after a server restart. The first argument must be a plain command name on `PATH`, and no argument may contain an apostrophe.
 
 `pane get`, `pane list`, `agent get`, and `agent list` include a read-only `agent_session` object when an official integration has reported a native session reference. If no native session reference is stored, the field is omitted.
 
@@ -323,13 +352,13 @@ herdr agent explain --file PATH --agent LABEL [--json|--verbose]
 
 Agent targets are either a unique live agent name or the pane ID that currently hosts the agent. Terminal IDs and bare agent-kind labels are not agent targets. Agents started through `agent start` require a name; manually launched agents remain unnamed and use their pane ID.
 
-`agent start` activates an existing available shell pane: the pane's interactive shell must own the foreground, with no foreground command, editor, or agent running. Topology must be created separately. Names are unique among live agents and must match `[a-z][a-z0-9_-]{0,31}`. The kind selects Herdr's canonical interactive executable, while arguments after `--` are passed to that executable. Supported kinds are `pi`, `claude`, `codex`, `gemini`, `cursor`, `devin`, `agy`, `cline`, `omp`, `mastracode`, `opencode`, `copilot`, `kimi`, `kiro`, `droid`, `amp`, `grok`, `hermes`, `kilo`, `qodercli`, `qwen`, `maki`, and `muse`. A name follows the current pane occupant and is cleared when that agent exits, is released, or is replaced. Temporary detection uncertainty does not clear it.
+`agent start` activates an existing available shell pane: the pane's interactive shell must own the foreground, with no foreground command, editor, or agent running. Topology must be created separately. Names are unique among live agents and must match `[a-z][a-z0-9_-]{0,31}`. The kind selects Herdr's canonical interactive executable, while arguments after `--` are passed to that executable. Supported kinds are `pi`, `claude`, `codex`, `gemini`, `cursor`, `devin`, `agy`, `cline`, `omp`, `mastracode`, `opencode`, `copilot`, `kimi`, `kiro`, `droid`, `amp`, `grok`, `hermes`, `kilo`, `qodercli`, `qwen`, `letta`, `maki`, and `muse`. A name follows the current pane occupant and is cleared when that agent exits, is released, or is replaced. Temporary detection uncertainty does not clear it.
 
 A successful start returns only after the expected agent owns the same terminal and is ready for interactive input. If detection reports `blocked` during startup, the command returns `agent_not_ready` immediately. The name remains available for `agent read` and `agent send-keys`, and becomes ready for prompts after detection reports `idle`. The default startup timeout is 30000 milliseconds; explicit values must be greater than 3000 and no more than 300000.
 
-`agent prompt` honors live bracketed-paste mode and sends text followed by encoded Enter after a short delay, including while the agent is working. If the agent is already `blocked`, it returns `agent_blocked` without sending input. With `--wait`, an accepted prompt sent from another non-working state must produce an observed `working` or `blocked` state within five seconds or Herdr returns `agent_prompt_stalled`; if the caller timeout expires first, Herdr returns the normal `timeout` error. This prevents unrelated `idle`, `done`, or session changes from completing the wait. After activity is observed, it waits for the first requested settled status. It does not track individual turns. If the agent is already working, completion of that active turn may satisfy the wait. `--until` narrows the matching states and is rejected unless `--wait` is also present. Standalone `agent wait` returns immediately when the current status matches. Both default to `idle`, `done`, or `blocked`; use `--until unknown` explicitly when needed.
+`agent prompt` honors live bracketed-paste mode and writes text followed by delayed Enter as one ordered submission, including while the agent is working. Success without `--wait` acknowledges the writes, not the start of a turn. On Windows, Codex receives a paste boundary before Enter so submission does not depend on prompt size; the caller timeout includes submission time. If the agent is already `blocked`, it returns `agent_blocked` without sending input. With `--wait`, a prompt sent from another non-working state has up to five seconds after submission to produce an observed `working` or `blocked` state or Herdr returns `agent_prompt_stalled`; if the caller timeout expires first, Herdr returns the normal `timeout` error. This prevents unrelated `idle`, `done`, or session changes from completing the wait. After activity is observed, it waits for the first requested settled status. It does not track individual turns. If the agent is already working, completion of that active turn may satisfy the wait. `--until` narrows the matching states and is rejected unless `--wait` is also present. Standalone `agent wait` returns immediately when the current status matches. Both default to `idle`, `done`, or `blocked`; use `--until unknown` explicitly when needed.
 
-`idle` means ready for input after its tab has been seen in the focused Herdr UI; `done` is the same underlying idle state after unseen background work completes. Focusing that tab or targeting it with `pane focus` / `agent focus` marks it seen; reading it through the CLI does not. `blocked` means Herdr recognized an approval or question UI. `unknown` means an agent is present but Herdr cannot classify it confidently, not that its work succeeded.
+`idle` and `done` both mean ready for input. The CLI/API uses the server's seen state: `done` is idle but not yet marked seen, explicit `pane focus` / `agent focus` commands mark the target seen, and reads do not. Each TUI client tracks viewed completions independently, so its Done badge can differ from the CLI or another client. `blocked` means Herdr recognized an approval or question UI. `unknown` means an agent is present but Herdr cannot classify it confidently, not that its work succeeded.
 
 `agent send-keys` sends logical terminal keys such as `enter`, `up`, `esc`, or `ctrl+c`. Herdr validates every key before writing any bytes. `agent read` reads the resolved terminal stream, and `agent rename` names an already detected agent.
 
@@ -352,13 +381,25 @@ Detach from direct attach with `ctrl+b q`. Send literal `ctrl+b` with `ctrl+b ct
 terminal, or agent target. It prints the same newline-delimited
 `terminal.frame` and `terminal.closed` records as observe mode. It reads
 newline-delimited JSON commands on stdin: `terminal.input`, `terminal.resize`,
-`terminal.scroll`, and `terminal.release`. One controller can own a terminal at
-a time; use `--takeover` to replace it.
+`terminal.scroll`, `terminal.mouse`, and `terminal.release`. One controller can
+own a terminal at a time; use `--takeover` to replace it.
+`terminal.mouse` sends one mouse event at a zero-based cell of the controller's
+viewport, for example
+`{"type":"terminal.mouse","action":"down","button":"left","column":12,"row":5}`.
+`action` is `down`, `up`, `drag`, or `move`; `button` is `left` (default),
+`right`, or `middle`; `modifiers` is optional and combines Shift = 1, Ctrl = 2,
+and Alt = 4 (default 0). A click is `down` followed by `up`. Herdr encodes the
+event for the application's mouse mode and drops it when the application has
+not enabled mouse reporting, so a plain shell never receives stray input.
+`move` reaches only applications that track all mouse motion.
 `terminal session observe` opens a read-only live terminal stream for a pane,
 terminal, or agent target. It prints newline-delimited JSON `terminal.frame`
 records with base64-encoded ANSI bytes, then a `terminal.closed` record when
 the server closes the stream. Multiple observers can watch the same terminal
 without taking input, resize, scroll, or takeover authority.
+On Linux and macOS, an observer is disconnected if a socket write makes no progress
+for 30 seconds. A stalled stream can end without a final `terminal.closed` record;
+the pane and other clients keep running. Quiet panes do not trigger this timeout.
 `terminal title clear` hands the outer terminal window title back to `ui.window_title`.
 
 ## Output waits
@@ -372,6 +413,8 @@ herdr pane wait-output <pane_id> (--match <text> | --regex <pattern>) [--source 
 Use `pane wait-output` for normal commands and servers. Use `agent wait` for coding agents.
 
 `pane wait-output` checks the selected snapshot immediately, including output that already exists, then polls until it matches. The default source name is `recent`; matching treats it as unwrapped recent output from the latest 80 rendered terminal rows. `--lines` changes that row limit. `--match` finds a literal substring on one line, and `--regex` uses Rust regular-expression syntax and also matches one line at a time.
+
+A timeout or `agent_prompt_stalled` does not prove the prompt was never delivered. Inspect the agent before retrying.
 
 `pane wait-output` and `agent wait` wait indefinitely when `--timeout` is omitted. For `agent prompt --wait`, the settled-state wait is indefinite after activity is observed or when the prompt starts in `working`; a non-working prompt still returns `agent_prompt_stalled` after five seconds without observed activity. A timeout or server error is emitted as JSON on stderr with exit status 1. CLI usage errors exit with status 2.
 
@@ -391,6 +434,7 @@ herdr integration install kilo
 herdr integration install hermes
 herdr integration install qodercli
 herdr integration install qwen
+herdr integration install letta
 herdr integration install cursor
 herdr integration install mastracode
 herdr integration install grok
@@ -407,6 +451,7 @@ herdr integration uninstall kilo
 herdr integration uninstall hermes
 herdr integration uninstall qodercli
 herdr integration uninstall qwen
+herdr integration uninstall letta
 herdr integration uninstall cursor
 herdr integration uninstall mastracode
 herdr integration uninstall grok
@@ -485,6 +530,17 @@ cells or percentages such as `80%`; omitted dimensions default to half the
 terminal size, and values smaller than the popup minimum are clamped. A popup
 is not a Herdr pane, does not export `HERDR_PANE_ID`, and does not participate
 in pane or agent APIs. Native non-terminal plugin panes are outside plugin v1.
+
+New panes identify as `TERM_PROGRAM=herdr`, with `TERM_PROGRAM_VERSION` set to
+Herdr's version. They keep `TERM=xterm-256color` and `COLORTERM=truecolor`.
+Herdr removes inherited outer-terminal session markers (iTerm2, WezTerm, Kitty,
+Windows Terminal, tmux, screen, and Zellij), iTerm2's `LC_TERMINAL` identity,
+and known Claude Code, Codex, and OMP session markers before applying explicit
+launch environment values. This prevents new panes from claiming the terminal
+or agent session that originally started the server. Ordinary environment
+variables, including API keys and display settings, remain inherited rather than
+being replaced with the attaching client's environment. SSH-agent forwarding has
+its own reconnect handling. Existing pane processes are unchanged by this cleanup.
 
 `--env KEY=VALUE` can be repeated on process-launching commands. It applies to the newly launched process only. Herdr-managed variables such as `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`, `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_ENTRYPOINT_ID`, and `HERDR_PLUGIN_CONTEXT_JSON` stay authoritative when they conflict with caller-provided env.
 

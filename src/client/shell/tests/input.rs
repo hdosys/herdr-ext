@@ -135,6 +135,15 @@ fn indexed_host_palette_is_not_discovered_or_forwarded() {
 #[test]
 fn modal_paste_shortcut_modifiers_are_platform_specific() {
     let key = |code, modifiers| crate::input::TerminalKey::new(code, modifiers);
+    for macos in [false, true] {
+        assert!(!input::is_modal_paste_shortcut_for_platform(
+            &key(
+                KeyCode::Char('v'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT
+            ),
+            macos
+        ));
+    }
 
     assert!(input::is_modal_paste_shortcut_for_platform(
         &key(KeyCode::Char('v'), KeyModifiers::CONTROL),
@@ -170,8 +179,7 @@ fn modal_paste_inserts_clipboard_text_through_overlay_text_path() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
         title: "rename pane",
-        input: "replace me".into(),
-        replace_on_type: true,
+        input: TextEditor::new("replace me", true),
         target: ClientRenameTarget::Pane {
             pane_id: "pane_1".into(),
         },
@@ -187,8 +195,8 @@ fn modal_paste_inserts_clipboard_text_through_overlay_text_path() {
     assert!(outcome.repaint);
     assert!(matches!(
         state.overlay,
-        Some(ClientShellOverlay::Rename(ClientRenameOverlay { ref input, replace_on_type: false, .. }))
-            if input == "feature/pasted"
+        Some(ClientShellOverlay::Rename(ClientRenameOverlay { ref input, .. }))
+            if input.as_str() == "feature/pasted"
     ));
 }
 
@@ -236,17 +244,24 @@ fn client_shell_graphics_follow_final_shell_origin_and_local_overlay_visibility(
     state.set_pane_surface(pane_surface);
 
     let visible = state.compose(106, 20).expect("visible graphics frame");
-    let visible = String::from_utf8_lossy(&visible.graphics);
+    let visible = visible.graphics.clone().into_inline_bytes();
+    let visible = String::from_utf8_lossy(&visible);
     assert!(visible.contains("a=t,t=d"));
     assert!(visible.contains("\u{1b}[2;27H"));
 
     state.overlay = Some(ClientShellOverlay::Onboarding);
-    let hidden = state.compose(106, 20).expect("overlay frame");
-    assert!(String::from_utf8_lossy(&hidden.graphics).contains("a=d,d=i"));
+    let uncovered = state.compose(106, 20).expect("overlay frame");
+    assert!(
+        !String::from_utf8_lossy(&uncovered.graphics.clone().into_inline_bytes()).contains("a=d")
+    );
+    assert!(
+        String::from_utf8_lossy(&uncovered.graphics.clone().into_inline_bytes()).contains("a=p")
+    );
 
     state.overlay = None;
     let restored = state.compose(106, 20).expect("restored graphics frame");
-    let restored = String::from_utf8_lossy(&restored.graphics);
+    let restored = restored.graphics.clone().into_inline_bytes();
+    let restored = String::from_utf8_lossy(&restored);
     assert!(restored.contains("a=p"));
     assert!(!restored.contains("a=t,t=d"));
 }
@@ -662,4 +677,29 @@ fn styled_client_composition_preserves_pane_hyperlinks() {
         usize::from(hit.inner_rect.y) * usize::from(frame.width) + usize::from(hit.inner_rect.x);
     let link = frame.cells[index].hyperlink.expect("linked cell") as usize;
     assert_eq!(frame.hyperlinks[link], "https://example.test");
+}
+
+#[test]
+fn every_configured_prefix_enters_prefix_mode() {
+    let mut config = Config::default();
+    config.keys.prefix =
+        crate::config::BindingConfig::Many(vec!["ctrl+space".to_owned(), "ctrl+s".to_owned()]);
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(snapshot()));
+
+    for combo in [
+        (KeyCode::Char(' '), KeyModifiers::CONTROL),
+        (KeyCode::Char('s'), KeyModifiers::CONTROL),
+    ] {
+        let _ = state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+            combo.0, combo.1,
+        ))]);
+        assert_eq!(state.mode, ClientShellMode::Prefix);
+
+        let _ = state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+            KeyCode::Esc,
+            KeyModifiers::empty(),
+        ))]);
+        assert_eq!(state.mode, ClientShellMode::Terminal);
+    }
 }

@@ -7,6 +7,8 @@ use std::process::{Command, Stdio};
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
+pub(super) const REMOTE_BRIDGE_CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
+
 use super::{
     read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
     LimitedRead, Signal,
@@ -16,9 +18,156 @@ pub(crate) use super::unix_common::{
     configure_status_command, create_remote_private_dir, create_remote_ssh_config_dir,
     create_remote_ssh_config_file, hostname, local_datetime, remote_bridge_endpoint_path,
     remote_private_temp_base, remote_reattach_argument, remote_reattach_program,
-    remote_ssh_config_paths, set_default_plugin_pane_pwd, status_commands_supported,
-    wait_client_stream_readable, StatusCommandGuard,
+    remote_ssh_config_paths, set_default_plugin_pane_pwd, shutdown_client_stream,
+    status_commands_supported, wait_client_stream_readable, write_client_stream,
+    ClientStreamReader, StatusCommandGuard,
 };
+
+mod bootstrap;
+pub(crate) use bootstrap::{configure_server_daemon_context, prepare_server_process};
+
+#[cfg(test)]
+mod config_file_tests;
+
+pub(crate) fn config_file_link_count(path: &Path) -> std::io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(std::fs::metadata(path)?.nlink())
+}
+
+pub(crate) fn check_config_write_target(_target: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+pub(crate) fn write_existing_config(
+    _target: &std::path::Path,
+    _contents: &[u8],
+) -> std::io::Result<bool> {
+    // Unix keeps atomic replacement for existing files too.
+    Ok(false)
+}
+
+pub(crate) fn create_config_temporary(
+    path: &Path,
+    private: bool,
+) -> std::io::Result<std::fs::File> {
+    if !private {
+        return std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path);
+    }
+    use std::os::fd::FromRawFd;
+    // Darwin's opaque ACL/filesec APIs (<sys/acl.h>, <sys/fcntl.h>) are not
+    // exposed by libc. Supply a non-inheriting empty ACL at creation: clearing
+    // inherited ACEs later cannot revoke descriptors opened in the meantime.
+    unsafe extern "C" {
+        fn acl_init(count: libc::c_int) -> *mut libc::c_void;
+        fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
+        fn acl_get_flagset_np(acl: *mut libc::c_void, flags: *mut *mut libc::c_void)
+            -> libc::c_int;
+        fn acl_add_flag_np(flags: *mut libc::c_void, flag: libc::c_uint) -> libc::c_int;
+        fn filesec_init() -> *mut libc::c_void;
+        fn filesec_free(security: *mut libc::c_void);
+        fn filesec_set_property(
+            security: *mut libc::c_void,
+            property: libc::c_int,
+            value: *const libc::c_void,
+        ) -> libc::c_int;
+        fn openx_np(
+            path: *const libc::c_char,
+            flags: libc::c_int,
+            security: *mut libc::c_void,
+        ) -> libc::c_int;
+    }
+    const FILESEC_MODE: libc::c_int = 4;
+    const FILESEC_ACL: libc::c_int = 5;
+    const ACL_FLAG_NO_INHERIT: libc::c_uint = 1 << 17;
+    let path =
+        std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+    let acl = unsafe { acl_init(0) };
+    if acl.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    let security = unsafe { filesec_init() };
+    if security.is_null() {
+        let error = std::io::Error::last_os_error();
+        unsafe {
+            acl_free(acl);
+        }
+        return Err(error);
+    }
+    let result = (|| {
+        let mut flags = std::ptr::null_mut();
+        let mode: libc::mode_t = 0o600;
+        if unsafe { acl_get_flagset_np(acl, &mut flags) } != 0
+            || unsafe { acl_add_flag_np(flags, ACL_FLAG_NO_INHERIT) } != 0
+            || unsafe {
+                filesec_set_property(security, FILESEC_MODE, std::ptr::from_ref(&mode).cast())
+            } != 0
+            || unsafe {
+                filesec_set_property(security, FILESEC_ACL, std::ptr::from_ref(&acl).cast())
+            } != 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let fd = unsafe {
+            openx_np(
+                path.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC,
+                security,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // The successful exclusive create returns one owned descriptor.
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    })();
+    unsafe {
+        filesec_free(security);
+        acl_free(acl);
+    }
+    result
+}
+
+pub(crate) fn write_config_temporary(
+    source: Option<&Path>,
+    temporary: &Path,
+    contents: &[u8],
+) -> std::io::Result<()> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(temporary)?;
+    if let Some(source) = source {
+        let input = std::fs::File::open(source)?;
+        let metadata = input.metadata()?;
+        let current = output.metadata()?;
+        if (metadata.uid(), metadata.gid()) != (current.uid(), current.gid())
+            && unsafe { libc::fchown(output.as_raw_fd(), metadata.uid(), metadata.gid()) } != 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        // Prepare access controls while the temporary is still empty. Copy ACLs
+        // before mode bits so no inherited/default grant can expose the content.
+        // Do not copy data or old timestamps.
+        if unsafe {
+            libc::fcopyfile(
+                input.as_raw_fd(),
+                output.as_raw_fd(),
+                std::ptr::null_mut(),
+                libc::COPYFILE_ACL | libc::COPYFILE_XATTR,
+            )
+        } != 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        output.set_permissions(metadata.permissions())?;
+    }
+    output.write_all(contents)?;
+    output.sync_all()
+}
 
 const PROC_PGRP_ONLY: u32 = 2;
 const SERVER_NOFILE_LIMIT_TARGET: libc::rlim_t = 8192;

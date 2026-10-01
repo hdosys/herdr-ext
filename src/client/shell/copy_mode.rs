@@ -70,15 +70,18 @@ impl ClientShellState {
         self.stop_selection_autoscroll();
         self.selection_highlight_clear_deadline = None;
         self.reset_copy_pipeline();
-        let content_revision = self
+        let (content_revision, alternate_screen_active) = self
             .pane_surface
             .as_ref()
             .and_then(|surface| surface.panes.iter().find(|pane| pane.pane_id == pane_id))
-            .map_or(0, |pane| pane.content_revision);
+            .map_or((0, false), |pane| {
+                (pane.content_revision, pane.alternate_screen_active)
+            });
         self.copy_mode = Some(ClientCopyModeState {
             pane_id,
             content_revision,
             geometry: (hit.inner_rect.width, hit.inner_rect.height),
+            alternate_screen_active,
             cursor,
             offset_from_bottom: metrics.offset_from_bottom,
             max_offset_from_bottom: metrics.max_offset_from_bottom,
@@ -279,38 +282,18 @@ impl ClientShellState {
                 }
             }
             KeyCode::Enter => {
-                submit = Some((prompt.query.clone(), prompt.direction));
+                submit = Some((prompt.query.to_string(), prompt.direction));
                 if let Some(copy_mode) = self.copy_mode.as_mut() {
                     copy_mode.search_prompt = None;
                 }
             }
-            KeyCode::Backspace => {
-                if let Some(prompt) = self
-                    .copy_mode
-                    .as_mut()
-                    .and_then(|copy_mode| copy_mode.search_prompt.as_mut())
-                {
-                    prompt.query.pop();
-                }
-            }
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(prompt) = self
-                    .copy_mode
-                    .as_mut()
-                    .and_then(|copy_mode| copy_mode.search_prompt.as_mut())
-                {
-                    prompt.query.clear();
-                }
-            }
             _ => {
-                if let Some(ch) = crate::copy_mode::copy_mode_command_char(key.clone()) {
-                    if let Some(prompt) = self
-                        .copy_mode
-                        .as_mut()
-                        .and_then(|copy_mode| copy_mode.search_prompt.as_mut())
-                    {
-                        prompt.query.push(ch);
-                    }
+                if let Some(prompt) = self
+                    .copy_mode
+                    .as_mut()
+                    .and_then(|copy_mode| copy_mode.search_prompt.as_mut())
+                {
+                    prompt.query.handle_key(key);
                 }
             }
         }
@@ -322,6 +305,13 @@ impl ClientShellState {
     }
 
     pub(super) fn insert_copy_search_text(&mut self, text: &str) -> bool {
+        if self.mode != ClientShellMode::Copy
+            || self.overlay.is_some()
+            || self.popup_terminal_id.is_some()
+            || self.popup_pending
+        {
+            return false;
+        }
         let Some(prompt) = self
             .copy_mode
             .as_mut()
@@ -329,9 +319,7 @@ impl ClientShellState {
         else {
             return false;
         };
-        prompt
-            .query
-            .extend(text.chars().filter(|character| !character.is_control()));
+        prompt.query.insert(text);
         true
     }
 
@@ -341,7 +329,7 @@ impl ClientShellState {
         };
         copy_mode.search_prompt = Some(ClientCopySearchPrompt {
             direction,
-            query: String::new(),
+            query: TextEditor::default(),
         });
     }
 
@@ -516,13 +504,10 @@ impl ClientShellState {
     }
 
     fn move_copy_cursor(&mut self, row_delta: i16, col_delta: i16, outcome: &mut ClientShellInput) {
-        let Some(hit) = self.copy_hit() else {
-            self.exit_copy_mode(false, outcome);
-            return;
-        };
         let Some(copy_mode) = self.copy_mode.as_mut() else {
             return;
         };
+        let (width, height) = copy_mode.geometry;
         if col_delta < 0 {
             copy_mode.cursor.col = copy_mode
                 .cursor
@@ -533,11 +518,11 @@ impl ClientShellState {
                 .cursor
                 .col
                 .saturating_add(col_delta as u16)
-                .min(hit.inner_rect.width.saturating_sub(1));
+                .min(width.saturating_sub(1));
         }
         let total_rows = copy_mode
             .max_offset_from_bottom
-            .saturating_add(hit.inner_rect.height as usize)
+            .saturating_add(height as usize)
             .max(1);
         if row_delta < 0 {
             copy_mode.cursor.row = copy_mode
@@ -622,16 +607,13 @@ impl ClientShellState {
     }
 
     fn reveal_copy_cursor(&mut self, outcome: &mut ClientShellInput, reserve_mode_bar_row: bool) {
-        let Some(hit) = self.copy_hit() else {
-            return;
-        };
         let request = self.copy_mode.as_mut().and_then(|copy_mode| {
             let current_top = copy_mode
                 .max_offset_from_bottom
                 .saturating_sub(copy_mode.offset_from_bottom) as u32;
-            let max_cursor_row = hit
-                .inner_rect
-                .height
+            let max_cursor_row = copy_mode
+                .geometry
+                .1
                 .saturating_sub(if reserve_mode_bar_row { 2 } else { 1 });
             let bottom = current_top.saturating_add(u32::from(max_cursor_row));
             let desired_top = if copy_mode.cursor.row < current_top {
@@ -659,12 +641,11 @@ impl ClientShellState {
     }
 
     fn begin_copy_selection(&mut self, linewise: bool) {
-        let end_col = self
-            .copy_hit()
-            .map_or(0, |hit| hit.inner_rect.width.saturating_sub(1));
+        let width = self.copy_hit().map(|hit| hit.inner_rect.width);
         let Some(copy_mode) = self.copy_mode.as_mut() else {
             return;
         };
+        let end_col = width.unwrap_or(copy_mode.geometry.0).saturating_sub(1);
         if linewise {
             copy_mode.selection = Some(ClientCopySelection::Linewise {
                 anchor_row: copy_mode.cursor.row,
@@ -707,7 +688,8 @@ impl ClientShellState {
                     anchor_row,
                     copy_mode.cursor.row,
                     self.copy_hit()
-                        .map_or(0, |hit| hit.inner_rect.width.saturating_sub(1)),
+                        .map_or(copy_mode.geometry.0, |hit| hit.inner_rect.width)
+                        .saturating_sub(1),
                 )
             }
         });
@@ -829,12 +811,11 @@ impl ClientShellState {
     }
 
     pub(super) fn exit_copy_mode(&mut self, copy: bool, outcome: &mut ClientShellInput) {
-        if copy
-            && !self
-                .selection
-                .as_ref()
-                .is_some_and(crate::selection::Selection::is_visible)
-        {
+        let live_selection = self
+            .selection
+            .as_ref()
+            .is_some_and(crate::selection::Selection::is_visible);
+        if copy && !live_selection {
             if let Some((pane_id, text_match)) = self.copy_mode.as_ref().and_then(|copy_mode| {
                 copy_mode
                     .search_current
@@ -858,7 +839,9 @@ impl ClientShellState {
                 .as_ref()
                 .is_some_and(crate::selection::Selection::is_visible)
         {
-            self.request_selection_copy(outcome, false);
+            // A visible explicit selection is live. If the fallback above supplied
+            // a search match, retain the revision that established its boundaries.
+            self.request_selection_copy(outcome, live_selection);
         }
         self.selection = None;
         self.selection_highlight_clear_deadline = None;

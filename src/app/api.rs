@@ -5,7 +5,6 @@ mod agents;
 mod env;
 mod integrations;
 mod layouts;
-mod pane_graphics;
 mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
@@ -39,6 +38,14 @@ impl App {
                 segment_index,
                 result,
             } => self.handle_tab_bar_command_finished(generation, segment_index, result),
+            AppEvent::WorktreeReadFinished(result) => {
+                let changes_workspace = matches!(
+                    &result.request.method,
+                    crate::api::schema::Method::WorktreeOpen(_)
+                );
+                self.handle_api_worktree_read_finished(*result);
+                changes_workspace
+            }
             ev @ AppEvent::TerminalBell { .. } => {
                 self.handle_internal_event(ev);
                 false
@@ -154,6 +161,11 @@ impl App {
                     crate::api::schema::PluginCommandStatus::Failed
                 };
             }
+            return Vec::new();
+        }
+
+        if let AppEvent::WorktreeReadFinished(result) = ev {
+            self.handle_api_worktree_read_finished(*result);
             return Vec::new();
         }
 
@@ -450,6 +462,7 @@ impl App {
                     runtime.set_full_lifecycle_authority_active(
                         terminal.full_lifecycle_hook_authority_active(),
                     );
+                    runtime.set_self_reported_agent_active(terminal.self_reported_agent_active());
                 }
             }
         }
@@ -799,7 +812,7 @@ impl App {
         }
     }
 
-    fn emit_focus_api_events(&mut self, ws_idx: usize, pane_id: crate::layout::PaneId) {
+    pub(crate) fn emit_focus_api_events(&mut self, ws_idx: usize, pane_id: crate::layout::PaneId) {
         self.emit_event(crate::api::schema::EventEnvelope {
             event: crate::api::schema::EventKind::WorkspaceFocused,
             data: crate::api::schema::EventData::WorkspaceFocused {
@@ -898,6 +911,13 @@ impl App {
                     id: request.id,
                     result: ResponseResult::Ok {},
                 }
+            }
+            Method::ServerSshAgentRegister(_) => {
+                return responses::encode_error(
+                    request.id,
+                    "connection_local_only",
+                    "SSH agent registration requires a persistent local JSON API connection",
+                );
             }
             Method::ServerLiveHandoff(_) => {
                 let response = ErrorResponse {
@@ -1011,7 +1031,7 @@ impl App {
                 return self.handle_workspace_create(request.id, params);
             }
             Method::WorkspaceFocus(target) => {
-                return self.handle_workspace_focus(request.id, target)
+                return self.handle_workspace_focus(request.id, target);
             }
             Method::WorkspaceRename(params) => {
                 return self.handle_workspace_rename(request.id, params);
@@ -1026,9 +1046,15 @@ impl App {
                 return self.handle_workspace_report_metadata(request.id, params);
             }
             Method::WorkspaceClose(target) => {
-                return self.handle_workspace_close(request.id, target)
+                return self.handle_workspace_close(request.id, target);
             }
-            Method::WorktreeList(params) => return self.handle_worktree_list(request.id, params),
+            Method::WorktreeList(_) | Method::WorktreeOpen(_) => {
+                return responses::encode_error(
+                    request.id,
+                    "invalid_request",
+                    "worktree discovery is handled asynchronously by the app runtime",
+                );
+            }
             Method::WorktreeCreate(params) => {
                 let _ = params;
                 return responses::encode_error(
@@ -1037,7 +1063,6 @@ impl App {
                     "worktree.create is handled asynchronously by the app runtime",
                 );
             }
-            Method::WorktreeOpen(params) => return self.handle_worktree_open(request.id, params),
             Method::WorktreeRemove(params) => {
                 let _ = params;
                 return responses::encode_error(
@@ -1059,7 +1084,7 @@ impl App {
             Method::AgentRename(params) => return self.handle_agent_rename(request.id, params),
             Method::AgentViewSet(params) => return self.handle_agent_view_set(request.id, params),
             Method::AgentViewClear(params) => {
-                return self.handle_agent_view_clear(request.id, params)
+                return self.handle_agent_view_clear(request.id, params);
             }
             Method::AgentStart(params) => return self.handle_agent_start(request.id, params),
             Method::AgentPrompt(_) => {
@@ -1079,7 +1104,7 @@ impl App {
             Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
             Method::AgentExplain(target) => return self.handle_agent_explain(request.id, target),
             Method::AgentSendKeys(params) => {
-                return self.handle_agent_send_keys(request.id, params)
+                return self.handle_agent_send_keys(request.id, params);
             }
             Method::PaneSplit(params) => return self.handle_pane_split(request.id, params),
             Method::PaneSwap(params) => return self.handle_pane_swap(request.id, params),
@@ -1101,6 +1126,7 @@ impl App {
             }
             Method::PaneResize(params) => return self.handle_pane_resize(request.id, params),
             Method::PaneScroll(params) => return self.handle_pane_scroll(request.id, params),
+            Method::PaneClear(target) => return self.handle_pane_clear(request.id, target),
             Method::PaneEditScrollback(target) => {
                 return self.handle_pane_edit_scrollback(request.id, target);
             }
@@ -1118,39 +1144,14 @@ impl App {
             Method::PaneGet(target) => return self.handle_pane_get(request.id, target),
             Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
             Method::PaneInputSet(params) => return self.handle_pane_input_set(request.id, params),
+            Method::PaneLinkResolve(params) => {
+                return self.handle_pane_link_resolve(request.id, params);
+            }
             Method::PaneLinkActivate(params) => {
                 return self.handle_pane_link_activate(request.id, params);
             }
             Method::PaneRename(params) => return self.handle_pane_rename(request.id, params),
             Method::PaneRead(params) => return self.handle_pane_read(request.id, params),
-            Method::PaneGraphicsSet(params) => {
-                return self.handle_pane_graphics_set(request.id, params);
-            }
-            Method::PaneGraphicsClear(params) => {
-                return self.handle_pane_graphics_clear(request.id, params);
-            }
-            Method::PaneGraphicsInfo(params) => {
-                return self.handle_pane_graphics_info(request.id, params);
-            }
-            Method::PaneGraphicsStream(_) => {
-                return responses::encode_error(
-                    request.id,
-                    "stream_transport_required",
-                    "pane.graphics.stream requires the streaming socket transport",
-                );
-            }
-            Method::PaneGraphicsStreamSet(params) => {
-                return self.handle_pane_graphics_stream_set(request.id, params);
-            }
-            Method::PaneGraphicsStreamDirect(params) => {
-                return self.handle_pane_graphics_stream_direct(request.id, params);
-            }
-            Method::PaneGraphicsStreamOpen(params) => {
-                return self.handle_pane_graphics_stream_open(request.id, params);
-            }
-            Method::PaneGraphicsStreamClose(params) => {
-                return self.handle_pane_graphics_stream_close(request.id, params);
-            }
             Method::PaneReportAgent(params) => {
                 return self.handle_pane_report_agent(request.id, params);
             }
@@ -1168,7 +1169,7 @@ impl App {
             }
             Method::PaneSendText(params) => return self.handle_pane_send_text(request.id, params),
             Method::PaneSendInput(params) => {
-                return self.handle_pane_send_input(request.id, params)
+                return self.handle_pane_send_input(request.id, params);
             }
             Method::PaneClose(target) => return self.handle_pane_close(request.id, target),
             Method::PopupClose(_) => {
@@ -2067,7 +2068,13 @@ mod tests {
                 observed_at: std::time::Instant::now(),
             });
 
-            assert!(app.state.terminals[&terminal_id].agent_name.is_none());
+            // The release event is this test's subject; the name outliving the
+            // observation is pinned by
+            // `a_process_exit_observation_alone_does_not_free_the_name`.
+            assert_eq!(
+                app.state.terminals[&terminal_id].agent_name.as_deref(),
+                agent_name
+            );
             assert!(event_hub.events_after(0).iter().any(|(_, event)| matches!(
                 &event.data,
                 crate::api::schema::EventData::PaneAgentDetected {
@@ -2123,7 +2130,9 @@ mod tests {
 
         let terminal = &app.state.terminals[&terminal_id];
         assert_eq!(terminal.state, AgentState::Idle);
-        assert!(terminal.agent_name.is_none());
+        // Releasing the registration does not free the name yet; a wrong
+        // observation must not cost a live agent the handle its owner gave it.
+        assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
         assert!(event_hub.events_after(0).iter().any(|(_, event)| matches!(
             event.data,
             crate::api::schema::EventData::PaneAgentDetected { released: true, .. }

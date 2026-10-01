@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 use tracing::debug;
 
 use super::ClientLoopEvent;
@@ -13,8 +13,8 @@ const DEFAULT_CELL_HEIGHT_PX: u32 = 16;
 
 /// Average cell size derived from a terminal ioctl pixel extent.
 ///
-/// The extent need not divide evenly by the grid: terminals may include padding,
-/// and pixel mouse coordinates retain the raw extent for proportional mapping.
+/// The extent need not divide evenly by the grid because terminals may include
+/// padding; mouse mapping uses the resulting integer cell pitch.
 pub(super) fn ioctl_cell_size(
     columns: u16,
     rows: u16,
@@ -177,7 +177,7 @@ pub(super) fn resize_poll_loop(
     }
 }
 
-#[cfg(any(not(windows), test))]
+#[cfg(not(windows))]
 pub(super) fn query_host_terminal_appearance() {
     let _ = write_host_terminal_appearance_query(io::stdout());
 }
@@ -221,7 +221,7 @@ pub(super) fn write_host_cell_size_query(mut writer: impl io::Write) -> io::Resu
     writer.flush()
 }
 
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 pub(super) fn store_reported_cell_size(
     reported_cell_size: &AtomicU64,
     width_px: u32,

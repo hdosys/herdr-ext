@@ -16,6 +16,21 @@ mod clipboard_image;
 #[path = "windows/process_job.rs"]
 mod process_job;
 pub(crate) use process_job::ChildProcessJob;
+mod config_backup;
+
+pub(crate) fn windows_virtual_terminal_input_active() -> bool {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_INPUT_HANDLE,
+    };
+
+    let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+        return false;
+    }
+    let mut mode = 0;
+    (unsafe { GetConsoleMode(handle, &mut mode) } != 0) && mode & ENABLE_VIRTUAL_TERMINAL_INPUT != 0
+}
 
 pub(crate) fn classify_child_exit(status: &portable_pty::ExitStatus) -> super::ChildExitReason {
     // STATUS_CONTROL_C_EXIT is reported without a Unix signal by portable-pty.
@@ -26,6 +41,25 @@ pub(crate) fn classify_child_exit(status: &portable_pty::ExitStatus) -> super::C
     }
 }
 
+pub(crate) struct RemoteBridgeWake;
+
+impl RemoteBridgeWake {
+    pub(crate) fn new() -> std::io::Result<Self> {
+        Ok(Self)
+    }
+
+    pub(crate) fn cancel(&self) -> std::io::Result<()> {
+        // The named-pipe reader checks its cancellation flag between peeks.
+        Ok(())
+    }
+
+    pub(crate) fn wait(&self, _stream: &crate::ipc::LocalStream) -> std::io::Result<()> {
+        // Synchronous named pipes still use peek-before-read polling on Windows.
+        std::thread::sleep(Duration::from_millis(1));
+        Ok(())
+    }
+}
+
 pub(crate) fn wait_client_stream_readable(
     _stream: &crate::ipc::LocalStream,
 ) -> std::io::Result<()> {
@@ -33,6 +67,57 @@ pub(crate) fn wait_client_stream_readable(
     // cancellation flag between polls, including when a frame arrives in several fragments.
     std::thread::sleep(Duration::from_millis(2));
     Ok(())
+}
+
+pub(crate) fn forward_remote_bridge_stdio(
+    stream: crate::ipc::LocalStream,
+    _idle_timeout: bool,
+) -> std::io::Result<()> {
+    use interprocess::TryClone as _;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let mut stdout = std::io::stdout().lock();
+    let mut socket_to_stdout = stream.try_clone()?;
+    let mut stdin_to_socket = stream;
+    let upload_done = Arc::new(AtomicBool::new(false));
+    let upload_done_worker = Arc::clone(&upload_done);
+    let _upload = std::thread::spawn(move || {
+        let mut stdin = std::io::stdin();
+        let _ = copy_flush(&mut stdin, &mut stdin_to_socket);
+        upload_done_worker.store(true, Ordering::Release);
+    });
+
+    let mut buffer = [0_u8; 16 * 1024];
+    while !upload_done.load(Ordering::Acquire) {
+        match crate::ipc::poll_local_stream_read_count(&mut socket_to_stdout, &mut buffer)? {
+            crate::ipc::LocalStreamReadCount::Data(read) => {
+                std::io::Write::write_all(&mut stdout, &buffer[..read])?;
+                std::io::Write::flush(&mut stdout)?;
+            }
+            crate::ipc::LocalStreamReadCount::Pending => {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            crate::ipc::LocalStreamReadCount::Closed => break,
+        }
+    }
+    Ok(())
+}
+
+fn copy_flush<R: std::io::Read, W: std::io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+) -> std::io::Result<()> {
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(read) => read,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        };
+        writer.write_all(&buffer[..read])?;
+        writer.flush()?;
+    }
 }
 
 pub(super) fn read_terminal_grid_size() -> std::io::Result<(u16, u16)> {
@@ -72,6 +157,159 @@ pub(crate) fn replace_file(
     }
 }
 
+pub(crate) fn config_file_link_count(path: &std::path::Path) -> std::io::Result<u64> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+    let file = std::fs::File::open(path)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(u64::from(info.nNumberOfLinks))
+}
+
+pub(crate) fn create_config_temporary(
+    path: &std::path::Path,
+    private: bool,
+) -> std::io::Result<std::fs::File> {
+    if !private {
+        return std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path);
+    }
+    use interprocess::os::windows::security_descriptor::{
+        AsSecurityDescriptorExt as _, SecurityDescriptor,
+    };
+    use widestring::U16CString;
+    use windows_sys::Win32::{
+        Foundation::GENERIC_WRITE,
+        Storage::FileSystem::{
+            CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        },
+    };
+    let sddl =
+        U16CString::from_str("D:P(A;;GA;;;SY)(A;;GA;;;OW)").map_err(std::io::Error::other)?;
+    let descriptor = SecurityDescriptor::deserialize(&sddl)?;
+    let mut attributes = SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: null_mut(),
+        bInheritHandle: 0,
+    };
+    descriptor.write_to_security_attributes(&mut attributes);
+    let path = extended_length_path(path)?;
+    let handle = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            &attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    // CreateFileW returned an owned handle; File closes it exactly once.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+}
+
+pub(crate) fn write_config_temporary(
+    source: Option<&std::path::Path>,
+    temporary: &std::path::Path,
+    contents: &[u8],
+) -> std::io::Result<()> {
+    use std::io::Write;
+    if source.is_some() {
+        // If preparation finds an existing file, leave it to the recovery-backed
+        // path instead of applying replacement-file permissions.
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "config appeared while preparing a new file; retry the update",
+        ));
+    }
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(temporary)?;
+    output.write_all(contents)?;
+    output.sync_all()
+}
+
+pub(crate) fn check_config_write_target(target: &std::path::Path) -> std::io::Result<()> {
+    config_backup::check_recovery(target)
+}
+
+pub(crate) fn write_existing_config(
+    target: &std::path::Path,
+    contents: &[u8],
+) -> std::io::Result<bool> {
+    config_backup::write_existing(target, contents)
+}
+
+#[cfg(test)]
+fn config_security_descriptor(
+    path: &std::path::Path,
+    information: windows_sys::Win32::Security::OBJECT_SECURITY_INFORMATION,
+) -> std::io::Result<Vec<u8>> {
+    use windows_sys::Win32::Security::GetFileSecurityW;
+    let path = extended_length_path(path)?;
+    let mut needed = 0;
+    unsafe { GetFileSecurityW(path.as_ptr(), information, null_mut(), 0, &mut needed) };
+    if needed == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut descriptor = vec![0_u8; needed as usize];
+    if unsafe {
+        GetFileSecurityW(
+            path.as_ptr(),
+            information,
+            descriptor.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(descriptor)
+}
+
+#[cfg(test)]
+fn config_security_sddl(
+    descriptor: &mut [u8],
+    information: windows_sys::Win32::Security::OBJECT_SECURITY_INFORMATION,
+) -> std::io::Result<Vec<u16>> {
+    use windows_sys::Win32::Security::{
+        Authorization::{ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1},
+        SACL_SECURITY_INFORMATION,
+    };
+    let mut text = null_mut();
+    if unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor.as_mut_ptr().cast(),
+            SDDL_REVISION_1,
+            // Only labels were queried from the SACL. Serialize that returned
+            // SACL too; this does not request audit access to either file.
+            information | SACL_SECURITY_INFORMATION,
+            &mut text,
+            null_mut(),
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = unsafe { widestring::U16CStr::from_ptr_str(text) }
+        .as_slice()
+        .to_vec();
+    unsafe { LocalFree(text.cast()) };
+    Ok(result)
+}
+
 pub(crate) fn set_default_plugin_pane_pwd(
     _env: &mut Vec<(String, String)>,
     _cwd: &std::path::Path,
@@ -79,12 +317,14 @@ pub(crate) fn set_default_plugin_pane_pwd(
 }
 
 use windows_sys::{
+    Wdk::System::Threading::ProcessCommandLineInformation,
     Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation},
     Win32::{
         Foundation::{
             CloseHandle, GlobalFree, LocalFree, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE, HWND,
-            INVALID_HANDLE_VALUE, MAX_PATH, NTSTATUS, STATUS_SUCCESS, UNICODE_STRING, WAIT_FAILED,
-            WAIT_OBJECT_0, WAIT_TIMEOUT,
+            INVALID_HANDLE_VALUE, MAX_PATH, NTSTATUS, STATUS_BUFFER_OVERFLOW,
+            STATUS_BUFFER_TOO_SMALL, STATUS_INFO_LENGTH_MISMATCH, STATUS_SUCCESS, UNICODE_STRING,
+            WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
         Security::{
             EqualSid, GetTokenInformation, LookupAccountNameW, SidTypeUser, TokenUser,
@@ -123,12 +363,12 @@ use windows_sys::{
                 WTS_SESSION_INFOW,
             },
             Threading::{
-                GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, OpenProcess,
-                OpenProcessToken, OpenThread, QueryFullProcessImageNameW, ResumeThread,
-                TerminateProcess, WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED,
-                DETACHED_PROCESS, PROCESS_BASIC_INFORMATION, PROCESS_QUERY_INFORMATION,
-                PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, PROCESS_VM_READ,
-                THREAD_SUSPEND_RESUME,
+                GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, IsWow64Process2,
+                OpenProcess, OpenProcessToken, OpenThread, QueryFullProcessImageNameW,
+                ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_NO_WINDOW,
+                CREATE_SUSPENDED, DETACHED_PROCESS, PROCESS_BASIC_INFORMATION,
+                PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+                PROCESS_VM_READ, THREAD_SUSPEND_RESUME,
             },
         },
         UI::{
@@ -184,12 +424,83 @@ const INTERACTIVE_LAUNCH_TASK_NAME_ENV: &str = "HERDR_INTERACTIVE_LAUNCH_TASK_NA
 const INTERACTIVE_LAUNCH_CLEANUP_ENV: &str = "HERDR_INTERACTIVE_LAUNCH_CLEANUP_ONLY";
 const INTERACTIVE_LAUNCH_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Native processor architecture of the Windows host as an
+/// `IMAGE_FILE_MACHINE_*` value. `IsWow64Process2` reports the native machine
+/// even when an x64 Herdr runs under emulation on Windows ARM64, which the
+/// build target alone cannot reveal.
+pub(crate) fn native_machine_type() -> u16 {
+    let mut process_machine = 0u16;
+    let mut native_machine = 0u16;
+    // SAFETY: `GetCurrentProcess` returns a pseudo-handle and both out-pointers
+    // are valid for the duration of the call.
+    let ok = unsafe {
+        IsWow64Process2(
+            GetCurrentProcess(),
+            &mut process_machine,
+            &mut native_machine,
+        )
+    };
+    if ok != 0 && native_machine != 0 {
+        native_machine
+    } else {
+        process_machine
+    }
+}
+
 pub(crate) fn terminal_title_for_presentation(title: &str) -> &str {
     title.strip_prefix("Administrator: ").unwrap_or(title)
 }
 
 pub(crate) fn prepare_paste_text_for_pty_platform(text: String) -> String {
     text.replace("\r\n", "\n").replace('\n', "\r\n")
+}
+
+pub(crate) fn normalize_cwd_for_launch_platform(path: &std::path::Path) -> PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Component, Prefix};
+    use windows_sys::Win32::{
+        Foundation::INVALID_HANDLE_VALUE,
+        Storage::FileSystem::{FindClose, FindFirstFileW, WIN32_FIND_DATAW},
+    };
+
+    fn stored_name(path: &std::path::Path) -> Option<std::ffi::OsString> {
+        let input = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let mut data = std::mem::MaybeUninit::<WIN32_FIND_DATAW>::uninit();
+        let handle = unsafe { FindFirstFileW(input.as_ptr(), data.as_mut_ptr()) };
+        if handle == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let data = unsafe { data.assume_init() };
+        unsafe { FindClose(handle) };
+        let len = data
+            .cFileName
+            .iter()
+            .position(|&ch| ch == 0)
+            .unwrap_or(data.cFileName.len());
+        Some(std::ffi::OsString::from_wide(&data.cFileName[..len]))
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => match prefix.kind() {
+                Prefix::Disk(drive) => {
+                    normalized.push(format!("{}:", char::from(drive).to_ascii_uppercase()))
+                }
+                _ => normalized.push(prefix.as_os_str()),
+            },
+            Component::Normal(name) => {
+                let candidate = normalized.join(name);
+                normalized.push(stored_name(&candidate).unwrap_or_else(|| name.to_os_string()));
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 pub(crate) fn plugin_runtime_path_platform(path: &std::path::Path) -> PathBuf {
@@ -1877,6 +2188,7 @@ pub fn current_process_is_detached_server_daemon() -> bool {
         return false;
     }
 
+    // Job membership alone does not tie the daemon lifetime to its launcher.
     matches!(current_job_kills_processes_on_close(), Ok(false))
 }
 
@@ -2326,6 +2638,19 @@ impl ProcessSnapshotCache {
 }
 
 fn read_process_command(pid: u32, name: &str) -> WindowsProcessCommand {
+    // Prefer the command-line information class: it needs only
+    // `PROCESS_QUERY_LIMITED_INFORMATION`, while the PEB path below also needs
+    // `PROCESS_VM_READ`, which hardened runtimes (Electron/Node) and security
+    // products deny. Without a command line an agent launched through a runtime
+    // is indistinguishable from a bare `node.exe`/`bun.exe` process, so the
+    // pane would never register as an agent.
+    if let Some(process) = ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION) {
+        if let Some(cmdline) = read_process_command_line(process.0) {
+            let creation_time = process_creation_time(process.0);
+            return WindowsProcessCommand::from_cmdline(name, creation_time, Some(cmdline));
+        }
+    }
+
     let Some(process) =
         ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ)
     else {
@@ -2635,6 +2960,89 @@ fn environment_variable_from_utf16(environment: &[u16], name: &str) -> Option<St
         }
     }
     None
+}
+
+/// Read a process command line with only `PROCESS_QUERY_LIMITED_INFORMATION`.
+///
+/// `ProcessCommandLineInformation` has been available since Windows 8.1.
+/// Prefer it over walking the target PEB, which additionally requires
+/// `PROCESS_VM_READ` access that hardened runtimes and security products deny.
+///
+/// Returns `None` for a process without a stored command line; the caller then
+/// tries the PEB path before giving up.
+fn read_process_command_line(process: HANDLE) -> Option<String> {
+    let mut required = 0_u32;
+    // SAFETY: a null buffer with length 0 only asks for the required size, and
+    // `required` is a valid out-pointer for the duration of the call.
+    let status = unsafe {
+        NtQueryInformationProcess(
+            process,
+            ProcessCommandLineInformation,
+            null_mut(),
+            0,
+            &mut required,
+        )
+    };
+    // A process with no command line is already handled as a miss below.
+    if status != STATUS_BUFFER_TOO_SMALL
+        && status != STATUS_INFO_LENGTH_MISMATCH
+        && status != STATUS_BUFFER_OVERFLOW
+    {
+        return None;
+    }
+
+    // `required` is already at least a UNICODE_STRING sized buffer.
+    let mut buffer = vec![0_u8; required as usize];
+    for _ in 0..2 {
+        // SAFETY: `buffer` is `required` bytes and both pointers are valid for
+        // the call; the kernel writes the length back into `required`.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                process,
+                ProcessCommandLineInformation,
+                buffer.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        };
+        // These three statuses all mean the command line grew between the probe
+        // and the read. Some data was written; retry once with the larger buffer
+        // the call just reported. They are negative as `NTSTATUS`, so they must
+        // be checked before the failure test below.
+        let grew = status == STATUS_BUFFER_OVERFLOW
+            || status == STATUS_BUFFER_TOO_SMALL
+            || status == STATUS_INFO_LENGTH_MISMATCH;
+        if grew {
+            buffer = vec![0_u8; required as usize];
+            continue;
+        }
+        if status < 0 {
+            return None;
+        }
+        break;
+    }
+
+    // SAFETY: on success the kernel wrote a UNICODE_STRING followed by its
+    // UTF-16 contents into `buffer`. A `Vec<u8>` only guarantees byte
+    // alignment, so read the header unaligned.
+    let unicode = unsafe { buffer.as_ptr().cast::<UNICODE_STRING>().read_unaligned() };
+    let length = usize::from(unicode.Length);
+    // A short command line leaves `Length` inside the header itself; guard
+    // against reading a malformed header as string data.
+    if length == 0 || !length.is_multiple_of(2) {
+        return None;
+    }
+    let string_offset = size_of::<UNICODE_STRING>();
+    if string_offset + length > buffer.len() {
+        return None;
+    }
+    let units = buffer[string_offset..string_offset + length]
+        .chunks_exact(2)
+        .map(|unit| u16::from_ne_bytes([unit[0], unit[1]]))
+        .collect::<Vec<_>>();
+    String::from_utf16(&units)
+        .ok()
+        .filter(|command_line| !command_line.is_empty())
 }
 
 fn read_process_parameters(process: HANDLE) -> Option<RtlUserProcessParameters> {
@@ -4082,7 +4490,8 @@ mod tests {
 
         let parent_pid = std::process::id().to_string();
         let test_exe = std::env::current_exe().expect("resolve test executable");
-        let configurations: [(&str, fn(&mut Command)); 2] = [
+        type ConfigureCommand = fn(&mut Command);
+        let configurations: [(&str, ConfigureCommand); 2] = [
             ("background", super::configure_background_command_platform),
             ("server daemon", super::detach_server_daemon_command),
         ];
@@ -4129,7 +4538,7 @@ mod tests {
     }
 
     fn argv_strings(argv: &[std::ffi::OsString]) -> Vec<String> {
-        argv.into_iter()
+        argv.iter()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect()
     }
@@ -4198,15 +4607,17 @@ mod tests {
     }
 
     #[test]
-    fn windows_process_cwd_reads_child_launch_directory() {
-        let cwd = std::env::temp_dir().join(format!("herdr-cwd-test-{}", std::process::id()));
+    fn windows_process_cwd_reads_normalized_child_launch_directory() {
+        let name = format!("Herdr-Cwd-Case-{}", std::process::id());
+        let cwd = std::env::temp_dir().join(&name);
         fs::create_dir_all(&cwd).expect("create cwd fixture");
+        let launch_cwd = cwd.with_file_name(name.to_ascii_lowercase());
 
         let shell =
             std::env::var_os("ComSpec").unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".into());
         let mut child = Command::new(shell)
             .args(["/D", "/Q", "/C", "ping -n 11 127.0.0.1 > NUL"])
-            .current_dir(&cwd)
+            .current_dir(super::normalize_cwd_for_launch_platform(&launch_cwd))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -4217,7 +4628,7 @@ mod tests {
         let mut observed = None;
         while Instant::now() < deadline {
             observed = super::process_cwd(child.id());
-            if observed.as_deref() == Some(cwd.as_path()) {
+            if observed.as_ref().and_then(|path| path.file_name()) == Some(name.as_ref()) {
                 break;
             }
             thread::sleep(Duration::from_millis(100));
@@ -4227,7 +4638,10 @@ mod tests {
         let _ = child.wait();
         let _ = fs::remove_dir_all(&cwd);
 
-        assert_eq!(observed.as_deref(), Some(cwd.as_path()));
+        assert_eq!(
+            observed.as_ref().and_then(|path| path.file_name()),
+            Some(name.as_ref())
+        );
     }
 
     #[test]
@@ -4257,6 +4671,59 @@ mod tests {
         let _ = child.wait();
 
         assert_eq!(observed.as_deref(), Some("pane-test"));
+    }
+
+    #[test]
+    fn windows_process_command_line_reads_live_process_with_limited_access() {
+        // The point of the fix: the command line must be readable from a handle
+        // that does not request `PROCESS_VM_READ`. Verification against a
+        // process that actually denies that access needs a hardened host, which
+        // this suite cannot provide.
+        let handle = super::ProcessHandle::open(
+            std::process::id(),
+            super::PROCESS_QUERY_LIMITED_INFORMATION,
+        )
+        .expect("open self with limited access");
+
+        let command_line =
+            super::read_process_command_line(handle.0).expect("command line must be readable");
+        assert!(
+            !command_line.is_empty(),
+            "command line for the test process must not be empty"
+        );
+    }
+
+    #[test]
+    fn windows_process_command_line_reads_spawned_process_marker() {
+        let shell =
+            std::env::var_os("ComSpec").unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".into());
+        // `rem` keeps the marker inside cmd.exe's own command line without
+        // becoming a target for `ping`, so the process stays alive for the read.
+        let mut child = Command::new(shell)
+            .args([
+                "/D",
+                "/Q",
+                "/C",
+                "ping -n 11 127.0.0.1 > NUL & rem unique-cmdline-marker",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn cmd");
+
+        let command_line =
+            super::ProcessHandle::open(child.id(), super::PROCESS_QUERY_LIMITED_INFORMATION)
+                .and_then(|process| super::read_process_command_line(process.0));
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let command_line = command_line.expect("command line must be readable");
+        assert!(
+            command_line.contains("unique-cmdline-marker"),
+            "unexpected command line: {command_line}"
+        );
     }
 
     #[test]

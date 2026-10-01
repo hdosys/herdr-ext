@@ -15,6 +15,8 @@ use crate::api::schema::{
 use crate::popup_size::PopupSize;
 
 const PLUGIN_BUILD_OUTPUT_MAX_BYTES: usize = 64 * 1024;
+const PLUGIN_INSTALL_USAGE: &str =
+    "usage: herdr plugin install [--ref REF] [--yes|-y] <owner>/<repo>[/subdir...]";
 
 pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
@@ -151,39 +153,58 @@ fn plugin_unlink(args: &[String]) -> std::io::Result<i32> {
     }))
 }
 
-fn plugin_install(args: &[String]) -> std::io::Result<i32> {
-    let Some(source_arg) = args.first() else {
-        eprintln!("usage: herdr plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]");
-        return Ok(2);
-    };
-    let source = match GithubPluginSource::parse(source_arg) {
-        Ok(source) => source,
-        Err(err) => {
-            eprintln!("{err}");
-            return Ok(2);
-        }
-    };
+#[derive(Debug)]
+struct PluginInstallArgs {
+    source: GithubPluginSource,
+    requested_ref: Option<String>,
+    yes: bool,
+}
+
+fn parse_plugin_install_args(args: &[String]) -> Result<PluginInstallArgs, String> {
+    let mut source_arg = None;
     let mut requested_ref = None;
     let mut yes = false;
-    let mut index = 1;
+    let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--ref" => {
-                let Some(value) = required_value(args, &mut index, "--ref") else {
-                    return Ok(2);
-                };
-                requested_ref = Some(value);
+                let value = args.get(index + 1).ok_or("missing value for --ref")?;
+                requested_ref = Some(value.clone());
+                index += 2;
             }
             "--yes" | "-y" => {
                 yes = true;
                 index += 1;
             }
+            other if other.starts_with('-') || source_arg.is_some() => {
+                return Err(format!("unknown option: {other}"));
+            }
             other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
+                source_arg = Some(other);
+                index += 1;
             }
         }
     }
+    let source = GithubPluginSource::parse(source_arg.ok_or(PLUGIN_INSTALL_USAGE)?)?;
+    Ok(PluginInstallArgs {
+        source,
+        requested_ref,
+        yes,
+    })
+}
+
+fn plugin_install(args: &[String]) -> std::io::Result<i32> {
+    let PluginInstallArgs {
+        source,
+        requested_ref,
+        yes,
+    } = match parse_plugin_install_args(args) {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("{err}");
+            return Ok(2);
+        }
+    };
 
     if !yes && !io::stdin().is_terminal() {
         eprintln!("remote plugin install requires --yes when stdin is not interactive");
@@ -701,6 +722,15 @@ fn parse_split_direction(value: &str) -> Option<SplitDirection> {
 }
 
 fn normalize_plugin_path_arg(value: &str) -> std::io::Result<String> {
+    if super::target::is_remote() {
+        if super::target::remote_path_is_absolute(value) {
+            return Ok(value.to_owned());
+        }
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "remote plugin paths must be absolute",
+        ));
+    }
     let path = crate::worktree::expand_tilde_path(value);
     let absolute = if path.is_absolute() {
         path
@@ -728,7 +758,7 @@ impl GithubPluginSource {
         }
         let parts = value.split('/').collect::<Vec<_>>();
         if parts.len() < 2 {
-            return Err("usage: herdr plugin install <owner>/<repo>[/subdir...]".into());
+            return Err(PLUGIN_INSTALL_USAGE.into());
         }
         let owner = parts[0];
         let repo = parts[1];
@@ -1618,6 +1648,9 @@ fn current_unix_ms() -> u64 {
 }
 
 fn is_connection_error(err: &std::io::Error) -> bool {
+    if super::target::is_remote() {
+        return false;
+    }
     // A `server_not_running` marker is a connect failure for recovery purposes:
     // treating it as a connection error lets plugin commands fall back to the
     // offline registry. The marker carries (but does not print) a friendly
@@ -1672,6 +1705,15 @@ fn print_plugin_pane_help() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn machine_plugin_connection_errors_never_use_local_offline_state() {
+        crate::cli::target::with_test_client(crate::api::client::ApiClient::local(), || {
+            assert!(!is_connection_error(&std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused
+            )));
+        });
+    }
+
     fn unique_plugin_id(label: &str) -> String {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1713,6 +1755,68 @@ mod tests {
                 installed_unix_ms: Some(42),
             },
             warnings: vec![],
+        }
+    }
+
+    #[test]
+    fn plugin_install_args_accept_options_around_source() {
+        for (args, expected_ref, expected_yes) in [
+            (vec!["owner/repo"], None, false),
+            (vec!["--yes", "owner/repo"], None, true),
+            (vec!["-y", "owner/repo"], None, true),
+            (
+                vec!["owner/repo", "--ref", "main", "-y"],
+                Some("main"),
+                true,
+            ),
+            (
+                vec!["--ref", "main", "owner/repo", "--yes"],
+                Some("main"),
+                true,
+            ),
+            (
+                vec![
+                    "--yes",
+                    "--ref",
+                    "old",
+                    "owner/repo",
+                    "--ref",
+                    "main",
+                    "--yes",
+                ],
+                Some("main"),
+                true,
+            ),
+            // Preserve ref-value consumption: a value named --yes is not consent.
+            (vec!["owner/repo", "--ref", "--yes"], Some("--yes"), false),
+        ] {
+            let args = args.into_iter().map(String::from).collect::<Vec<_>>();
+            let parsed = parse_plugin_install_args(&args).unwrap();
+            assert_eq!(parsed.source.display(), "owner/repo", "{args:?}");
+            assert_eq!(parsed.requested_ref.as_deref(), expected_ref, "{args:?}");
+            assert_eq!(parsed.yes, expected_yes, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn plugin_install_args_reject_invalid_syntax() {
+        for (args, expected_error) in [
+            (vec![], PLUGIN_INSTALL_USAGE),
+            (vec!["--yes"], PLUGIN_INSTALL_USAGE),
+            (vec!["owner/repo", "--ref"], "missing value for --ref"),
+            (vec!["--unknown", "owner/repo"], "unknown option: --unknown"),
+            (
+                vec!["owner/repo", "extra/repo"],
+                "unknown option: extra/repo",
+            ),
+            (vec!["owner"], PLUGIN_INSTALL_USAGE),
+        ] {
+            let args = args.into_iter().map(String::from).collect::<Vec<_>>();
+            assert_eq!(
+                parse_plugin_install_args(&args).unwrap_err(),
+                expected_error,
+                "{args:?}"
+            );
         }
     }
 

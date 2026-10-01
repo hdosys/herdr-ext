@@ -3,6 +3,8 @@
 #![cfg(unix)]
 
 pub mod support;
+#[path = "support/terminal_screen.rs"]
+mod terminal_screen;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -342,6 +344,11 @@ fn direct_attach_initial_mouse_capture_follows_config() {
         "direct attach must enable host bracketed paste; output: {:?}",
         read_output(&output)
     );
+    assert!(
+        !read_output(&output).contains("\x1b[?u"),
+        "direct attach must not query rendered-client keyboard state; output: {:?}",
+        read_output(&output)
+    );
 
     let restore_watermark = output_len(&output);
     attach
@@ -656,20 +663,28 @@ fn output_has_mouse_teardown(output: &str) -> bool {
 /// keeps the blocking `Box<dyn Read>` (which has no timeout) off the test's
 /// main thread, so a client that never exits fails the deadline instead of
 /// hanging the whole test forever.
-type SharedOutput = std::sync::Arc<Mutex<String>>;
+#[derive(Default)]
+struct PtyOutput {
+    bytes: Vec<u8>,
+    // Keep legacy raw-string watermarks stable even across split UTF-8 reads.
+    text: String,
+}
+
+type SharedOutput = std::sync::Arc<Mutex<PtyOutput>>;
 
 fn spawn_pty_drain(mut reader: Box<dyn Read + Send>) -> SharedOutput {
-    let output: SharedOutput = std::sync::Arc::new(Mutex::new(String::new()));
+    let output: SharedOutput = std::sync::Arc::new(Mutex::new(PtyOutput::default()));
     let thread_output = output.clone();
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
-                Ok(n) => thread_output
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .push_str(&String::from_utf8_lossy(&buf[..n])),
+                Ok(n) => {
+                    let mut captured = thread_output.lock().unwrap_or_else(|p| p.into_inner());
+                    captured.bytes.extend_from_slice(&buf[..n]);
+                    captured.text.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
                 Err(_) => break,
             }
         }
@@ -677,15 +692,146 @@ fn spawn_pty_drain(mut reader: Box<dyn Read + Send>) -> SharedOutput {
     output
 }
 
+#[test]
+fn screen_capture_preserves_split_utf8_bytes() {
+    let reader = std::io::Cursor::new(b"caf\xc3").chain(std::io::Cursor::new(b"\xa9"));
+    let output = spawn_pty_drain(Box::new(reader));
+    assert!(wait_until(
+        Duration::from_secs(2),
+        Duration::from_millis(10),
+        || {
+            let bytes = output.lock().unwrap().bytes.clone();
+            bytes == "café".as_bytes() && terminal_screen::text(&bytes, 80, 24).contains("café")
+        }
+    ));
+}
+
 fn read_output(output: &SharedOutput) -> String {
-    output.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    output
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .text
+        .clone()
+}
+
+#[test]
+fn sigwinch_refreshes_host_palette_without_resizing() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("herdr.sock");
+    let client_socket = runtime_dir.join("herdr-client.sock");
+    let server = spawn_server_with_config(
+        &config_home,
+        &runtime_dir,
+        &api_socket,
+        &client_socket,
+        "onboarding = false\n[theme]\nname = \"terminal\"\n",
+    );
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    wait_for_socket(&client_socket, Duration::from_secs(10));
+    let client = spawn_client_shell_process(&config_home, &runtime_dir, &api_socket);
+    let master = client._master.as_ref().expect("client PTY");
+    let output = spawn_pty_drain(master.try_clone_reader().unwrap());
+    let mut writer = master.take_writer().unwrap();
+    let queries = "\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
+    assert!(
+        wait_until(Duration::from_secs(5), Duration::from_millis(25), || {
+            read_output(&output).contains(queries)
+        }),
+        "client should query the initial palette: {:?}",
+        read_output(&output)
+    );
+
+    // Complete the startup query with a light palette. No appearance notification
+    // is sent: this models a terminal whose colors are changed directly by OSC.
+    let mut light =
+        String::from("\x1b]10;rgb:0000/0000/0000\x1b\\\x1b]11;rgb:ffff/ffff/ffff\x1b\\");
+    for index in 0..=u8::MAX {
+        light.push_str(&format!("\x1b]4;{index};rgb:ffff/ffff/ffff\x1b\\"));
+    }
+    writer.write_all(light.as_bytes()).unwrap();
+    writer.flush().unwrap();
+    // Let startup settle and the resize watcher install its signal handler.
+    thread::sleep(Duration::from_millis(250));
+
+    for _ in 0..2 {
+        let watermark = output_len(&output);
+        assert_eq!(
+            unsafe { libc::kill(client.child.process_id().unwrap() as i32, libc::SIGWINCH) },
+            0
+        );
+        assert!(
+            wait_until(Duration::from_secs(5), Duration::from_millis(25), || {
+                let captured = read_output(&output);
+                let refreshed = &captured[watermark..];
+                refreshed.contains(queries) && refreshed.contains("\x1b]4;15;?\x1b\\")
+            }),
+            "SIGWINCH should query default colors and the ANSI palette without changing PTY size"
+        );
+        writer
+            .write_all(b"\x1b]10;rgb:eeee/eeee/eeee\x1b\\\x1b]11;rgb:1111/2222/3333\x1b\\")
+            .unwrap();
+        writer.flush().unwrap();
+    }
+
+    drop(writer);
+    drop(client);
+    cleanup_spawned_herdr(server, base);
 }
 
 /// Current captured byte length, used as a watermark so a test can search only
 /// the output emitted *after* a trigger. The teardown markers also appear in
 /// normal attach-phase output, so matching the whole buffer is meaningless.
 fn output_len(output: &SharedOutput) -> usize {
-    output.lock().unwrap_or_else(|p| p.into_inner()).len()
+    output.lock().unwrap_or_else(|p| p.into_inner()).text.len()
+}
+
+fn sidebar_row_click(screen: &str, label: &str) -> Vec<u8> {
+    let sidebar_width = screen
+        .lines()
+        .find_map(|line| {
+            line.chars()
+                .position(|character| character == '│')
+                .filter(|column| *column > 0)
+        })
+        .expect("visible sidebar boundary");
+    let row = screen
+        .lines()
+        .position(|line| {
+            line.chars()
+                .take(sidebar_width)
+                .collect::<String>()
+                .contains(label)
+        })
+        .unwrap_or_else(|| panic!("sidebar row {label:?} is not visible: {screen}"))
+        + 1;
+    format!("\x1b[<0;7;{row}M\x1b[<0;7;{row}m").into_bytes()
+}
+
+#[test]
+fn sidebar_row_click_ignores_notice_borders() {
+    let screen = "┌─────────────────────────┐\n│● Endpoint unavailable   │\n└─────────────────────────┘\n   · local-returned      │\n";
+    assert_eq!(
+        sidebar_row_click(screen, "local-returned"),
+        b"\x1b[<0;7;4M\x1b[<0;7;4m"
+    );
+}
+
+#[test]
+fn sidebar_row_click_tracks_restored_workspace_count() {
+    for restored in [false, true] {
+        let screen = format!(
+            " machines                │\n                         │\n ▾ Local                 │local-returned in pane output\n{}   · local-returned      └─────────────────\n",
+            if restored { "   · restored            │\n" } else { "" }
+        );
+        let row = if restored { 5 } else { 4 };
+        assert_eq!(
+            sidebar_row_click(&screen, "local-returned"),
+            format!("\x1b[<0;7;{row}M\x1b[<0;7;{row}m").into_bytes()
+        );
+    }
 }
 
 /// Spawns a server + real thin client under a PTY and waits until the client
@@ -808,11 +954,18 @@ fn federated_launch_opens_local_directly_while_saved_ssh_is_unavailable() {
                 || { read_output(&output).contains("Local") }
             ));
             let mut input = client._master.as_ref().unwrap().take_writer().unwrap();
-            input
-                .write_all(b"printf 'LOCAL_%s\\n' DIRECT_READY\r")
-                .unwrap();
+            // Input is gated until Local's active surface is ready, and that readiness can lag
+            // the first rendered frame (the unavailable remote must not extend the wait). Retry
+            // the write instead of assuming a single write lands, matching the recovered-Local
+            // path below.
             assert!(wait_until(Duration::from_secs(10), Duration::from_millis(20), || {
-                read_output(&output).contains("LOCAL_DIRECT_READY")
+                if read_output(&output).contains("LOCAL_DIRECT_READY") {
+                    return true;
+                }
+                input
+                    .write_all(b"printf 'LOCAL_%s\\n' DIRECT_READY\r")
+                    .unwrap();
+                false
             }), "Local must accept input without waiting for SSH (remote selected: {select_remote}): {}", read_output(&output));
             let text = read_output(&output);
             assert!(!text.contains("Local: connecting"), "{text}");
@@ -882,9 +1035,11 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_herdr"), bin.join("herdr")).unwrap();
     let quote =
         |path: &std::path::Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
+    let ssh_commands = base.join("ssh-commands");
+    let bridge_pid = base.join("bridge-pid");
     fs::write(bin.join("ssh"), format!(
-        "#!/bin/sh\nexport HOME={} XDG_CONFIG_HOME={} XDG_RUNTIME_DIR={} HERDR_SOCKET_PATH={}\nunset HERDR_CLIENT_SOCKET_PATH HERDR_SESSION\nfor arg do last=\"$arg\"; done\nexec /bin/sh -c \"$last\"\n",
-        quote(&base.join("home")), quote(&remote_config), quote(&remote_runtime), quote(&remote_api),
+        "#!/bin/sh\nexport HOME={} XDG_CONFIG_HOME={} XDG_RUNTIME_DIR={} HERDR_SOCKET_PATH={}\nunset HERDR_CLIENT_SOCKET_PATH HERDR_SESSION\nfor arg do last=\"$arg\"; done\nprintf '%s\\n' \"$last\" >> {}\ncase \"$last\" in *remote-client-bridge*) printf '%s\\n' \"$$\" > {};; esac\nexec /bin/sh -c \"$last\"\n",
+        quote(&base.join("home")), quote(&remote_config), quote(&remote_runtime), quote(&remote_api), quote(&ssh_commands), quote(&bridge_pid),
     )).unwrap();
     fs::set_permissions(bin.join("ssh"), fs::Permissions::from_mode(0o700)).unwrap();
     let path = format!(
@@ -900,13 +1055,60 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
         &[("PATH", &path)],
     );
     let output = spawn_pty_drain(client._master.as_ref().unwrap().try_clone_reader().unwrap());
+    let screen_text = || {
+        let bytes = output
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .bytes
+            .clone();
+        terminal_screen::text(&bytes, 80, 24)
+    };
     assert!(
         wait_until(Duration::from_secs(12), Duration::from_millis(20), || {
-            read_output(&output).contains("REMOTE_INITIAL_FRAME")
+            screen_text().contains("REMOTE_INITIAL_FRAME")
         }),
         "remote must be usable before Local exists: {}",
         read_output(&output)
     );
+    assert!(
+        fs::read_to_string(&ssh_commands)
+            .unwrap()
+            .contains("remote-client-bridge --idle-timeout-v1"),
+        "saved machine discovery must opt into the advertised bridge idle timeout"
+    );
+
+    let mut input = client._master.as_ref().unwrap().take_writer().unwrap();
+    send_pane_shell_command(&remote_api, remote_pane, "reconnect_survivor=ALIVE");
+    for cycle in 1..=3 {
+        let pid: libc::pid_t = fs::read_to_string(&bridge_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let marker = format!("REMOTE_RECONNECTED_{cycle}");
+        send_pane_shell_command(&remote_api, remote_pane, &format!("printf '{marker}\\n'"));
+        assert!(
+            wait_until(Duration::from_secs(15), Duration::from_millis(20), || {
+                screen_text().contains(&marker)
+            }),
+            "remote reconnect {cycle} must restore the visible screen without switching machines"
+        );
+        assert!(
+            wait_until(Duration::from_secs(8), Duration::from_millis(100), || {
+                if screen_text().contains(&format!("REMOTE_ALIVE_INPUT_{cycle}")) {
+                    return true;
+                }
+                write!(
+                    input,
+                    "printf 'REMOTE_%s_INPUT_{cycle}\\n' \"$reconnect_survivor\"\r"
+                )
+                .unwrap();
+                false
+            }),
+            "remote reconnect {cycle} must restore visible input and preserve the shell"
+        );
+    }
 
     let mut local = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -922,22 +1124,24 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
     assert!(wait_until(
         Duration::from_secs(10),
         Duration::from_millis(20),
-        || read_output(&output).contains("local-online")
+        || screen_text().contains("local-online")
     ));
 
     local.child.kill().unwrap();
     local.close_master();
     drop(local);
-    let watermark = output_len(&output);
-    let mut input = client._master.as_ref().unwrap().take_writer().unwrap();
-    input
-        .write_all(b"printf 'REMOTE_%s\\n' SURVIVED\r")
-        .unwrap();
     assert!(
         wait_until(Duration::from_secs(8), Duration::from_millis(20), || {
-            read_output(&output)[watermark..].contains("REMOTE_SURVIVED")
+            if screen_text().contains("REMOTE_SURVIVED") {
+                return true;
+            }
+            input
+                .write_all(b"printf 'REMOTE_%s\\n' SURVIVED\r")
+                .unwrap();
+            false
         }),
-        "Local loss must not interrupt remote input or output"
+        "Local loss must not interrupt remote input or output: {}",
+        screen_text()
     );
     assert!(client.child.try_wait().unwrap().is_none());
 
@@ -954,20 +1158,72 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
     assert_eq!(created["result"]["type"], "workspace_created");
     assert!(
         wait_until(Duration::from_secs(12), Duration::from_millis(20), || {
-            read_output(&output).contains("local-returned")
+            screen_text().contains("local-returned")
         }),
         "Local must reconnect with fresh metadata"
     );
-    let watermark = output_len(&output);
     input
         .write_all(b"printf 'REMOTE_%s\\n' STILL_SELECTED\r")
         .unwrap();
     assert!(
         wait_until(Duration::from_secs(8), Duration::from_millis(20), || {
-            read_output(&output)[watermark..].contains("REMOTE_STILL_SELECTED")
+            screen_text().contains("REMOTE_STILL_SELECTED")
         }),
-        "Local recovery must not steal selection"
+        "Local recovery must not steal selection: {}",
+        screen_text()
     );
+    let local_pane = created["result"]["root_pane"]["pane_id"].as_str().unwrap();
+    send_pane_shell_command(
+        &api_socket,
+        local_pane,
+        "printf 'LOCAL_WHILE_REMOTE_STALLED\\n'",
+    );
+    {
+        struct ResumeBridge(libc::pid_t);
+        impl Drop for ResumeBridge {
+            fn drop(&mut self) {
+                unsafe { libc::kill(self.0, libc::SIGCONT) };
+            }
+        }
+        let bridge: libc::pid_t = fs::read_to_string(&bridge_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(unsafe { libc::kill(bridge, libc::SIGSTOP) }, 0);
+        let _resume_bridge = ResumeBridge(bridge);
+        input
+            .write_all(&sidebar_row_click(&screen_text(), "local-returned"))
+            .unwrap();
+        assert!(
+            wait_until(Duration::from_secs(3), Duration::from_millis(20), || {
+                screen_text().contains("LOCAL_WHILE_REMOTE_STALLED")
+            }),
+            "one Local selection must not wait for the remote bridge: {}",
+            screen_text()
+        );
+        assert!(
+            wait_until(Duration::from_secs(3), Duration::from_millis(100), || {
+                if screen_text().contains("LOCAL_INPUT_WHILE_REMOTE_STALLED") {
+                    return true;
+                }
+                input
+                    .write_all(b"printf 'LOCAL_%s\\n' INPUT_WHILE_REMOTE_STALLED\r")
+                    .unwrap();
+                false
+            }),
+            "Local input must become usable while the remote bridge remains stopped"
+        );
+    }
+    input
+        .write_all(&sidebar_row_click(&screen_text(), "remote-ready"))
+        .unwrap();
+    assert!(wait_until(
+        Duration::from_secs(10),
+        Duration::from_millis(20),
+        || screen_text().contains("REMOTE_STILL_SELECTED")
+    ));
+
     let watermark = output_len(&output);
     remote_server.child.kill().unwrap();
     assert!(
@@ -982,26 +1238,27 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
         "losing the selected remote must keep host mouse reporting enabled"
     );
 
-    let local_pane = created["result"]["root_pane"]["pane_id"].as_str().unwrap();
     send_pane_shell_command(
         &api_socket,
         local_pane,
         "printf 'LOCAL_RECOVERED_SURFACE\\n'",
     );
-    let watermark = output_len(&output);
     // Select the fresh workspace below Local's restored workspace.
-    input.write_all(b"\x1b[<0;7;5M\x1b[<0;7;5m").unwrap();
+    // A fast shutdown may leave no saved workspace, so locate the actual row.
+    input
+        .write_all(&sidebar_row_click(&screen_text(), "local-returned"))
+        .unwrap();
     assert!(
         wait_until(Duration::from_secs(10), Duration::from_millis(20), || {
-            read_output(&output)[watermark..].contains("LOCAL_RECOVERED_SURFACE")
+            screen_text().contains("LOCAL_RECOVERED_SURFACE")
         }),
         "recovered Local must be selectable: {}",
-        read_output(&output)
+        screen_text()
     );
     // A coherent frame precedes the final host-effects fence; input stays gated until then.
     assert!(
         wait_until(Duration::from_secs(8), Duration::from_millis(100), || {
-            if read_output(&output)[watermark..].contains("LOCAL_INPUT_RECOVERED") {
+            if screen_text().contains("LOCAL_INPUT_RECOVERED") {
                 return true;
             }
             input
@@ -1010,7 +1267,7 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
             false
         }),
         "recovered Local must accept input: {}",
-        read_output(&output)
+        screen_text()
     );
     drop(input);
     drop(client);
@@ -1606,10 +1863,7 @@ fn client_receives_pane_surface_after_pane_output() {
 }
 
 #[test]
-fn pane_spawn_cwd_fallback_in_server() {
-    // Pane spawn failure cwd fallback in server context.
-    // This test verifies that the server can start even with invalid
-    // session data pointing to non-existent directories.
+fn unavailable_restored_pane_keeps_saved_cwd_in_server() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -1664,12 +1918,11 @@ fn pane_spawn_cwd_fallback_in_server() {
     assert_eq!(pane["result"]["pane"]["workspace_id"], workspace_id);
     let cwd = pane["result"]["pane"]["cwd"]
         .as_str()
-        .expect("restored pane should report fallback cwd");
-    assert_ne!(cwd, missing_cwd);
-    assert!(
-        std::path::Path::new(cwd).exists(),
-        "fallback cwd should exist: {cwd}"
-    );
+        .expect("restored pane should retain saved cwd");
+    assert_eq!(cwd, missing_cwd);
+    assert!(pane["result"]["pane"]["restore_error"]
+        .as_str()
+        .is_some_and(|error| error.contains("directory")));
 
     let client_shell = spawn_client_shell_process(&config_home, &runtime_dir, &api_socket);
     let output = spawn_pty_drain(
@@ -1682,14 +1935,47 @@ fn pane_spawn_cwd_fallback_in_server() {
     );
     assert!(
         wait_until(Duration::from_secs(8), Duration::from_millis(20), || {
-            read_output(&output).contains("missing-cwd")
+            let screen = read_output(&output);
+            screen.contains("missing-cwd") && screen.contains("unavailable")
         }),
-        "client shell should render the restored session; output: {:?}",
+        "client shell should render the unavailable pane; output: {:?}",
         read_output(&output)
     );
-
+    drop(client_shell);
+    let stopped = send_json_request(
+        &api_socket,
+        r#"{"id":"stop","method":"server.stop","params":{}}"#,
+    );
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    let mut spawned = spawned;
+    assert!(wait_until(
+        Duration::from_secs(10),
+        Duration::from_millis(20),
+        || { spawned.child.try_wait().unwrap().is_some() }
+    ));
     drop(spawned);
-    cleanup_spawned_herdr(client_shell, base);
+
+    fs::create_dir(missing_cwd).unwrap();
+    let restarted = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    let recovered = send_json_request(
+        &api_socket,
+        &format!(r#"{{"id":"recovered","method":"pane.get","params":{{"pane_id":"{pane_id}"}}}}"#),
+    );
+    assert_eq!(
+        std::fs::canonicalize(recovered["result"]["pane"]["cwd"].as_str().unwrap()).unwrap(),
+        std::fs::canonicalize(missing_cwd).unwrap()
+    );
+    assert!(recovered["result"]["pane"]["restore_error"].is_null());
+    let sent = send_json_request(
+        &api_socket,
+        &serde_json::json!({"id": "type", "method": "pane.send_text", "params": {
+            "pane_id": pane_id, "text": "printf 'RESTORE_RETRY_OK\\n'\n"
+        }})
+        .to_string(),
+    );
+    assert!(sent.get("error").is_none(), "{sent}");
+    cleanup_spawned_herdr(restarted, base);
 }
 
 #[test]

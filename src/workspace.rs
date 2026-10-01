@@ -1673,12 +1673,25 @@ mod tests {
         let mut terminals = HashMap::new();
         for (id, title) in [(&root_id, "Root task"), (&child_id, "Child analysis")] {
             let mut terminal = TerminalState::new(id.clone(), PathBuf::from("/tmp"));
+            terminal.set_detected_state(
+                Some(crate::detect::Agent::OpenCode),
+                crate::detect::AgentState::Working,
+            );
+            terminal
+                .set_agent_session_ref_for_session_start(
+                    "herdr:opencode".into(),
+                    "opencode".into(),
+                    crate::agent_resume::AgentSessionRef::id("selected-session"),
+                    None,
+                    Some("select".into()),
+                )
+                .expect("pane-local selection");
             terminal.set_hook_authority(
                 "herdr:opencode".into(),
                 "opencode".into(),
                 crate::detect::AgentState::Working,
                 None,
-                None,
+                Some(2),
             );
             terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
                 source: "herdr:opencode:title".into(),

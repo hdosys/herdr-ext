@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: See what Herdr can detect, how agent state works, and how integrations improve it.
+description: See which coding agents work with Herdr, either supported by Herdr or supporting Herdr themselves, and how agent state works.
 ---
 
 Herdr is built for running more than one coding agent at a time. Each agent stays in a real terminal pane with its shell, logs, prompts, and running processes intact. Herdr tracks which panes contain agents, rolls their state up to tabs and workspaces, and lets you jump straight to the pane that needs attention instead of polling every terminal by hand.
@@ -9,45 +9,58 @@ To coordinate agents from scripts or from another agent, see [Agent automation](
 
 ## Supported agents
 
-Automatic detection works out of the box for common coding agents. The table shows which signal determines `idle`, `working`, and `blocked` for each one.
+Agents get Herdr support in one of two ways: Herdr supports them, or they support Herdr themselves. Either way you see each agent's `idle`, `working`, and `blocked` state, get notified when it finishes or needs you, and can wait on it from scripts.
 
-| Agent | State authority | Integration role |
+Other agents still run normally in Herdr panes. They just show up as plain terminals.
+
+### Supported by Herdr
+
+Herdr recognizes these agents and reads their state from what they draw on screen. To get the same session back after a Herdr server restart, install the agent's integration with `herdr integration install <name>`. See [Integrations](/docs/integrations/) for what each one installs.
+
+| Agent | Integration | Notes |
 | --- | --- | --- |
-| Pi | lifecycle hooks when installed; otherwise screen manifest | state and session |
-| OMP | lifecycle hooks when installed | state and session |
-| GitHub Copilot CLI | screen manifest | session |
-| Devin CLI | screen manifest | session |
-| Kimi Code CLI | lifecycle hooks when installed; otherwise screen manifest | state and session |
-| Hermes Agent | screen manifest | session |
-| Qoder CLI | screen manifest | session |
-| Qwen Code | screen manifest | session |
-| Droid | screen manifest | session |
-| OpenCode | lifecycle plugin when installed; otherwise screen manifest | state and session |
-| Kilo Code CLI | lifecycle plugin when installed; otherwise screen manifest | state and session |
-| MastraCode | lifecycle hooks when installed | state and session |
-| Claude Code | screen manifest | session |
-| Codex | screen manifest | session |
-| Cursor Agent CLI | screen manifest | session |
-| Amp | screen manifest | none |
-| Grok CLI | screen manifest | session |
-| Antigravity CLI | screen manifest | session |
-| Kiro CLI | screen manifest | none |
-| Maki | screen manifest | none |
-| Muse | screen manifest | none |
+| Claude Code | `claude` | |
+| Codex | `codex` | |
+| GitHub Copilot CLI | `copilot` | |
+| Cursor Agent CLI | `cursor` | |
+| OpenCode | `opencode` | also reports state |
+| Pi | `pi` | also reports state |
+| OMP | `omp` | state requires the integration |
+| Droid | `droid` | |
+| Devin CLI | `devin` | |
+| Kimi Code CLI | `kimi` | also reports state |
+| Kilo Code CLI | `kilo` | also reports state |
+| Hermes Agent | `hermes` | |
+| Qoder CLI | `qodercli` | |
+| Qwen Code | `qwen` | |
+| Letta Code | `letta` | CLI install only |
+| MastraCode | `mastracode` | state requires the integration |
+| Grok CLI | `grok` | |
+| Antigravity CLI | `antigravity-cli` | |
+| Amp | none | state only |
+| Kiro CLI | none | state only |
+| Maki | none | state only |
+| Gemini CLI | none | state only, less tested |
+| Cline | none | state only, less tested |
 
-Detected but less thoroughly tested: Gemini CLI and Cline. Unsupported agents still run normally as terminal processes. They just may not get rich state unless you add an integration or report state over the socket API.
+### Supported by the agent
 
-## Status authority
+These agents report their own state to Herdr. There is nothing to install; run them in a Herdr pane.
 
-Herdr first detects the foreground process in each pane. After that, each pane has one status authority.
+- [Crush](https://github.com/charmbracelet/crush)
+- Command Code
+- Muse
+- [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
 
-For agents with complete lifecycle hooks, the integration is authoritative when it is installed and actively reporting for the running pane. Herdr uses those hook reports for `idle`, `working`, `blocked`, and session identity. It does not also run screen manifest fallback for that same lifecycle authority. This avoids two competing sources of truth.
+An agent that also reports its resume command comes back in the same session after a Herdr server restart.
 
-For agents without complete lifecycle hooks, Herdr identifies the foreground process and reads the live bottom-buffer screen snapshot. It evaluates TOML manifests against that snapshot to classify `idle`, `working`, and `blocked`. For agents that emit them, manifests can also match terminal title and progress (OSC) sequences as detection evidence; when that evidence is absent, screen rules carry detection on their own.
+If you build a coding agent, [Add Herdr support to your agent](/docs/add-herdr-support/) shows how to join this list. It takes a few calls to Herdr's CLI or socket, and no change to Herdr.
 
-The screen snapshot comes from the recent bottom of the pane buffer, not the scrolled viewport. If you scroll back in Herdr, detection still follows the live agent UI at the bottom.
+## How status works
 
-Integrations marked `session` in the table above are intentionally not lifecycle authorities. They provide native session identity for restore, but their hooks do not cover the whole lifecycle. They can miss permission approval results, escape interrupts, or other transitions. For those agents, Herdr still uses screen manifest detection.
+For agents Herdr supports, Herdr finds the agent's process in each pane and reads the live bottom of the pane, not the part you scrolled to. Rules in a detection manifest decide whether that screen means `idle`, `working`, or `blocked`. When an integration also reports state, Herdr uses those reports instead of reading the screen.
+
+For agents that support Herdr, the agent's own reports decide the state.
 
 ## VMs and sandbox wrappers
 
@@ -57,9 +70,11 @@ Some restricted Linux runtimes do not expose a terminal foreground process group
 
 ## Blocked state
 
-Blocked detection is deliberately strict for screen-manifest agents. Herdr only marks `blocked` when the live bottom-buffer snapshot matches known visible approval, question, or permission UI. If no manifest rule matches for a known agent, Herdr falls back to `idle` and labels that fallback as `default_known_agent_idle_fallback` in explain output.
+Blocked detection is deliberately strict for screen-manifest agents. Herdr only marks `blocked` when the live bottom-buffer snapshot matches known visible approval, question, or permission UI. If no manifest rule matches for a known agent other than Codex, Herdr falls back to `idle` and labels that fallback as `default_known_agent_idle_fallback` in explain output. Codex falls back to `unknown` because its title and composer can look the same during an active turn and after a response.
 
-This means unusual new agent prompts may initially show as `idle` instead of `blocked` until Herdr learns that screen shape. The misclassification affects only the visible status and waits. It should not make Herdr send input or take destructive action.
+For those other agents, unusual new prompts may initially show as `idle` instead of `blocked` until Herdr learns that screen shape. The misclassification affects only the visible status and waits. It should not make Herdr send input or take destructive action.
+
+For Codex, a visible spinner or live activity timer can establish `working`, and a visible approval prompt can establish `blocked`. An ordinary title, composer, or missing spinner cannot establish that a turn ended. Codex may therefore stay `unknown` after a response, and waits for `idle` or completion may time out. Managed startup uses the initial composer only to determine when it can accept a prompt; that observation does not change turn status.
 
 ## Detection manifests
 
@@ -88,6 +103,14 @@ Live explain is evaluated by the running server, so it reflects the active manif
 
 Herdr can run inside tmux as the outer terminal environment. Agent detection does not inspect tmux sessions launched inside a Herdr pane. If a shell framework auto-enters tmux inside Herdr, Herdr sees `tmux` as the pane process instead of the agent behind it.
 
+If your shell automatically attaches to tmux whenever `TMUX` is unset, update its startup rule to exclude Herdr panes. Reattaching the outer tmux session from inside a Herdr pane can recursively shrink the terminal and make it flicker. Add the `HERDR_ENV` check to your existing condition before it runs tmux:
+
+```zsh
+if [[ -z ${TMUX:-} && ${HERDR_ENV:-} != 1 ]]; then
+  tmux new-session -A -s my-session
+fi
+```
+
 ## State rollups
 
 The sidebar rolls state upward.
@@ -95,17 +118,6 @@ The sidebar rolls state upward.
 A blocked agent makes its pane, tab, and workspace look blocked. A working agent makes the workspace look active. A done agent stays visible until you view it.
 
 This is the main Herdr workflow: start several agents, let them work in parallel, and use the sidebar to see which project needs a decision, which one is still running, and which one is ready to review.
-
-## Direct integrations
-
-Install the integration for each agent you use to give Herdr hook or plugin reports instead of screen detection alone:
-
-```bash
-herdr integration install claude
-herdr integration status
-```
-
-Each supported agent has its own integration name and behavior. See [Integrations](/docs/integrations/) for the per-agent details and the full install list. If you are building an agent, the [custom integration guide](/docs/integrations/#integrate-your-own-agent) shows how to report lifecycle state without adding native support to Herdr.
 
 ## Custom agent labels
 

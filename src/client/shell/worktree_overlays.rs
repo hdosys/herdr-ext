@@ -28,12 +28,10 @@ pub(super) fn render_worktree_create_overlay(
     );
     let input = Rect::new(inner.x, inner.y + 3, inner.width, 1);
     b.set_style(input, Style::default().fg(p.text).bg(p.surface0));
-    put_text(
+    let cursor = text_editor::render(
         b,
-        input.x,
-        input.y,
-        input.width,
-        &format!(" {}", create.branch),
+        Rect::new(input.x + 1, input.y, input.width.saturating_sub(1), 1),
+        &create.branch,
         Style::default().fg(p.text).bg(p.surface0),
     );
     put_text(
@@ -94,6 +92,7 @@ pub(super) fn render_worktree_create_overlay(
             .add_modifier(Modifier::BOLD),
     );
     Some(OverlayRender {
+        area: popup,
         primary: *primary,
         clear: Rect::default(),
         cancel: *cancel,
@@ -102,12 +101,7 @@ pub(super) fn render_worktree_create_overlay(
         navigator_rows: Vec::new(),
         worktree_search: Rect::default(),
         worktree_rows: Vec::new(),
-        cursor: (!create.creating).then(|| crate::protocol::CursorState {
-            x: (input.x + 1 + display_width(&create.branch)).min(input.right() - 1),
-            y: input.y,
-            visible: true,
-            shape: 0,
-        }),
+        cursor: cursor.filter(|_| !create.creating),
         ..OverlayRender::default()
     })
 }
@@ -138,7 +132,9 @@ pub(super) fn render_worktree_open_overlay(
         search.x,
         search.y,
         search.width,
-        &if open.search_focused || !open.query.is_empty() {
+        &if open.search_focused {
+            " / ".to_owned()
+        } else if !open.query.is_empty() {
             format!(" / {}", open.query)
         } else {
             " / filter worktrees".to_owned()
@@ -155,6 +151,21 @@ pub(super) fn render_worktree_open_overlay(
         format!("{} checkouts", open.entries.len())
     } else {
         format!("{}/{} checkouts", filtered.len(), open.entries.len())
+    };
+    let cursor = if open.search_focused {
+        text_editor::render(
+            b,
+            Rect::new(
+                search.x + 3,
+                search.y,
+                search.width.saturating_sub(4 + display_width(&count)),
+                1,
+            ),
+            &open.query,
+            Style::default().fg(p.text).bg(p.panel_bg),
+        )
+    } else {
+        None
     };
     put_right_text(
         b,
@@ -280,6 +291,7 @@ pub(super) fn render_worktree_open_overlay(
             .add_modifier(Modifier::BOLD),
     );
     Some(OverlayRender {
+        area: popup,
         primary: *primary,
         clear: Rect::default(),
         cancel: *cancel,
@@ -288,12 +300,7 @@ pub(super) fn render_worktree_open_overlay(
         navigator_rows: Vec::new(),
         worktree_search: search,
         worktree_rows: row_hits,
-        cursor: (open.search_focused && !open.opening).then(|| crate::protocol::CursorState {
-            x: (search.x + 3 + display_width(&open.query)).min(search.right() - 1),
-            y: search.y,
-            visible: true,
-            shape: 0,
-        }),
+        cursor: cursor.filter(|_| !open.opening),
         ..OverlayRender::default()
     })
 }
@@ -396,6 +403,7 @@ pub(super) fn render_worktree_remove_overlay(
             .add_modifier(Modifier::BOLD),
     );
     Some(OverlayRender {
+        area: popup,
         primary: *primary,
         clear: Rect::default(),
         cancel: *cancel,

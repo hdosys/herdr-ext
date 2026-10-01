@@ -12,6 +12,7 @@ const NESTED_HERDR_MESSAGES: [&str; 6] = [
 ];
 
 mod agent_resume;
+mod agent_view_eval;
 mod api;
 mod app;
 mod build_info;
@@ -23,7 +24,7 @@ mod copy_mode;
 mod detect;
 mod distribution;
 mod events;
-mod ghostty;
+use ghostty_vt as ghostty;
 mod handoff_runtime;
 mod input;
 mod integration;
@@ -35,7 +36,7 @@ mod managed_install;
 mod metadata_tokens;
 mod noninteractive_process;
 mod pane;
-mod pane_graphics_files;
+use ghostty_vt::pane_graphics_files;
 mod persist;
 mod platform;
 mod plugin_command;
@@ -172,6 +173,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # close_tab = "prefix+shift+x"
 # rename_pane = "prefix+shift+p"
 # edit_scrollback = "prefix+e"
+# clear_pane = ""                  # unbound; e.g. "prefix+ctrl+k"
 # focus_pane_left = "prefix+h"
 # focus_pane_down = "prefix+j"
 # focus_pane_up = "prefix+k"
@@ -340,6 +342,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # distinct static glyphs for blocked, working, done, idle, and unknown states.
 # status_indicators = "dots"
 
+# Accent color for highlights, borders, and navigation UI.
+# Accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
+# accent = "cyan"
+
 # Expanded agent rows. Built-ins are state_icon, state_text, machine, workspace, tab,
 # pane, agent, terminal_title, and terminal_title_stripped.
 # Custom values reported through pane metadata use a $name token.
@@ -360,10 +366,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Blank rows between space entries. Set to 1 to restore the previous spacing.
 # row_gap = 0
 # rows = [["state_icon", "workspace"], ["branch", "git_status"]]
-
-# Accent color for highlights, borders, and navigation UI.
-# Accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
-# accent = "cyan"
 
 # Background notification popup delivery
 [ui.toast]
@@ -402,6 +404,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Resume supported AI-agent panes into their native conversation sessions after
 # a Herdr server restart. Requires official integrations that report session refs.
 # resume_agents_on_restore = true
+# Milliseconds between automatic agent restores; 0 starts them without spacing.
+# startup_per_agent_delay_ms = 100
 
 [remote]
 # Whether herdr manages the ssh config used for `herdr --remote`.
@@ -436,7 +440,7 @@ pane_history = false
 # If the list contains no valid names, the reveal does not apply.
 # Accepted: pi, claude, codex, gemini, cursor, devin, cline, opencode,
 # copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder, qwen,
-# qwen-code, maki.
+# qwen-code, letta, letta-code, maki.
 # cjk_ime_agents = []
 # Cursor shape rendered when reveal_hidden_cursor_for_cjk_ime is true.
 # Values: block, steady_block (default), underline, steady_underline, bar, steady_bar.
@@ -506,6 +510,23 @@ fn installer_stop_sessions_requested(args: &[String]) -> Result<bool, String> {
     Ok(true)
 }
 
+fn finish_cli(outcome: io::Result<cli::CommandOutcome>) -> io::Result<()> {
+    match outcome {
+        Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
+        Ok(cli::CommandOutcome::NotCli) => Ok(()),
+        Err(err) if cli::protocol_mismatch_was_reported(&err) => std::process::exit(1),
+        Err(err) if cli::server_not_running_was_reported(&err) => {
+            if let Some(response) = cli::server_not_running_reported_response(&err) {
+                if let Ok(json) = serde_json::to_string(response) {
+                    eprintln!("{json}");
+                }
+            }
+            std::process::exit(1);
+        }
+        Err(err) => Err(err),
+    }
+}
+
 fn main() -> io::Result<()> {
     let _managed_runtime_lease = crate::platform::adopt_managed_runtime_lease()?;
     let raw_args: Vec<String> = match args_as_utf8(std::env::args_os()) {
@@ -531,6 +552,9 @@ fn main() -> io::Result<()> {
             eprintln!("Herdr installer shutdown failed: {err}");
             std::process::exit(2);
         }
+    }
+    if let Some(outcome) = cli::maybe_run_machine(&raw_args) {
+        return finish_cli(outcome);
     }
     let args = match session::configure_from_args(&raw_args) {
         Ok(args) => args,
@@ -577,24 +601,15 @@ fn main() -> io::Result<()> {
         std::process::exit(2);
     }
 
-    match cli::maybe_run(&args) {
-        Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
-        Ok(cli::CommandOutcome::NotCli) => {}
-        Err(err) if cli::protocol_mismatch_was_reported(&err) => std::process::exit(1),
-        Err(err) if cli::server_not_running_was_reported(&err) => {
-            if let Some(response) = cli::server_not_running_reported_response(&err) {
-                if let Ok(json) = serde_json::to_string(response) {
-                    eprintln!("{json}");
-                }
-            }
-            std::process::exit(1);
-        }
-        Err(err) => return Err(err),
+    finish_cli(cli::maybe_run(&args))?;
+
+    if args.get(1).map(String::as_str) == Some("remote-api-bridge") {
+        return remote::run_remote_api_bridge(&args[2..]);
     }
 
     // Subcommands and flags (no TUI, no logging needed)
     if args.get(1).map(|s| s.as_str()) == Some("remote-client-bridge") {
-        return remote::run_remote_client_bridge(remote::bridge_allows_start(&args[2..])?);
+        return remote::run_remote_client_bridge(&args[2..]);
     }
 
     if args.get(1).map(|s| s.as_str()) == Some("server") {
@@ -642,6 +657,7 @@ fn main() -> io::Result<()> {
         println!("       herdr --session <name> [options]");
         println!("       herdr --remote <ssh-target> [--session <name>] [--yes]");
         println!("       herdr --remote <ssh-target> --provision [--yes] [--json]");
+        println!("       herdr --machine <label-or-id> <command>");
         println!("       herdr session attach <name>");
         println!("       herdr completion zsh");
         println!("       herdr update [--handoff]");
@@ -729,6 +745,7 @@ fn main() -> io::Result<()> {
         println!();
         println!("Options:");
         println!("  --session <name>    Use or create a named persistent session");
+        println!("  --machine <label-or-id>  Run an API command on a saved SSH machine");
         println!("  --remote <target>   Attach through SSH to a remote Herdr server");
         println!("  --provision         Provision and activate the matching remote Herdr");
         println!("  --yes, -y           Approve unattended remote installation or restart");
@@ -771,6 +788,7 @@ fn main() -> io::Result<()> {
     // Reject unknown flags
     let known_flags = [
         "--session",
+        "--machine",
         "--remote",
         "--remote-keybindings",
         "--provision",
@@ -839,6 +857,17 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_config_lists_ui_accent_before_nested_tables() {
+        let accent_marker = "# accent = \"cyan\"";
+        assert_eq!(DEFAULT_CONFIG.matches(accent_marker).count(), 1);
+
+        let accent = DEFAULT_CONFIG.find(accent_marker).unwrap();
+        let sidebar = DEFAULT_CONFIG.find("# [ui.sidebar.agents]").unwrap();
+
+        assert!(accent < sidebar);
+    }
 
     #[test]
     fn nested_herdr_blocks_when_env_is_set() {

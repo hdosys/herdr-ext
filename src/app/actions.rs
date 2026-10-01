@@ -10,7 +10,6 @@ use crate::events::AppEvent;
 use crate::layout::PaneId;
 #[cfg(test)]
 use crate::layout::{find_in_direction, NavDirection};
-use crate::selection::Selection;
 use crate::terminal::{EffectiveStateChange, TerminalStateMutation};
 use crate::workspace::WorkspaceGitStatus;
 
@@ -26,12 +25,7 @@ fn is_background_completion_transition(prev_state: AgentState, new_state: AgentS
 }
 
 fn is_completion_transition(change: &EffectiveStateChange) -> bool {
-    is_completion_transition_parts(
-        change.previous_state,
-        change.state,
-        change.previous_agent_label.as_deref(),
-        change.agent_label.as_deref(),
-    )
+    is_background_completion_transition(change.previous_state, change.state)
 }
 
 fn public_tab_id_for_index(ws: &crate::workspace::Workspace, tab_idx: usize) -> Option<String> {
@@ -41,19 +35,6 @@ fn public_tab_id_for_index(ws: &crate::workspace::Workspace, tab_idx: usize) -> 
     ))
 }
 
-pub fn is_completion_transition_parts(
-    previous_state: AgentState,
-    state: AgentState,
-    previous_agent_label: Option<&str>,
-    agent_label: Option<&str>,
-) -> bool {
-    is_background_completion_transition(previous_state, state)
-        || (previous_state == AgentState::Unknown
-            && state == AgentState::Idle
-            && previous_agent_label.is_some()
-            && previous_agent_label == agent_label)
-}
-
 pub fn active_tab_suppresses_notifications(
     is_active_tab: bool,
     outer_terminal_focus: Option<bool>,
@@ -61,7 +42,6 @@ pub fn active_tab_suppresses_notifications(
     is_active_tab && outer_terminal_focus != Some(false)
 }
 
-#[cfg(test)]
 pub fn notification_sound_for_state_change(
     suppress_active_tab_notifications: bool,
     prev_state: AgentState,
@@ -83,58 +63,21 @@ pub fn notification_sound_for_state_change(
     }
 }
 
-pub fn notification_sound_for_state_change_with_agent_labels(
-    suppress_active_tab_notifications: bool,
-    prev_state: AgentState,
-    new_state: AgentState,
-    previous_agent_label: Option<&str>,
-    agent_label: Option<&str>,
-) -> Option<crate::sound::Sound> {
-    if new_state == prev_state {
-        return None;
-    }
-
-    match new_state {
-        AgentState::Blocked => Some(crate::sound::Sound::Request),
-        AgentState::Idle
-            if is_completion_transition_parts(
-                prev_state,
-                new_state,
-                previous_agent_label,
-                agent_label,
-            ) && !suppress_active_tab_notifications =>
-        {
-            Some(crate::sound::Sound::Done)
-        }
-        _ => None,
-    }
-}
-
 fn notification_sound_for_effective_state_change(
     suppress_active_tab_notifications: bool,
     change: &EffectiveStateChange,
 ) -> Option<crate::sound::Sound> {
-    if change.state == change.previous_state {
-        return None;
-    }
-
-    match change.state {
-        AgentState::Blocked => Some(crate::sound::Sound::Request),
-        AgentState::Idle
-            if is_completion_transition(change) && !suppress_active_tab_notifications =>
-        {
-            Some(crate::sound::Sound::Done)
-        }
-        _ => None,
-    }
+    notification_sound_for_state_change(
+        suppress_active_tab_notifications,
+        change.previous_state,
+        change.state,
+    )
 }
 
-pub fn notification_toast_for_state_change_with_agent_labels(
+pub fn notification_toast_for_state_change(
     suppress_active_tab_notifications: bool,
     prev_state: AgentState,
     new_state: AgentState,
-    previous_agent_label: Option<&str>,
-    agent_label: Option<&str>,
 ) -> Option<ToastKind> {
     if suppress_active_tab_notifications || new_state == prev_state {
         return None;
@@ -142,14 +85,7 @@ pub fn notification_toast_for_state_change_with_agent_labels(
 
     match new_state {
         AgentState::Blocked => Some(ToastKind::NeedsAttention),
-        AgentState::Idle
-            if is_completion_transition_parts(
-                prev_state,
-                new_state,
-                previous_agent_label,
-                agent_label,
-            ) =>
-        {
+        AgentState::Idle if is_background_completion_transition(prev_state, new_state) => {
             Some(ToastKind::Finished)
         }
         _ => None,
@@ -160,15 +96,11 @@ fn notification_toast_for_effective_state_change(
     suppress_active_tab_notifications: bool,
     change: &EffectiveStateChange,
 ) -> Option<ToastKind> {
-    if suppress_active_tab_notifications || change.state == change.previous_state {
-        return None;
-    }
-
-    match change.state {
-        AgentState::Blocked => Some(ToastKind::NeedsAttention),
-        AgentState::Idle if is_completion_transition(change) => Some(ToastKind::Finished),
-        _ => None,
-    }
+    notification_toast_for_state_change(
+        suppress_active_tab_notifications,
+        change.previous_state,
+        change.state,
+    )
 }
 
 pub fn notification_toast_for_pane_state_update(
@@ -182,12 +114,10 @@ pub fn notification_toast_for_pane_state_update(
         return None;
     }
 
-    notification_toast_for_state_change_with_agent_labels(
+    notification_toast_for_state_change(
         suppress_active_tab_notifications,
         update.previous_state,
         update.state,
-        update.previous_agent_label.as_deref(),
-        update.agent_label.as_deref(),
     )
 }
 
@@ -1093,65 +1023,13 @@ impl AppState {
     }
 }
 
-impl AppState {
-    pub(crate) fn url_at_pane_surface_cell(
-        &self,
-        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
-        ws_idx: usize,
-        pane_id: crate::layout::PaneId,
-        viewport_row: u16,
-        col: u16,
-    ) -> Option<String> {
-        let rt = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)?;
-        let (height, width) = rt.current_size();
-        url_at_runtime_cell(
-            rt,
-            pane_id,
-            ratatui::layout::Rect::new(0, 0, width, height),
-            viewport_row,
-            col,
-            rt.scroll_metrics(),
-        )
+pub(super) fn url_from_link_target(target: crate::ghostty::LinkTarget) -> Option<String> {
+    match target {
+        crate::ghostty::LinkTarget::Uri(uri) => Some(uri),
+        crate::ghostty::LinkTarget::Text { text, clicked_byte } => {
+            url_at_byte(&text, clicked_byte).map(str::to_owned)
+        }
     }
-}
-
-fn url_at_runtime_cell(
-    runtime: &crate::terminal::TerminalRuntime,
-    pane_id: crate::layout::PaneId,
-    area: ratatui::layout::Rect,
-    viewport_row: u16,
-    col: u16,
-    metrics: Option<crate::pane::ScrollMetrics>,
-) -> Option<String> {
-    if viewport_row >= area.height || col >= area.width {
-        return None;
-    }
-    let screen_col = area.x.saturating_add(col);
-    let screen_row = area.y.saturating_add(viewport_row);
-    if let Some((_, _, uri)) = runtime
-        .visible_hyperlinks(area)
-        .into_iter()
-        .find(|((x, y), _, _)| *x == screen_col && *y == screen_row)
-    {
-        return Some(uri);
-    }
-
-    let visible_selection = Selection::line_range(
-        pane_id,
-        crate::selection::absolute_row_for_viewport(0, metrics),
-        crate::selection::absolute_row_for_viewport(area.height.saturating_sub(1), metrics),
-        area.width.saturating_sub(1),
-    );
-    let visible_text = runtime.extract_selection(&visible_selection)?;
-    let logical_cell = logical_cell_for_visible_cell(&visible_text, area.width, viewport_row, col)?;
-    let line_start = visible_text[..logical_cell.byte_index]
-        .rfind('\n')
-        .map_or(0, |idx| idx + 1);
-    let line_end = visible_text[logical_cell.byte_index..]
-        .find('\n')
-        .map_or(visible_text.len(), |idx| logical_cell.byte_index + idx);
-    let line = visible_text.get(line_start..line_end)?;
-    url_at_column(line, logical_cell.logical_col).map(str::to_owned)
 }
 
 pub(crate) fn safe_web_url(url: &str) -> Option<&str> {
@@ -1201,113 +1079,19 @@ pub(crate) fn word_bounds_at_column(row: &str, col: u16) -> Option<(u16, u16)> {
     Some(span.columns(&cells))
 }
 
-pub(crate) fn url_at_column(row: &str, col: u16) -> Option<&str> {
-    let cells = text_cells(row);
-    let clicked_idx = cell_index_at_column(&cells, col)?;
-    let span = url_spans(&cells)
-        .into_iter()
-        .find(|span| span.contains(clicked_idx))?;
-    let start_byte = byte_index_for_cell(row, span.start);
-    let end_byte = byte_index_after_cell(row, span.end);
-    safe_web_url(row.get(start_byte..end_byte)?)
+fn url_at_byte(text: &str, clicked_byte: usize) -> Option<&str> {
+    let range = url_byte_range(text, clicked_byte)?;
+    text.get(range)
 }
 
-fn url_spans(cells: &[TextCell]) -> Vec<CellSpan> {
-    let mut spans = Vec::new();
-    let mut start = 0;
-    while start < cells.len() {
-        if starts_with_chars(&cells[start..], "http://")
-            || starts_with_chars(&cells[start..], "https://")
-        {
-            let mut end = start;
-            while end + 1 < cells.len() && !cells[end + 1].ch.is_whitespace() {
-                end += 1;
-            }
-            if let Some(span) = trim_url_edges(cells, CellSpan { start, end }) {
-                spans.push(span);
-            }
-            start = end + 1;
-        } else {
-            start += 1;
-        }
-    }
-    spans
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct VisibleTextCell {
-    pub(crate) byte_index: usize,
-    pub(crate) ch: char,
-    pub(crate) logical_col: u16,
-    pub(crate) screen_row: u16,
-    pub(crate) screen_col: u16,
-}
-
-pub(crate) fn visible_text_cells(text: &str, pane_width: u16) -> Vec<VisibleTextCell> {
-    if pane_width == 0 {
-        return Vec::new();
-    }
-
-    let mut cells = Vec::new();
-    let mut screen_row = 0u16;
-    let mut screen_col = 0u16;
-    let mut logical_col = 0u16;
-    let mut pending_wrap = false;
-    for (byte_index, ch) in text.char_indices() {
-        if ch == '\n' {
-            screen_row = screen_row.saturating_add(1);
-            screen_col = 0;
-            logical_col = 0;
-            pending_wrap = false;
-            continue;
-        }
-        if pending_wrap {
-            screen_row = screen_row.saturating_add(1);
-            screen_col = 0;
-            pending_wrap = false;
-        }
-
-        let width = u16::from(crate::ghostty::unicode_codepoint_width(ch as u32));
-        cells.push(VisibleTextCell {
-            byte_index,
-            ch,
-            logical_col,
-            screen_row,
-            screen_col,
-        });
-
-        logical_col = logical_col.saturating_add(width);
-        screen_col = screen_col.saturating_add(width);
-        while screen_col > pane_width {
-            screen_col -= pane_width;
-            screen_row = screen_row.saturating_add(1);
-        }
-        if width > 0 && screen_col == pane_width {
-            pending_wrap = true;
-            screen_col = pane_width.saturating_sub(1);
-        }
-    }
-    cells
-}
-
-pub(crate) fn logical_cell_for_visible_cell(
-    text: &str,
-    pane_width: u16,
-    target_row: u16,
-    target_col: u16,
-) -> Option<VisibleTextCell> {
-    visible_text_cells(text, pane_width)
-        .into_iter()
-        .find(|cell| {
-            let width = u16::from(crate::ghostty::unicode_codepoint_width(cell.ch as u32));
-            cell.screen_row == target_row
-                && if width == 0 {
-                    target_col == cell.screen_col
-                } else {
-                    target_col >= cell.screen_col
-                        && target_col < cell.screen_col.saturating_add(width)
-                }
-        })
+pub(super) fn url_byte_range(text: &str, clicked_byte: usize) -> Option<std::ops::Range<usize>> {
+    let clicked_idx = text.get(..clicked_byte)?.chars().count();
+    let cells = text_cells(text);
+    let span = url_span_at_column(&cells, clicked_idx)?;
+    let start = byte_index_for_cell(text, span.start);
+    let end = byte_index_after_cell(text, span.end);
+    safe_web_url(text.get(start..end)?)?;
+    Some(start..end)
 }
 
 fn token_span_at_column(cells: &[TextCell], clicked_idx: usize) -> Option<CellSpan> {
@@ -1485,7 +1269,21 @@ fn is_word_separator(ch: char) -> bool {
     ch.is_whitespace()
         || matches!(
             ch,
-            '|' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' | '!'
+            '|' | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | ','
+                | ';'
+                | '!'
+                | '（'
+                | '）'
+                | '：'
+                | '、'
+                | '。'
+                | '，'
         )
 }
 
@@ -1644,6 +1442,12 @@ impl AppState {
                 })
                 .into_iter()
                 .collect(),
+            AppEvent::CodexPromptObserved { pane_id, ready } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.observe_codex_prompt_ready(ready)
+                })
+                .into_iter()
+                .collect(),
             AppEvent::StateChanged {
                 pane_id,
                 agent,
@@ -1701,6 +1505,28 @@ impl AppState {
                     .collect()
                 }
             }
+            AppEvent::AgentResumeReported {
+                pane_id,
+                source,
+                agent_label,
+                seq,
+                argv,
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.record_reported_resume(&source, &agent_label, seq, argv);
+                    None
+                })
+                .into_iter()
+                .collect(),
+            AppEvent::ReportedAgentShellReturned {
+                pane_id,
+                observed_at,
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.clear_self_reported_agent(observed_at)
+                })
+                .into_iter()
+                .collect(),
             AppEvent::AgentSessionReported {
                 pane_id,
                 source,
@@ -1811,6 +1637,7 @@ impl AppState {
             }
             AppEvent::WorktreeAddFinished(_) => Vec::new(),
             AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
+            AppEvent::WorktreeReadFinished(_) => Vec::new(),
             AppEvent::TabBarCommandFinished { .. } => Vec::new(),
             AppEvent::PluginCommandFinished { .. } => Vec::new(),
         }
@@ -1847,40 +1674,62 @@ impl AppState {
             managed_changed,
             agent_name_changed,
             unchanged_change,
-            managed_launch_pending,
             suppress_acquisition_completion,
+            completion_reset,
         ) = {
             let terminal = self.terminals.get_mut(&terminal_id)?;
             let previous_agent_name = terminal.agent_name.clone();
-            let managed_launch_pending = terminal.managed_agent_launch_pending();
-            let mutation = update(terminal)?;
+            let had_completion = terminal.last_agent_completion_seq.is_some() || !previous_seen;
+            let resume_revision = terminal.reported_resume_revision();
+            let mutation = update(terminal);
+            terminal.reconcile_reported_resume();
+            // Resume-only changes return no mutation but must still be saved.
+            if terminal.reported_resume_revision() != resume_revision {
+                self.session_dirty = true;
+            }
+            let mutation = mutation?;
+            let completion_reset = mutation.session_ref_changed
+                || mutation
+                    .effective_state_change
+                    .as_ref()
+                    .is_some_and(|change| change.previous_agent_label != change.agent_label);
+            if completion_reset {
+                terminal.last_agent_completion_seq = None;
+            }
             let managed_changed = terminal.reconcile_managed_agent_at(now, false);
             let suppress_acquisition_completion = terminal.finish_agent_process_acquisition();
             let agent_name_changed = terminal.agent_name != previous_agent_name;
-            let unchanged_change = (mutation.agent_released || agent_name_changed)
+            let unchanged_change = (mutation.agent_released
+                || agent_name_changed
+                || (completion_reset && had_completion))
                 .then(|| terminal.unchanged_effective_state_change_at(now));
             (
                 mutation,
                 managed_changed,
                 agent_name_changed,
                 unchanged_change,
-                managed_launch_pending,
                 suppress_acquisition_completion,
+                completion_reset,
             )
         };
+        if completion_reset {
+            self.pending_agent_notifications.remove(&pane_id);
+            self.workspaces[ws_idx].pane_state_mut(pane_id)?.seen = true;
+        }
         if mutation.session_ref_changed || managed_changed || agent_name_changed {
             self.mark_session_dirty();
         }
         let agent_released = mutation.agent_released;
         let change = mutation.effective_state_change.or(unchanged_change)?;
-        let suppress_completion = change.state == AgentState::Idle
-            && (force_suppress_completion
-                || managed_launch_pending
-                || suppress_acquisition_completion);
+        let suppress_completion = force_suppress_completion
+            || (change.state == AgentState::Idle && suppress_acquisition_completion);
         if change.previous_state != change.state {
             self.next_agent_state_change_seq += 1;
             if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
                 terminal.last_agent_state_change_seq = Some(self.next_agent_state_change_seq);
+                terminal.last_agent_completion_seq = (!suppress_completion
+                    && is_completion_transition(&change))
+                .then_some(self.next_agent_state_change_seq);
             }
         }
         let seen = self.apply_pane_state_change(ws_idx, pane_id, &change, suppress_completion)?;
@@ -2306,7 +2155,7 @@ mod tests {
     }
 
     fn selected_url<'a>(row: &'a str, click: &str) -> Option<&'a str> {
-        url_at_column(row, col_of(row, click))
+        url_at_byte(row, row.find(click)?)
     }
 
     fn text_in_cell_range(row: &str, start_col: u16, end_col: u16) -> String {
@@ -2403,6 +2252,11 @@ mod tests {
                 "/Users/me/Library/Application Support/app/config.json",
             ),
             ("echo 你好-world done", "好", "你好-world"),
+            (
+                "註解已補（slice 4 5b5fcc0715）：整合原本",
+                "5b5fcc0715",
+                "5b5fcc0715",
+            ),
             ("先跑 cargo test", "cargo", "cargo"),
             (
                 "export PATH=$HOME/.cargo/bin:$PATH",
@@ -2458,6 +2312,21 @@ mod tests {
     }
 
     #[test]
+    fn double_click_word_bounds_treat_cjk_punctuation_as_delimiters() {
+        for delimiter in ['（', '）', '：', '、', '。', '，'] {
+            let row = format!("left{delimiter}right");
+            assert_selects(&row, "left", "left");
+            assert_selects(&row, "right", "right");
+            assert_selects_nothing(&row, &delimiter.to_string());
+            assert_eq!(
+                selected_word(&row, col_of(&row, &delimiter.to_string()) + 1),
+                None,
+                "second display cell of {delimiter:?} should not select"
+            );
+        }
+    }
+
+    #[test]
     fn double_click_word_bounds_ignore_delimiters() {
         for (row, click) in [
             (
@@ -2478,7 +2347,182 @@ mod tests {
     }
 
     #[test]
-    fn url_at_column_returns_safe_visible_url_only() {
+    fn link_resolution_regions_unicode_punctuation_and_explicit_links() {
+        let mut terminal = crate::ghostty::Terminal::new(80, 4, 1024).unwrap();
+        terminal.write("[文档](https://example.com/路径?q=a(b)), next".as_bytes());
+        let regions = terminal
+            .viewport_link_regions(7, 0, url_byte_range)
+            .unwrap();
+        assert_eq!(
+            regions
+                .iter()
+                .map(|r| (r.row, r.start_col, r.end_col))
+                .collect::<Vec<_>>(),
+            vec![(0, 7, 37)]
+        );
+        assert!(terminal
+            .viewport_link_regions(1, 0, url_byte_range)
+            .unwrap()
+            .is_empty());
+        terminal.resize(20, 4, 0, 0).unwrap();
+        assert_eq!(
+            terminal
+                .viewport_link_regions(9, 1, url_byte_range)
+                .unwrap()
+                .iter()
+                .map(|r| (r.row, r.start_col, r.end_col))
+                .collect::<Vec<_>>(),
+            vec![(0, 7, 19), (1, 0, 17)]
+        );
+        for text in [
+            "file:///tmp/a",
+            "javascript:alert(1)",
+            "\x1b]8;;https://example.com\x1b\\https://example.com\x1b]8;;\x1b\\",
+        ] {
+            let mut terminal = crate::ghostty::Terminal::new(80, 4, 1024).unwrap();
+            terminal.write(text.as_bytes());
+            assert!(terminal
+                .viewport_link_regions(0, 0, url_byte_range)
+                .unwrap()
+                .is_empty());
+        }
+        let mut terminal = crate::ghostty::Terminal::new(80, 4, 1024 * 1024).unwrap();
+        terminal.write(format!("https://example.com/{}", "a".repeat(9000)).as_bytes());
+        assert!(terminal
+            .viewport_link_regions(0, 0, url_byte_range)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn link_resolution_regions_keep_grapheme_byte_offsets() {
+        let mut terminal = crate::ghostty::Terminal::new(40, 3, 1024).unwrap();
+        terminal.write("e\u{301}(https://example.com/路e\u{301}),".as_bytes());
+        let expected = vec![crate::ghostty::LinkRegion {
+            row: 0,
+            start_col: 2,
+            end_col: 24,
+        }];
+        for col in 2..=24 {
+            assert_eq!(
+                terminal
+                    .viewport_link_regions(col, 0, url_byte_range)
+                    .unwrap(),
+                expected,
+                "column {col}"
+            );
+        }
+        assert!(terminal
+            .viewport_link_regions(0, 0, url_byte_range)
+            .unwrap()
+            .is_empty());
+        assert!(terminal
+            .viewport_link_regions(25, 0, url_byte_range)
+            .unwrap()
+            .is_empty());
+        terminal.resize(21, 1, 0, 0).unwrap();
+        let regions = terminal
+            .viewport_link_regions(1, 0, url_byte_range)
+            .unwrap();
+        assert_eq!(
+            regions,
+            vec![crate::ghostty::LinkRegion {
+                row: 0,
+                start_col: 0,
+                end_col: 3
+            }]
+        );
+    }
+
+    #[test]
+    fn link_resolution_regions_clip_wraps_and_wide_padding() {
+        let mut terminal = crate::ghostty::Terminal::new(21, 3, 1024).unwrap();
+        terminal.write("https://example.com/路径".as_bytes());
+        let regions = terminal
+            .viewport_link_regions(1, 1, url_byte_range)
+            .unwrap();
+        assert_eq!(
+            regions
+                .iter()
+                .map(|r| (r.row, r.start_col, r.end_col))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 19), (1, 0, 3)]
+        );
+        assert!(terminal
+            .viewport_link_regions(19, 2, url_byte_range)
+            .unwrap()
+            .is_empty());
+        let mut terminal = crate::ghostty::Terminal::new(20, 2, 1024).unwrap();
+        terminal.write(b"https://example.com/abcdefghijklmnopqrstuv");
+        assert_eq!(
+            terminal
+                .viewport_link_regions(0, 0, url_byte_range)
+                .unwrap()
+                .iter()
+                .map(|r| (r.row, r.start_col, r.end_col))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 19), (1, 0, 1)]
+        );
+        terminal.scroll_viewport_row(0);
+        assert_eq!(
+            terminal
+                .viewport_link_regions(0, 0, url_byte_range)
+                .unwrap()
+                .iter()
+                .map(|r| (r.row, r.start_col, r.end_col))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 19), (1, 0, 19)]
+        );
+        assert!(terminal
+            .viewport_link_regions(0, 2, url_byte_range)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn link_activation_resolves_full_url_with_either_end_offscreen() {
+        let url = "https://example.com/abcdefghijklmnopqrstuv";
+        let mut terminal = crate::ghostty::Terminal::new(20, 2, 1024 * 1024).unwrap();
+        terminal.write(url.as_bytes());
+        let target = terminal.viewport_link_target(0, 0).unwrap().unwrap();
+        assert_eq!(url_from_link_target(target).as_deref(), Some(url));
+        terminal.scroll_viewport_row(0);
+        let target = terminal.viewport_link_target(5, 1).unwrap().unwrap();
+        assert_eq!(url_from_link_target(target).as_deref(), Some(url));
+    }
+
+    #[test]
+    fn link_activation_preserves_unicode_and_click_boundaries_after_resize() {
+        let mut terminal = crate::ghostty::Terminal::new(80, 5, 1024 * 1024).unwrap();
+        terminal.write("[文档](https://example.com/路径?q=a(b)), next".as_bytes());
+        assert!(
+            url_from_link_target(terminal.viewport_link_target(1, 0).unwrap().unwrap()).is_none()
+        );
+        assert_eq!(
+            url_from_link_target(terminal.viewport_link_target(7, 0).unwrap().unwrap()).as_deref(),
+            Some("https://example.com/路径?q=a(b)")
+        );
+        terminal.resize(20, 5, 0, 0).unwrap();
+        assert_eq!(
+            url_from_link_target(terminal.viewport_link_target(9, 1).unwrap().unwrap()).as_deref(),
+            Some("https://example.com/路径?q=a(b)")
+        );
+        assert!(terminal.viewport_link_target(19, 4).unwrap().is_none());
+    }
+
+    #[test]
+    fn link_activation_skips_wide_character_wrap_padding() {
+        let url = "https://example.com/路径";
+        let mut terminal = crate::ghostty::Terminal::new(20, 3, 1024).unwrap();
+        terminal.write(url.as_bytes());
+        for col in 0..4 {
+            let target = terminal.viewport_link_target(col, 1).unwrap().unwrap();
+            assert_eq!(url_from_link_target(target).as_deref(), Some(url));
+        }
+    }
+
+    #[test]
+    fn url_at_byte_returns_safe_visible_url_only() {
         assert_eq!(
             selected_url("see https://example.com/a(b)c.", "example"),
             Some("https://example.com/a(b)c")
@@ -2998,34 +3042,254 @@ mod tests {
         assert!(pane.seen);
     }
 
-    #[test]
-    fn idle_after_known_unknown_agent_in_background_marks_done() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
-        state.active = Some(0);
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
+    fn assert_completion_guard_sequence(
+        acquired: bool,
+        states: &[AgentState],
+        expect_completion: bool,
+    ) {
+        let mut app = app_with_workspaces(&["active", "background"]);
+        app.active = Some(0);
+        app.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+        app.toast_config.delay_seconds = 0;
+        let pane_id = app.workspaces[1].tabs[0].root_pane;
+        if acquired {
+            app.handle_app_event(AppEvent::AgentProcessDetected {
+                pane_id,
+                agent: Agent::Pi,
+                observed_at: Instant::now(),
+            });
+        }
+        for &state in states {
+            app.handle_app_event(AppEvent::StateChanged {
+                pane_id,
+                agent: Some(Agent::Pi),
+                state,
+                visible_blocker: state == AgentState::Blocked,
+                visible_working: state == AgentState::Working,
+                process_exited: false,
+                observed_at: Instant::now(),
+            });
+        }
+        let finished = app
+            .toast
+            .as_ref()
+            .is_some_and(|toast| toast.kind == ToastKind::Finished);
+        assert_eq!(
+            finished, expect_completion,
+            "completion notification: {states:?}"
+        );
+        assert_eq!(
+            !app.workspaces[1].panes[&pane_id].seen, expect_completion,
+            "unseen completion: {states:?}"
+        );
+        let terminal = &app.terminals[&app.workspaces[1].panes[&pane_id].attached_terminal_id];
+        assert_eq!(
+            terminal.last_agent_completion_seq.is_some(),
+            expect_completion
+        );
+        if expect_completion {
+            assert_eq!(
+                terminal.last_agent_completion_seq,
+                terminal.last_agent_state_change_seq
+            );
+        }
+        app.assert_invariants_for_test();
+    }
 
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
+    #[test]
+    fn completion_guard_unknown_to_idle_is_not_completed_work() {
+        assert_completion_guard_sequence(false, &[AgentState::Unknown, AgentState::Idle], false);
+    }
+
+    #[test]
+    fn completion_guard_first_work_finishes_without_prior_idle() {
+        assert_completion_guard_sequence(true, &[AgentState::Working, AgentState::Idle], true);
+    }
+
+    #[test]
+    fn completion_guard_first_work_can_pause_for_permission() {
+        assert_completion_guard_sequence(
+            true,
+            &[AgentState::Working, AgentState::Blocked, AgentState::Idle],
+            true,
+        );
+    }
+
+    #[test]
+    fn completion_guard_startup_trust_is_not_completed_work() {
+        assert_completion_guard_sequence(true, &[AgentState::Blocked, AgentState::Idle], false);
+    }
+
+    #[test]
+    fn completion_guard_managed_launch_readiness_does_not_swallow_work() {
+        for first_state in [AgentState::Blocked, AgentState::Working] {
+            let mut app = app_with_workspaces(&["active", "background"]);
+            app.active = Some(0);
+            let pane_id = app.workspaces[1].tabs[0].root_pane;
+            let terminal_id = app.workspaces[1].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            app.terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .begin_managed_agent(
+                    "worker".into(),
+                    Agent::Pi,
+                    Instant::now(),
+                    std::time::Duration::ZERO,
+                    std::time::Duration::from_secs(60),
+                );
+            for state in [first_state, AgentState::Idle] {
+                app.handle_app_event(AppEvent::StateChanged {
+                    pane_id,
+                    agent: Some(Agent::Pi),
+                    state,
+                    visible_blocker: state == AgentState::Blocked,
+                    visible_working: state == AgentState::Working,
+                    process_exited: false,
+                    observed_at: Instant::now(),
+                });
+            }
+            let terminal = &app.terminals[&terminal_id];
+            assert!(terminal.managed_agent_interactive_ready());
+            assert_eq!(
+                terminal.last_agent_completion_seq.is_some(),
+                first_state == AgentState::Working
+            );
+            assert_eq!(
+                !app.workspaces[1].panes[&pane_id].seen,
+                first_state == AgentState::Working
+            );
+        }
+    }
+
+    #[test]
+    fn codex_prompt_observation_changes_readiness_without_completing_a_turn() {
+        let mut app = app_with_workspaces(&["active", "background"]);
+        let pane_id = app.workspaces[1].tabs[0].root_pane;
+        let terminal_id = app.workspaces[1].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .begin_managed_agent(
+                "reviewer".into(),
+                Agent::Codex,
+                Instant::now(),
+                std::time::Duration::ZERO,
+                std::time::Duration::from_secs(60),
+            );
+        app.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
             state: AgentState::Unknown,
             visible_blocker: false,
             visible_working: false,
             process_exited: false,
-            observed_at: std::time::Instant::now(),
+            observed_at: Instant::now(),
         });
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
+        app.handle_app_event(AppEvent::CodexPromptObserved {
+            pane_id,
+            ready: true,
         });
+        let terminal = &app.terminals[&terminal_id];
+        assert!(terminal.managed_agent_interactive_ready());
+        assert_eq!(terminal.state, AgentState::Unknown);
+        assert!(terminal.last_agent_completion_seq.is_none());
+    }
 
-        let pane = state.workspaces[1].panes.get(&bg_pane_id).unwrap();
-        assert!(!pane.seen);
+    #[test]
+    fn completion_guard_same_state_agent_replacement_clears_old_work() {
+        let mut app = app_with_workspaces(&["active", "background"]);
+        app.active = Some(0);
+        app.toast_config.delay_seconds = 5;
+        let pane_id = app.workspaces[1].tabs[0].root_pane;
+        for (seq, label, state) in [
+            (1, "old", AgentState::Working),
+            (2, "old", AgentState::Idle),
+            (3, "new", AgentState::Idle),
+        ] {
+            app.handle_app_event(AppEvent::HookStateReported {
+                suppress_completion: false,
+                pane_id,
+                source: "custom:worker".into(),
+                agent_label: label.into(),
+                state,
+                message: None,
+                seq: Some(seq),
+                session_ref: None,
+            });
+            if seq == 2 {
+                assert!(!app.workspaces[1].panes[&pane_id].seen);
+                assert!(app.pending_agent_notifications.contains_key(&pane_id));
+            }
+        }
+        let terminal = &app.terminals[&app.workspaces[1].panes[&pane_id].attached_terminal_id];
+        assert_eq!(terminal.effective_agent_label(), Some("new"));
+        assert!(terminal.last_agent_completion_seq.is_none());
+        assert!(app.workspaces[1].panes[&pane_id].seen);
+        assert!(!app.pending_agent_notifications.contains_key(&pane_id));
+    }
+
+    #[test]
+    fn completion_guard_idle_session_replacement_clears_seen_and_pending_delivery() {
+        let mut app = app_with_workspaces(&["active", "background"]);
+        app.active = Some(0);
+        app.toast_config.delay_seconds = 5;
+        let pane_id = app.workspaces[1].tabs[0].root_pane;
+        for (seq, session, reason) in [(1, "old-session", "startup"), (2, "new-session", "clear")] {
+            let updates = app.handle_app_event(AppEvent::AgentSessionReported {
+                pane_id,
+                source: "herdr:claude".into(),
+                agent_label: "claude".into(),
+                seq: Some(seq),
+                session_ref: crate::agent_resume::AgentSessionRef::id(session),
+                session_start_source: Some(reason.into()),
+            });
+            if seq == 1 {
+                for state in [AgentState::Working, AgentState::Idle] {
+                    app.handle_app_event(AppEvent::StateChanged {
+                        pane_id,
+                        agent: Some(Agent::Claude),
+                        state,
+                        visible_blocker: false,
+                        visible_working: state == AgentState::Working,
+                        process_exited: false,
+                        observed_at: Instant::now(),
+                    });
+                }
+                assert!(!app.workspaces[1].panes[&pane_id].seen);
+                assert!(app.pending_agent_notifications.contains_key(&pane_id));
+            } else {
+                assert!(
+                    !updates.is_empty(),
+                    "session replacement must publish attention reset"
+                );
+            }
+        }
+        let terminal = &app.terminals[&app.workspaces[1].panes[&pane_id].attached_terminal_id];
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .unwrap()
+                .session_ref
+                .value,
+            "new-session"
+        );
+        assert!(terminal.last_agent_completion_seq.is_none());
+        assert!(app.workspaces[1].panes[&pane_id].seen);
+        assert!(!app.pending_agent_notifications.contains_key(&pane_id));
+    }
+
+    #[test]
+    fn completion_guard_normal_turn_still_finishes() {
+        assert_completion_guard_sequence(
+            true,
+            &[AgentState::Idle, AgentState::Working, AgentState::Idle],
+            true,
+        );
     }
 
     #[test]
@@ -3083,9 +3347,9 @@ mod tests {
             .pop()
             .expect("idle state update");
 
-        assert!(update.suppress_completion);
-        assert!(state.workspaces[1].panes[&pane_id].seen);
-        assert!(!matches!(
+        assert!(!update.suppress_completion);
+        assert!(!state.workspaces[1].panes[&pane_id].seen);
+        assert!(matches!(
             state.toast.as_ref().map(|toast| toast.kind),
             Some(ToastKind::Finished)
         ));
@@ -3310,6 +3574,203 @@ mod tests {
         assert!(state.pending_agent_notifications.is_empty());
         assert!(state.drain_due_agent_notifications(deadline).is_empty());
         assert!(state.toast.is_none());
+    }
+
+    fn report_custom_agent_with_resume(state: &mut AppState, pane_id: PaneId, argv: &[&str]) {
+        state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
+            pane_id,
+            source: "prime-agent".into(),
+            agent_label: "prime-agent".into(),
+            state: AgentState::Idle,
+            message: None,
+            seq: Some(1),
+            session_ref: None,
+        });
+        state.handle_app_event(AppEvent::AgentResumeReported {
+            pane_id,
+            source: "prime-agent".into(),
+            agent_label: "prime-agent".into(),
+            seq: Some(1),
+            argv: argv.iter().map(|part| part.to_string()).collect(),
+        });
+    }
+
+    fn first_pane_terminal(state: &AppState) -> (PaneId, crate::terminal::TerminalId) {
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        (pane_id, terminal_id)
+    }
+
+    #[test]
+    fn reported_resume_follows_the_reporting_agent_until_release() {
+        let mut state = app_with_workspaces(&["one"]);
+        let (pane_id, terminal_id) = first_pane_terminal(&state);
+        report_custom_agent_with_resume(&mut state, pane_id, &["prime-agent", "--resume", "a"]);
+
+        let resume = state.terminals[&terminal_id].reported_resume().unwrap();
+        assert_eq!(resume.agent, "prime-agent");
+        assert_eq!(resume.argv, vec!["prime-agent", "--resume", "a"]);
+
+        state.handle_app_event(AppEvent::AgentResumeReported {
+            pane_id,
+            source: "someone-else".into(),
+            agent_label: "other".into(),
+            seq: None,
+            argv: vec!["other".into()],
+        });
+        assert_eq!(
+            state.terminals[&terminal_id]
+                .reported_resume()
+                .unwrap()
+                .argv,
+            vec!["prime-agent", "--resume", "a"]
+        );
+
+        state.handle_app_event(AppEvent::HookAgentReleased {
+            pane_id,
+            source: "prime-agent".into(),
+            agent_label: "prime-agent".into(),
+            known_agent: None,
+            seq: Some(2),
+        });
+        assert!(state.terminals[&terminal_id].reported_resume().is_none());
+    }
+
+    #[test]
+    fn reported_resume_is_dropped_and_saved_when_another_agent_takes_the_pane() {
+        let mut state = app_with_workspaces(&["one"]);
+        let (pane_id, terminal_id) = first_pane_terminal(&state);
+        report_custom_agent_with_resume(&mut state, pane_id, &["prime-agent", "--resume", "a"]);
+        state.session_dirty = false;
+
+        state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
+            pane_id,
+            source: "custom:other".into(),
+            agent_label: "other".into(),
+            state: AgentState::Working,
+            message: None,
+            seq: None,
+            session_ref: None,
+        });
+
+        assert!(state.terminals[&terminal_id].reported_resume().is_none());
+        assert!(state.session_dirty);
+    }
+
+    #[test]
+    fn reported_resume_of_recognized_agent_is_dropped_when_its_process_exits() {
+        let mut state = app_with_workspaces(&["one"]);
+        let (pane_id, terminal_id) = first_pane_terminal(&state);
+        state.handle_app_event(AppEvent::AgentProcessDetected {
+            pane_id,
+            agent: Agent::Pi,
+            observed_at: std::time::Instant::now(),
+        });
+        state.handle_app_event(AppEvent::AgentResumeReported {
+            pane_id,
+            source: "herdr:pi".into(),
+            agent_label: "pi".into(),
+            seq: None,
+            argv: vec!["pi".into(), "--continue".into()],
+        });
+        assert!(state.terminals[&terminal_id].reported_resume().is_some());
+        state.session_dirty = false;
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Pi),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_working: false,
+            process_exited: true,
+            observed_at: std::time::Instant::now(),
+        });
+
+        assert!(state.terminals[&terminal_id].reported_resume().is_none());
+        assert!(state.session_dirty);
+
+        state.handle_app_event(AppEvent::AgentResumeReported {
+            pane_id,
+            source: "herdr:pi".into(),
+            agent_label: "pi".into(),
+            seq: None,
+            argv: vec!["pi".into(), "--continue".into()],
+        });
+        assert!(
+            state.terminals[&terminal_id].reported_resume().is_none(),
+            "a late report must not revive an exited agent"
+        );
+    }
+
+    #[test]
+    fn shell_return_drops_self_reported_agent_and_its_resume() {
+        let mut state = app_with_workspaces(&["one"]);
+        let (pane_id, terminal_id) = first_pane_terminal(&state);
+        report_custom_agent_with_resume(&mut state, pane_id, &["prime-agent", "--resume", "a"]);
+        assert!(state.terminals[&terminal_id].self_reported_agent_active());
+
+        state.handle_app_event(AppEvent::ReportedAgentShellReturned {
+            pane_id,
+            observed_at: std::time::Instant::now(),
+        });
+
+        let terminal = &state.terminals[&terminal_id];
+        assert_eq!(terminal.effective_agent_label(), None);
+        assert!(terminal.reported_resume().is_none());
+        assert!(!terminal.self_reported_agent_active());
+    }
+
+    #[test]
+    fn delayed_shell_return_keeps_an_agent_that_claimed_the_pane_afterwards() {
+        let mut state = app_with_workspaces(&["one"]);
+        let (pane_id, terminal_id) = first_pane_terminal(&state);
+        let shell_seen_idle_at = std::time::Instant::now();
+        report_custom_agent_with_resume(&mut state, pane_id, &["prime-agent", "--resume", "b"]);
+
+        state.handle_app_event(AppEvent::ReportedAgentShellReturned {
+            pane_id,
+            observed_at: shell_seen_idle_at,
+        });
+
+        let terminal = &state.terminals[&terminal_id];
+        assert_eq!(terminal.effective_agent_label(), Some("prime-agent"));
+        assert!(terminal.reported_resume().is_some());
+    }
+
+    #[test]
+    fn shell_return_keeps_agents_herdr_recognizes_by_process() {
+        let mut state = app_with_workspaces(&["one"]);
+        let (pane_id, terminal_id) = first_pane_terminal(&state);
+        state.handle_app_event(AppEvent::AgentProcessDetected {
+            pane_id,
+            agent: Agent::Pi,
+            observed_at: std::time::Instant::now(),
+        });
+        state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
+            pane_id,
+            source: "herdr:pi".into(),
+            agent_label: "pi".into(),
+            state: AgentState::Working,
+            message: None,
+            seq: Some(1),
+            session_ref: None,
+        });
+        assert!(!state.terminals[&terminal_id].self_reported_agent_active());
+
+        state.handle_app_event(AppEvent::ReportedAgentShellReturned {
+            pane_id,
+            observed_at: std::time::Instant::now(),
+        });
+
+        assert_eq!(
+            state.terminals[&terminal_id].effective_agent_label(),
+            Some("pi")
+        );
     }
 
     #[test]

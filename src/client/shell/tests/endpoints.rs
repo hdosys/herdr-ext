@@ -40,6 +40,24 @@ fn agent(
     }
 }
 
+fn current_workspace_view() -> crate::api::schema::AgentViewSetParams {
+    use crate::api::schema::{
+        AgentViewBuiltinField, AgentViewContext, AgentViewField, AgentViewFilter, AgentViewValue,
+    };
+
+    crate::api::schema::AgentViewSetParams {
+        source: "example.views".into(),
+        label: Some("current space".into()),
+        filter: Some(AgentViewFilter::Eq {
+            field: AgentViewField::Builtin(AgentViewBuiltinField::WorkspaceId),
+            value: AgentViewValue::Context {
+                context: AgentViewContext::CurrentWorkspaceId,
+            },
+        }),
+        sort: Vec::new(),
+    }
+}
+
 fn state_with_remote() -> (ClientShellState, ClientEndpointId) {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     let profile = remote_profile();
@@ -92,6 +110,294 @@ fn machine_diagnostic_badge_reopens_notice_without_collapsing_machine() {
             .find(|endpoint| endpoint.endpoint_id == id)
             .unwrap()
     ));
+}
+
+fn state_with_scrollable_agents() -> (ClientShellState, ClientEndpointId) {
+    let (mut state, remote) = state_with_remote();
+    for endpoint_id in [ClientEndpointId::Local, remote.clone()] {
+        let mut projection = state
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+            .unwrap()
+            .snapshot
+            .clone()
+            .unwrap();
+        projection.agents = (0..8)
+            .map(|index| ClientShellAgent {
+                pane_id: format!("pane_{}", index + 1),
+                focused: index == 0,
+                ..agent(&format!("agent {index}"), AgentStatus::Idle, 1)
+            })
+            .collect();
+        projection.panes = projection
+            .agents
+            .iter()
+            .map(|agent| ClientShellPane {
+                pane_id: agent.pane_id.clone(),
+                focused: agent.focused,
+                ..projection.panes[0].clone()
+            })
+            .collect();
+        state.set_endpoint_snapshot(&endpoint_id, projection);
+    }
+    state.compose(100, 28).unwrap();
+    state.agent_scroll = 6;
+    state.compose(100, 28).unwrap();
+    assert_eq!(state.agent_scroll, 6);
+    (state, remote)
+}
+
+#[test]
+fn agent_navigation_reveals_offscreen_targets() {
+    use crate::input::KeybindAction;
+
+    for action in [
+        KeybindAction::NextAgent,
+        KeybindAction::PreviousAgent,
+        KeybindAction::FocusAgent(0),
+    ] {
+        let (mut state, remote) = state_with_scrollable_agents();
+        let (endpoint_id, pane_id) = match action {
+            KeybindAction::NextAgent => (ClientEndpointId::Local, "pane_2"),
+            KeybindAction::PreviousAgent => (remote, "pane_8"),
+            _ => (ClientEndpointId::Local, "pane_1"),
+        };
+        state.agent_scroll = if action == KeybindAction::PreviousAgent {
+            0
+        } else {
+            state.hits.agent_max_scroll
+        };
+        state.compose(100, 28).unwrap();
+        assert!(!state
+            .hits
+            .endpoint_agents
+            .iter()
+            .any(|(_, endpoint, pane)| { endpoint == &endpoint_id && pane == pane_id }));
+
+        let mut outcome = ClientShellInput::default();
+        assert!(state.handle_endpoint_navigation(action, &mut outcome));
+        assert!(outcome.repaint, "agent navigation must request a frame");
+        if endpoint_id != state.active_endpoint_id {
+            assert!(state.activate_endpoint_projection(&endpoint_id));
+        }
+        state.compose(100, 28).unwrap();
+        assert!(
+            state
+                .hits
+                .endpoint_agents
+                .iter()
+                .any(|(_, endpoint, pane)| { endpoint == &endpoint_id && pane == pane_id }),
+            "{action:?} must reveal the selected agent"
+        );
+    }
+}
+
+#[test]
+fn agent_navigation_reveals_target_using_destination_sort() {
+    use crate::api::schema::{
+        AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField, AgentViewSortOrder,
+    };
+
+    let (mut state, remote) = state_with_scrollable_agents();
+    for (endpoint_id, base) in [(ClientEndpointId::Local, 0), (remote.clone(), 8)] {
+        let mut projection = state
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+            .unwrap()
+            .snapshot
+            .clone()
+            .unwrap();
+        for (index, agent) in projection.agents.iter_mut().enumerate() {
+            agent.state_change_seq = base + index as u64;
+        }
+        if endpoint_id == remote {
+            projection.agent_view_label = Some("recent".into());
+        }
+        state.set_endpoint_snapshot(&endpoint_id, projection);
+    }
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, None);
+    let mut view = current_workspace_view();
+    view.label = Some("recent".into());
+    view.filter = None;
+    view.sort = vec![AgentViewSort {
+        field: AgentViewSortField::Builtin(AgentViewBuiltinSortField::StateChangeSeq),
+        order: AgentViewSortOrder::Desc,
+    }];
+    state.set_test_endpoint_agent_view(&remote, Some(view));
+    state.compose(100, 28).unwrap();
+
+    let mut outcome = ClientShellInput::default();
+    assert!(state
+        .handle_endpoint_navigation(crate::input::KeybindAction::FocusAgent(15), &mut outcome,));
+    assert!(matches!(
+        outcome.actions.as_slice(),
+        [ClientShellAction::ActivateEndpoint {
+            endpoint_id,
+            target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
+        }] if endpoint_id == &remote && pane_id == "pane_8"
+    ));
+    // A superseded handoff restores its source before activating the new target.
+    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
+    state.compose(100, 28).unwrap();
+    assert!(state.activate_endpoint_projection(&remote));
+    state.compose(100, 28).unwrap();
+    assert!(state
+        .hits
+        .endpoint_agents
+        .iter()
+        .any(|(_, endpoint, pane)| { endpoint == &remote && pane == "pane_8" }));
+}
+
+#[test]
+fn agent_navigation_reveal_is_cancelled_by_another_selection() {
+    for select_pane in [false, true] {
+        let (mut state, remote) = state_with_scrollable_agents();
+        let scroll = state.agent_scroll;
+        let mut outcome = ClientShellInput::default();
+        assert!(state
+            .handle_endpoint_navigation(crate::input::KeybindAction::PreviousAgent, &mut outcome,));
+        assert_eq!(state.agent_scroll, scroll);
+        if select_pane {
+            assert!(state.focus_or_activate(
+                remote.clone(),
+                ClientEndpointFocusTarget::Pane("pane_1".into()),
+                &mut outcome,
+            ));
+        } else {
+            assert!(state.activate_endpoint(remote.clone(), &mut outcome));
+        }
+        assert!(state.activate_endpoint_projection(&remote));
+        state.compose(100, 28).unwrap();
+        assert_eq!(state.agent_scroll, scroll);
+    }
+}
+
+#[test]
+fn agent_navigation_keeps_scroll_when_target_is_visible() {
+    let (mut state, _) = state_with_scrollable_agents();
+    let (_, endpoint_id, pane_id) = state.hits.endpoint_agents[1].clone();
+    let targets = super::super::aggregate_navigation::online_agent_targets(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        state.config.agent_panel_sort,
+    );
+    let index = targets
+        .iter()
+        .position(|target| target.endpoint_id == endpoint_id && target.pane_id == pane_id)
+        .unwrap();
+    let scroll = state.agent_scroll;
+    assert!(state.handle_endpoint_navigation(
+        crate::input::KeybindAction::FocusAgent(index),
+        &mut ClientShellInput::default(),
+    ));
+    state.compose(100, 28).unwrap();
+    assert_eq!(state.agent_scroll, scroll);
+}
+
+#[test]
+fn switching_machines_preserves_aggregate_agent_scroll_and_visible_rows() {
+    let (mut state, remote) = state_with_scrollable_agents();
+    for endpoint_id in [remote.clone(), ClientEndpointId::Local, remote] {
+        let visible = state.hits.endpoint_agents.clone();
+        let (rect, _, pane_id) = visible
+            .iter()
+            .find(|(_, endpoint, _)| endpoint == &endpoint_id)
+            .expect("destination agent remains visible");
+        let click = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x + 2,
+            row: rect.y,
+            modifiers: KeyModifiers::NONE,
+        })]);
+        assert!(matches!(
+            click.actions.as_slice(),
+            [ClientShellAction::ActivateEndpoint {
+                endpoint_id: target,
+                target: Some(ClientEndpointFocusTarget::Pane(target_pane)),
+            }] if target == &endpoint_id && target_pane == pane_id
+        ));
+
+        state.workspace_scroll = 3;
+        state.tab_scroll = 2;
+        assert!(state.activate_endpoint_projection(&endpoint_id));
+        assert_eq!(state.agent_scroll, 6);
+        assert_eq!(state.workspace_scroll, 0);
+        assert_eq!(state.tab_scroll, 0);
+        assert!(state.pane_surface.is_none());
+
+        let mut next_surface = surface();
+        next_surface.boot_id = state.endpoint_boot_id(&endpoint_id).unwrap().into();
+        state.set_pane_surface(next_surface);
+        state.compose(100, 28).unwrap();
+        assert_eq!(state.agent_scroll, 6);
+        assert_eq!(state.hits.endpoint_agents, visible);
+    }
+}
+
+#[test]
+fn local_agent_click_can_cancel_a_pending_remote_switch() {
+    for reconnecting in [false, true] {
+        let (mut state, remote) = state_with_scrollable_agents();
+        assert!(state.activate_endpoint(remote, &mut ClientShellInput::default()));
+        if reconnecting {
+            state.mark_endpoint_disconnected(&ClientEndpointId::Local);
+        }
+        state.compose(100, 28).unwrap();
+        let (rect, _, pane_id) = state
+            .hits
+            .endpoint_agents
+            .iter()
+            .find(|(_, endpoint, _)| endpoint.is_local())
+            .unwrap()
+            .clone();
+        let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x + 2,
+            row: rect.y,
+            modifiers: KeyModifiers::NONE,
+        })]);
+        assert!(
+            matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint {
+            endpoint_id: ClientEndpointId::Local,
+            target: Some(ClientEndpointFocusTarget::Pane(target)),
+        }] if target == &pane_id)
+        );
+    }
+}
+
+#[test]
+fn aggregate_agent_scroll_still_clamps_when_rows_shrink_on_activation() {
+    let (mut state, remote) = state_with_scrollable_agents();
+    for endpoint_id in [ClientEndpointId::Local, remote.clone()] {
+        let mut projection = state
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+            .unwrap()
+            .snapshot
+            .clone()
+            .unwrap();
+        projection.revision += 1;
+        projection.agents.truncate(1);
+        state.set_endpoint_snapshot(&endpoint_id, projection);
+    }
+    assert!(state.activate_endpoint_projection(&remote));
+    state.compose(100, 28).unwrap();
+    assert_eq!(state.agent_scroll, 0);
+    assert_eq!(state.hits.agent_max_scroll, 0);
+    assert_eq!(state.hits.endpoint_agents.len(), 2);
+}
+
+#[test]
+fn same_machine_reboot_still_resets_agent_scroll() {
+    let (mut state, _) = state_with_scrollable_agents();
+    let mut projection = state.snapshot.clone().unwrap();
+    projection.boot_id = "restarted-local".into();
+    state.cache_endpoint_snapshot(&ClientEndpointId::Local, projection);
+    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
+    assert_eq!(state.agent_scroll, 0);
 }
 
 #[test]
@@ -532,6 +838,184 @@ fn saved_machine_preserves_endpoint_scoped_worktree_collapses() {
 }
 
 #[test]
+fn expanded_machine_sidebar_reveals_newly_focused_workspace() {
+    let (mut state, remote_id) = state_with_remote();
+    let mut initial = snapshot();
+    let template = initial.workspaces[0].clone();
+    initial.workspaces = (1..=12)
+        .map(|number| ClientShellWorkspace {
+            workspace_id: format!("ws_{number}"),
+            number,
+            label: format!("space-{number}"),
+            focused: number == 1,
+            ..template.clone()
+        })
+        .collect();
+    // Reuse workspace IDs across machines so revealing must be endpoint-scoped.
+    let mut remote = initial.clone();
+    remote.boot_id = "remote-boot".into();
+    remote.workspaces.push(ClientShellWorkspace {
+        workspace_id: "ws_13".into(),
+        number: 13,
+        focused: false,
+        ..template.clone()
+    });
+    state.set_endpoint_snapshot(&remote_id, Box::new(remote));
+    state.set_snapshot(Box::new(initial));
+    state.compose(106, 20).expect("full machines sidebar");
+    assert!(state.hits.workspace_max_scroll > 0);
+
+    let mut update = state.snapshot.as_deref().expect("snapshot").clone();
+    update.revision = 2;
+    update.workspaces.push(ClientShellWorkspace {
+        workspace_id: "ws_13".into(),
+        number: 13,
+        label: "new-space".into(),
+        ..template
+    });
+    update.focused_workspace_id = Some("ws_13".into());
+    for workspace in &mut update.workspaces {
+        workspace.focused = workspace.workspace_id == "ws_13";
+    }
+    state.set_snapshot(Box::new(update));
+    let mut updated_surface = surface();
+    updated_surface.projection_revision = 2;
+    state.set_pane_surface(updated_surface);
+    state.compose(106, 2).expect("zero-height workspace body");
+    assert!(state.reveal_focused_workspace);
+    state.compose(106, 20).expect("new workspace revealed");
+    assert!(state
+        .hits
+        .workspaces
+        .iter()
+        .any(|hit| { hit.endpoint_id == ClientEndpointId::Local && hit.workspace_id == "ws_13" }));
+
+    state.workspace_scroll = 0;
+    state.compose(106, 20).expect("manual scroll");
+    assert_eq!(state.workspace_scroll, 0);
+    assert!(!state
+        .hits
+        .workspaces
+        .iter()
+        .any(|hit| { hit.endpoint_id == ClientEndpointId::Local && hit.workspace_id == "ws_13" }));
+    let unchanged = state.snapshot.as_deref().expect("snapshot").clone();
+    state.set_snapshot(Box::new(unchanged));
+    state
+        .compose(106, 20)
+        .expect("unchanged focus preserves scroll");
+    assert_eq!(state.workspace_scroll, 0);
+}
+
+#[test]
+fn expanded_machine_sidebar_applies_space_row_gap_within_each_machine() {
+    let (mut state, remote_id) = state_with_remote();
+    state.config.spaces.row_gap = 1;
+
+    let add_second_workspace = |snapshot: &mut ClientShellSnapshot| {
+        let mut workspace = snapshot.workspaces[0].clone();
+        workspace.workspace_id = "ws_2".into();
+        workspace.active_tab_id = "tab_2".into();
+        workspace.number = 2;
+        workspace.label = "second-workspace".into();
+        workspace.focused = false;
+        snapshot.workspaces.push(workspace);
+    };
+    let mut local = snapshot();
+    add_second_workspace(&mut local);
+    state.set_snapshot(Box::new(local));
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.workspaces[0].worktree = Some(ClientShellWorktree {
+        key: "repo".into(),
+        label: "repo".into(),
+        is_linked_worktree: false,
+    });
+    add_second_workspace(&mut remote);
+    remote.workspaces[1].worktree = Some(ClientShellWorktree {
+        key: "repo".into(),
+        label: "repo".into(),
+        is_linked_worktree: true,
+    });
+    let mut third = remote.workspaces[1].clone();
+    third.workspace_id = "ws_3".into();
+    third.number = 3;
+    third.label = "third-workspace".into();
+    third.worktree = None;
+    remote.workspaces.push(third);
+    state.set_endpoint_snapshot(&remote_id, Box::new(remote));
+
+    state.compose(100, 40).expect("combined endpoint frame");
+    let local_workspaces = state
+        .hits
+        .workspaces
+        .iter()
+        .filter(|hit| hit.endpoint_id.is_local())
+        .collect::<Vec<_>>();
+    assert_eq!(local_workspaces.len(), 2);
+    assert_eq!(
+        local_workspaces[1].rect.y,
+        local_workspaces[0].rect.bottom() + 1
+    );
+
+    let local_machine = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id.is_local())
+        .expect("local machine");
+    let remote_machine = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id == remote_id)
+        .expect("remote machine");
+    assert_eq!(local_workspaces[0].rect.y, local_machine.rect.bottom());
+    assert_eq!(remote_machine.rect.y, local_workspaces[1].rect.bottom());
+
+    let remote_workspaces = state
+        .hits
+        .workspaces
+        .iter()
+        .filter(|hit| hit.endpoint_id == remote_id)
+        .collect::<Vec<_>>();
+    assert_eq!(remote_workspaces.len(), 3);
+    assert_eq!(remote_workspaces[0].rect.y, remote_machine.rect.bottom());
+    assert_eq!(
+        remote_workspaces[1].rect.y,
+        remote_workspaces[0].rect.bottom()
+    );
+    assert_eq!(
+        remote_workspaces[2].rect.y,
+        remote_workspaces[1].rect.bottom() + 1
+    );
+
+    state.workspace_scroll = usize::MAX;
+    state.compose(100, 18).expect("scrolled endpoint frame");
+    let metrics = state
+        .hits
+        .workspace_scroll_metrics
+        .expect("workspace scroll metrics");
+    assert!(metrics.max_offset_from_bottom > 0);
+    assert_eq!(metrics.offset_from_bottom, 0);
+    assert_eq!(state.workspace_scroll, metrics.max_offset_from_bottom);
+    let visible_remote = state
+        .hits
+        .workspaces
+        .iter()
+        .filter(|hit| hit.endpoint_id == remote_id)
+        .collect::<Vec<_>>();
+    assert_eq!(visible_remote.len(), 3);
+    let gap_y = visible_remote[1].rect.bottom();
+    assert_eq!(visible_remote[2].rect.y, gap_y + 1);
+    assert!(visible_remote[2].rect.bottom() <= state.hits.workspace_body.bottom());
+    assert!(state
+        .hits
+        .workspaces
+        .iter()
+        .all(|hit| gap_y < hit.rect.top() || gap_y >= hit.rect.bottom()));
+}
+
+#[test]
 fn active_workspace_is_the_only_highlight_when_machine_is_expanded() {
     let (mut state, endpoint_id) = state_with_remote();
     assert!(state.activate_endpoint_projection(&endpoint_id));
@@ -642,6 +1126,416 @@ fn aggregate_agents_use_configured_rows_machine_token_and_status_colors() {
         .content()
         .iter()
         .any(|cell| cell.symbol() == "×" && cell.fg == state.config.palette.red));
+}
+
+#[test]
+fn current_workspace_agent_view_excludes_same_workspace_id_on_other_machine() {
+    use crate::api::schema::AgentStatus;
+    use crate::config::AgentSidebarToken;
+
+    let mut config = Config::default();
+    config.ui.sidebar.agents.rows =
+        vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let profile = remote_profile();
+    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agent_view_label = Some("current space".into());
+    local.agent_order = vec!["pane_1".into()];
+    local.agents = vec![agent("local agent", AgentStatus::Idle, 1)];
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agent_view_label = Some("current space".into());
+    remote.agent_order = vec!["pane_1".into()];
+    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 1)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+    let view = current_workspace_view();
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, Some(view.clone()));
+    state.set_test_endpoint_agent_view(&endpoint_id, Some(view));
+
+    let frame = state.compose(100, 28).expect("combined endpoint frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(!text.contains("Build · remote agent"), "frame: {text}");
+
+    assert!(state.activate_endpoint_projection(&endpoint_id));
+    let mut remote_surface = surface();
+    remote_surface.boot_id = "remote-boot".into();
+    state.set_pane_surface(remote_surface);
+    let frame = state.compose(100, 28).expect("remote endpoint frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Build · remote agent"), "frame: {text}");
+}
+
+#[test]
+fn current_workspace_or_blocked_keeps_foreign_attention_only() {
+    use crate::api::schema::{
+        AgentStatus, AgentViewBuiltinField, AgentViewField, AgentViewFilter, AgentViewValue,
+    };
+    use crate::config::AgentSidebarToken;
+
+    let mut config = Config::default();
+    config.ui.sidebar.agents.rows =
+        vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let profile = remote_profile();
+    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agent_view_label = Some("focus".into());
+    local.agents = vec![agent("local agent", AgentStatus::Idle, 1)];
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agents = vec![
+        agent("remote idle", AgentStatus::Idle, 1),
+        ClientShellAgent {
+            pane_id: "pane_2".into(),
+            name: Some("remote blocked".into()),
+            agent_status: AgentStatus::Blocked,
+            focused: false,
+            ..agent("remote blocked", AgentStatus::Blocked, 2)
+        },
+    ];
+    let template = remote.panes[0].clone();
+    remote.panes.push(ClientShellPane {
+        pane_id: "pane_2".into(),
+        focused: false,
+        ..template
+    });
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+
+    let mut view = current_workspace_view();
+    view.label = Some("focus".into());
+    view.filter = Some(AgentViewFilter::Any {
+        filters: vec![
+            view.filter.take().expect("current workspace filter"),
+            AgentViewFilter::Eq {
+                field: AgentViewField::Builtin(AgentViewBuiltinField::Status),
+                value: AgentViewValue::String("blocked".into()),
+            },
+        ],
+    });
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, Some(view));
+
+    let frame = state.compose(100, 28).expect("combined endpoint frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(!text.contains("Build · remote idle"), "frame: {text}");
+    assert!(text.contains("Build · remote blocked"), "frame: {text}");
+}
+
+#[test]
+fn selected_default_view_ignores_inactive_endpoint_projection() {
+    use crate::api::schema::{
+        AgentStatus, AgentViewBuiltinField, AgentViewField, AgentViewFilter, AgentViewValue,
+    };
+    use crate::config::AgentSidebarToken;
+
+    let mut config = Config::default();
+    config.ui.sidebar.agents.rows =
+        vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let profile = remote_profile();
+    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agents = vec![agent("local agent", AgentStatus::Idle, 1)];
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agent_view_label = Some("blocked".into());
+    remote.agent_order.clear();
+    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 1)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, None);
+    state.set_test_endpoint_agent_view(
+        &endpoint_id,
+        Some(crate::api::schema::AgentViewSetParams {
+            source: "remote.views".into(),
+            label: Some("blocked".into()),
+            filter: Some(AgentViewFilter::Eq {
+                field: AgentViewField::Builtin(AgentViewBuiltinField::Status),
+                value: AgentViewValue::String("blocked".into()),
+            }),
+            sort: Vec::new(),
+        }),
+    );
+
+    let frame = state.compose(100, 28).expect("combined endpoint frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Build · remote agent"), "frame: {text}");
+    assert!(text.contains("grouped"), "frame: {text}");
+}
+
+#[test]
+fn newer_snapshot_does_not_reuse_stale_agent_view_projection() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let mut local = snapshot();
+    local.agent_view_label = Some("current space".into());
+    state.set_snapshot(Box::new(local.clone()));
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, Some(current_workspace_view()));
+    let endpoint = state
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.endpoint_id.is_local())
+        .expect("local endpoint");
+    assert!(matches!(
+        ClientShellState::endpoint_agent_view(endpoint),
+        Some(Ok(Some(_)))
+    ));
+
+    state.set_test_endpoint_agent_view_projection(
+        &ClientEndpointId::Local,
+        "foreign-boot",
+        99,
+        None,
+    );
+    let endpoint = state
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.endpoint_id.is_local())
+        .expect("local endpoint");
+    assert!(matches!(
+        ClientShellState::endpoint_agent_view(endpoint),
+        Some(Ok(Some(_)))
+    ));
+
+    local.revision += 1;
+    state.set_snapshot(Box::new(local));
+    let endpoint = state
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.endpoint_id.is_local())
+        .expect("local endpoint");
+    assert!(ClientShellState::endpoint_agent_view(endpoint).is_none());
+}
+
+#[test]
+fn legacy_custom_views_keep_v1_per_endpoint_projection() {
+    use crate::api::schema::AgentStatus;
+    use crate::config::AgentSidebarToken;
+
+    let mut config = Config::default();
+    config.ui.sidebar.agents.rows =
+        vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let profile = remote_profile();
+    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agent_view_label = Some("current space".into());
+    local.agent_order = vec!["pane_1".into()];
+    local.agents = vec![agent("local agent", AgentStatus::Idle, 1)];
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agent_view_label = Some("current space".into());
+    remote.agent_order = vec!["pane_1".into()];
+    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 1)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+
+    let frame = state.compose(100, 28).expect("legacy combined frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Build · remote agent"), "frame: {text}");
+}
+
+#[test]
+fn selected_custom_sort_orders_rendering_and_indexed_navigation() {
+    use crate::api::schema::{
+        AgentStatus, AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField,
+        AgentViewSortOrder,
+    };
+    use crate::config::AgentSidebarToken;
+
+    let mut config = Config::default();
+    config.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
+    config.ui.sidebar.agents.rows =
+        vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let profile = remote_profile();
+    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agent_view_label = Some("recent".into());
+    local.agents = vec![agent("local blocked", AgentStatus::Blocked, 1)];
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agents = vec![agent("remote idle", AgentStatus::Idle, 9)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+
+    let mut view = current_workspace_view();
+    view.label = Some("recent".into());
+    view.filter = None;
+    view.sort = vec![AgentViewSort {
+        field: AgentViewSortField::Builtin(AgentViewBuiltinSortField::StateChangeSeq),
+        order: AgentViewSortOrder::Desc,
+    }];
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, Some(view));
+
+    let frame = state.compose(100, 28).expect("custom sorted frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.find("Build · remote idle").expect("remote row")
+            < text.find("Local · local blocked").expect("local row"),
+        "frame: {text}"
+    );
+
+    let mut outcome = ClientShellInput::default();
+    assert!(
+        state.handle_endpoint_navigation(crate::input::KeybindAction::FocusAgent(0), &mut outcome,)
+    );
+    assert!(matches!(
+        outcome.actions.as_slice(),
+        [ClientShellAction::ActivateEndpoint {
+            endpoint_id: selected,
+            target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
+        }] if selected == &endpoint_id && pane_id == "pane_1"
+    ));
+}
+
+#[test]
+fn selected_position_sort_uses_public_tab_and_pane_numbers() {
+    use crate::api::schema::{
+        AgentStatus, AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField,
+        AgentViewSortOrder,
+    };
+
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let mut selected = snapshot();
+    selected.agent_view_label = Some("positions".into());
+
+    let mut tab_nine = selected.tabs[0].clone();
+    tab_nine.tab_id = "ws_1:t9".into();
+    tab_nine.number = 9;
+    let mut tab_two = tab_nine.clone();
+    tab_two.tab_id = "ws_1:t2".into();
+    tab_two.number = 2;
+    selected.tabs = vec![tab_nine, tab_two];
+
+    let mut pane_tab_nine = selected.panes[0].clone();
+    pane_tab_nine.tab_id = "ws_1:t9".into();
+    pane_tab_nine.pane_id = "ws_1:p1".into();
+    let mut pane_nine = pane_tab_nine.clone();
+    pane_nine.tab_id = "ws_1:t2".into();
+    pane_nine.pane_id = "ws_1:p9".into();
+    let mut pane_two = pane_nine.clone();
+    pane_two.pane_id = "ws_1:p2".into();
+    selected.panes = vec![pane_tab_nine, pane_nine, pane_two];
+
+    let mut late_tab = agent("tab nine", AgentStatus::Idle, 1);
+    late_tab.tab_id = "ws_1:t9".into();
+    late_tab.pane_id = "ws_1:p1".into();
+    let mut late_pane = agent("pane nine", AgentStatus::Idle, 1);
+    late_pane.tab_id = "ws_1:t2".into();
+    late_pane.pane_id = "ws_1:p9".into();
+    let mut early_pane = agent("pane two", AgentStatus::Idle, 1);
+    early_pane.tab_id = "ws_1:t2".into();
+    early_pane.pane_id = "ws_1:p2".into();
+    selected.agents = vec![late_tab, late_pane, early_pane];
+    state.set_snapshot(Box::new(selected));
+
+    let mut view = current_workspace_view();
+    view.label = Some("positions".into());
+    view.filter = None;
+    view.sort = vec![
+        AgentViewSort {
+            field: AgentViewSortField::Builtin(AgentViewBuiltinSortField::TabOrder),
+            order: AgentViewSortOrder::Asc,
+        },
+        AgentViewSort {
+            field: AgentViewSortField::Builtin(AgentViewBuiltinSortField::PaneOrder),
+            order: AgentViewSortOrder::Asc,
+        },
+    ];
+    state.set_test_endpoint_agent_view(&ClientEndpointId::Local, Some(view));
+
+    let names = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        crate::config::AgentPanelSortConfig::Priority,
+    )
+    .into_iter()
+    .map(|row| row.agent.name.as_deref().expect("agent name"))
+    .collect::<Vec<_>>();
+    assert_eq!(names, ["pane two", "pane nine", "tab nine"]);
 }
 
 #[test]
@@ -774,6 +1668,71 @@ fn clicking_remote_machine_name_requests_activation_without_mutating_projection(
             .as_deref()
             .map(|snapshot| snapshot.boot_id.as_str()),
         Some("boot-1")
+    );
+}
+
+#[test]
+fn clicking_local_can_cancel_a_remote_switch_while_local_is_still_displayed() {
+    for workspace in [false, true] {
+        let (mut state, remote) = state_with_remote();
+        state.compose(100, 28).unwrap();
+        let mut pending = ClientShellInput::default();
+        assert!(state.activate_endpoint(remote, &mut pending));
+        assert_eq!(state.active_endpoint_id, ClientEndpointId::Local);
+        let rect = if workspace {
+            state
+                .hits
+                .workspaces
+                .iter()
+                .find(|hit| hit.endpoint_id.is_local())
+                .unwrap()
+                .rect
+        } else {
+            state
+                .hits
+                .machines
+                .iter()
+                .find(|hit| hit.endpoint_id.is_local())
+                .unwrap()
+                .rect
+        };
+        let outcome = state.handle_raw_events(vec![
+            RawInputEvent::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: rect.x + 5,
+                row: rect.y,
+                modifiers: KeyModifiers::empty(),
+            }),
+            RawInputEvent::Mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: rect.x + 5,
+                row: rect.y,
+                modifiers: KeyModifiers::empty(),
+            }),
+        ]);
+        assert!(
+            matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint {
+            endpoint_id: ClientEndpointId::Local, target,
+        }] if target.is_some() == workspace)
+        );
+    }
+}
+
+#[test]
+fn reconnecting_local_selection_still_reaches_the_runtime() {
+    let (mut state, _) = state_with_remote();
+    state.mark_endpoint_disconnected(&ClientEndpointId::Local);
+    let mut outcome = ClientShellInput::default();
+    state.focus_or_activate(
+        ClientEndpointId::Local,
+        ClientEndpointFocusTarget::Workspace("local-workspace".into()),
+        &mut outcome,
+    );
+    assert!(
+        matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint {
+        endpoint_id: ClientEndpointId::Local,
+        target: Some(ClientEndpointFocusTarget::Workspace(id)),
+    }] if id == "local-workspace")
     );
 }
 
@@ -976,6 +1935,55 @@ fn new_connection_generation_accepts_a_lower_same_boot_projection_revision() {
 }
 
 #[test]
+fn reconnect_same_endpoint_accepts_new_generation_surface_revision() {
+    for previous_revision in [9, 1] {
+        let (mut state, endpoint_id) = state_with_remote();
+        let mut previous = snapshot();
+        previous.boot_id = "shared-server-boot".into();
+        previous.revision = previous_revision;
+        state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 4, Box::new(previous));
+        assert!(state.activate_endpoint_projection(&endpoint_id));
+        let mut previous_surface = surface();
+        previous_surface.boot_id = "shared-server-boot".into();
+        previous_surface.projection_revision = previous_revision;
+        previous_surface.surface_revision = 9;
+        state.set_pane_surface(previous_surface.clone());
+        previous_surface.projection_revision += 1;
+        state.set_pane_surface(previous_surface);
+        assert!(state.pending_pane_surface.is_some());
+        state.agent_scroll = 7;
+
+        state.mark_endpoint_disconnected(&endpoint_id);
+        let mut reconnected = snapshot();
+        reconnected.boot_id = "shared-server-boot".into();
+        reconnected.revision = 1;
+        state.cache_endpoint_snapshot_inactive_for_generation(
+            &endpoint_id,
+            5,
+            Box::new(reconnected),
+        );
+        assert_eq!(state.snapshot.as_ref().unwrap().revision, previous_revision);
+        assert_eq!(state.pane_surface.as_ref().unwrap().surface_revision, 9);
+
+        state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+        assert!(state.activate_endpoint_projection(&endpoint_id));
+        assert!(state.compose(106, 20).is_none());
+        let mut reconnected_surface = surface();
+        reconnected_surface.boot_id = "shared-server-boot".into();
+        reconnected_surface.projection_revision = 1;
+        reconnected_surface.surface_revision = 1;
+        state.set_pane_surface(reconnected_surface);
+
+        assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+        assert_eq!(state.pane_surface.as_ref().unwrap().projection_revision, 1);
+        assert_eq!(state.pane_surface.as_ref().unwrap().surface_revision, 1);
+        assert!(state.pending_pane_surface.is_none());
+        assert_eq!(state.agent_scroll, 7);
+        assert!(state.compose(106, 20).is_some());
+    }
+}
+
+#[test]
 fn reconnect_snapshot_waits_for_coherent_activation_before_replacing_projection() {
     let (mut state, endpoint_id) = state_with_remote();
     assert!(state.activate_endpoint_projection(&endpoint_id));
@@ -1069,6 +2077,52 @@ fn graphics_scope_qualifies_colliding_boot_ids_by_endpoint() {
     assert!(remote_scope.starts_with("ssh:0123456789abcdef0123456789abcdef:"));
 }
 
+#[cfg(unix)]
+#[test]
+fn local_direct_graphics_accept_server_ids_across_endpoint_switches_and_restarts() {
+    use crate::kitty_graphics::surface::{direct_upload_control, host_image_id};
+    use crate::protocol::{SurfaceGraphicsAssetKey, SurfaceGraphicsFormat, SurfaceGraphicsSource};
+
+    let (mut state, remote_id) = state_with_remote();
+    let asset = SurfaceGraphicsAssetKey {
+        source: SurfaceGraphicsSource::PaneLayer {
+            pane_id: "pane_1".into(),
+            layer_id: "primary".into(),
+        },
+        image_width: 2,
+        image_height: 2,
+        format: SurfaceGraphicsFormat::Rgba,
+        data_len: 16,
+        data_fingerprint: 17,
+    };
+    let (server_image_id, _) = direct_upload_control("boot-1", &asset);
+    assert_eq!(
+        host_image_id(state.graphics_scope(), &asset),
+        server_image_id
+    );
+    assert!(state.trust_direct_graphics_asset(&asset, server_image_id));
+    assert!(!state.trust_direct_graphics_asset(&asset, server_image_id + 1));
+
+    let mut remote = snapshot();
+    remote.boot_id = "boot-1".into();
+    state.set_endpoint_snapshot(&remote_id, Box::new(remote));
+    assert!(state.activate_endpoint_projection(&remote_id));
+    assert!(!state.trust_direct_graphics_asset(&asset, server_image_id));
+    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
+    assert!(state.trust_direct_graphics_asset(&asset, server_image_id));
+
+    let mut restarted = snapshot();
+    restarted.boot_id = "replacement-boot".into();
+    state.set_snapshot(Box::new(restarted));
+    let (restarted_image_id, _) = direct_upload_control("replacement-boot", &asset);
+    assert!(!state.trust_direct_graphics_asset(&asset, server_image_id));
+    assert_eq!(
+        host_image_id(state.graphics_scope(), &asset),
+        restarted_image_id
+    );
+    assert!(state.trust_direct_graphics_asset(&asset, restarted_image_id));
+}
+
 #[test]
 fn navigator_uses_machine_parents_only_for_federated_clients() {
     let (mut state, _) = state_with_remote();
@@ -1097,10 +2151,24 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     assert!(rows.iter().all(|row| match row.target {
         ClientNavigatorTarget::Machine { .. } => row.depth == 0 && row.status.is_none(),
         ClientNavigatorTarget::Workspace { .. } => row.depth == 1 && row.status.is_none(),
-        ClientNavigatorTarget::Tab { .. } => row.depth == 2 && row.status.is_none(),
-        ClientNavigatorTarget::Pane { .. } => row.depth == 3 && row.status.is_some(),
+        ClientNavigatorTarget::Pane { .. } => row.depth == 2 && row.status.is_some(),
     }));
     assert_eq!(rows.iter().filter(|row| row.current).count(), 1);
+
+    let frame = state.compose(106, 30).expect("federated navigator");
+    for (rect, target) in &state.hits.navigator_rows {
+        let expected = match target {
+            ClientNavigatorTarget::Machine { .. } => " ",
+            ClientNavigatorTarget::Workspace { .. } => "   ",
+            ClientNavigatorTarget::Pane { .. } => "   └─ ",
+        };
+        let prefix = frame.cells[rect.y as usize * frame.width as usize + rect.x as usize..]
+            .iter()
+            .take(expected.chars().count())
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>();
+        assert_eq!(prefix, expected, "{target:?}");
+    }
 
     let mut local = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     local.set_snapshot(Box::new(snapshot()));
@@ -1130,8 +2198,7 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
         .all(|row| !matches!(row.target, ClientNavigatorTarget::Machine { .. })));
     assert!(rows.iter().all(|row| match row.target {
         ClientNavigatorTarget::Workspace { .. } => row.depth == 0,
-        ClientNavigatorTarget::Tab { .. } => row.depth == 1,
-        ClientNavigatorTarget::Pane { .. } => row.depth == 2,
+        ClientNavigatorTarget::Pane { .. } => row.depth == 1,
         ClientNavigatorTarget::Machine { .. } => false,
     }));
 }
@@ -1165,10 +2232,6 @@ fn navigator_keeps_saved_machine_visible_before_metadata_arrives() {
     assert!(!rows.iter().any(|row| match &row.target {
         ClientNavigatorTarget::Machine { .. } => false,
         ClientNavigatorTarget::Workspace {
-            endpoint_id: target,
-            ..
-        }
-        | ClientNavigatorTarget::Tab {
             endpoint_id: target,
             ..
         }
@@ -1522,7 +2585,32 @@ fn collapsed_aggregate_workspace_status_uses_its_status_color() {
 }
 
 #[test]
-fn navigator_foreign_tab_selection_keeps_the_tab_target() {
+fn navigator_workspace_arrows_cross_machine_headings_without_activating_them() {
+    let (mut state, endpoint_id) = state_with_remote();
+    state.open_navigator_overlay();
+    for (key, expected_endpoint) in [
+        (KeyCode::Right, endpoint_id),
+        (KeyCode::Left, ClientEndpointId::Local),
+    ] {
+        let outcome = state.handle_raw_events(vec![RawInputEvent::Key(
+            crate::input::TerminalKey::new(key, KeyModifiers::empty()),
+        )]);
+        assert!(outcome.actions.is_empty());
+        let Some(ClientShellOverlay::Navigator(navigator)) = &state.overlay else {
+            panic!("navigator");
+        };
+        assert_eq!(
+            navigator.selected,
+            Some(ClientNavigatorTarget::Pane {
+                endpoint_id: expected_endpoint,
+                pane_id: "pane_1".into(),
+            })
+        );
+    }
+}
+
+#[test]
+fn navigator_foreign_workspace_heading_keeps_the_workspace_target() {
     let (mut state, endpoint_id) = state_with_remote();
     state.open_navigator_overlay();
     let selected = {
@@ -1535,15 +2623,14 @@ fn navigator_foreign_tab_selection_keeps_the_tab_target() {
             .find(|row| {
                 matches!(
                     &row.target,
-                    ClientNavigatorTarget::Tab {
+                    ClientNavigatorTarget::Workspace {
                         endpoint_id: target_endpoint,
-                        tab_id,
-                        ..
-                    } if target_endpoint == &endpoint_id && tab_id == "tab_1"
+                        workspace_id,
+                    } if target_endpoint == &endpoint_id && workspace_id == "ws_1"
                 )
             })
             .map(|row| row.target.clone())
-            .expect("remote tab row")
+            .expect("remote workspace heading")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);
@@ -1556,7 +2643,7 @@ fn navigator_foreign_tab_selection_keeps_the_tab_target() {
         outcome.actions.as_slice(),
         [ClientShellAction::ActivateEndpoint {
             endpoint_id: activated,
-            target: Some(ClientEndpointFocusTarget::Tab(tab_id)),
-        }] if activated == &endpoint_id && tab_id == "tab_1"
+            target: Some(ClientEndpointFocusTarget::Workspace(workspace_id)),
+        }] if activated == &endpoint_id && workspace_id == "ws_1"
     ));
 }
