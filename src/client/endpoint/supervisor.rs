@@ -203,8 +203,13 @@ impl EndpointSupervisors {
                 state.attempts = 0;
                 state.next_attempt = None;
             }
-            ClientEndpointStatus::Attention | ClientEndpointStatus::Disabled => {
-                state.next_attempt = None
+            ClientEndpointStatus::Attention => {
+                // Authentication or configuration may be repaired outside this client.
+                state.next_attempt =
+                    (!endpoint_id.is_local()).then_some(now + Duration::from_secs(30));
+            }
+            ClientEndpointStatus::Disabled => {
+                state.next_attempt = None;
             }
             ClientEndpointStatus::Connecting | ClientEndpointStatus::Reconnecting => {
                 state.attempts = state.attempts.saturating_add(1);
@@ -257,11 +262,11 @@ fn connect_once(
             (stream, Box::new(()))
         }
         ConnectTarget::Ssh(profile) => {
-            let connected = crate::remote::connect_saved_ssh(profile.id.as_str(), &profile.target, &profile.session).map_err(|error| {
-                if failure_needs_attention(&error) {
-                    std::io::Error::new(error.kind(), format!("{error}. Run `{}` interactively to approve setup, then restart this client", crate::remote::saved_ssh_bootstrap_command(&profile.target, &profile.session)))
-                } else { error }
-            })?;
+            let connected = crate::remote::connect_saved_ssh(
+                profile.id.as_str(),
+                &profile.target,
+                &profile.session,
+            )?;
             (connected.stream, Box::new(connected.bridge))
         }
     };
@@ -469,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh_recovery_rejects_stale_generations_and_stops_retries_for_attention() {
+    fn ssh_recovery_rejects_stale_generations_and_rechecks_attention() {
         let now = Instant::now();
         let mut supervisors = EndpointSupervisors::new(&[profile()], now);
         let endpoint_id = ClientEndpointId::Ssh(profile().id);
@@ -487,6 +492,9 @@ mod tests {
             Some(now + INITIAL_RETRY_DELAY)
         );
         assert!(supervisors.record_status(&endpoint_id, 4, ClientEndpointStatus::Attention, now));
-        assert!(supervisors.endpoints[&endpoint_id].next_attempt.is_none());
+        assert_eq!(
+            supervisors.endpoints[&endpoint_id].next_attempt,
+            Some(now + Duration::from_secs(30))
+        );
     }
 }

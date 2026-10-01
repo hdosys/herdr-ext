@@ -1155,6 +1155,7 @@ async fn run_client_loop(
                     }
                     let unavailable = state.shell.as_mut().and_then(|shell| {
                         shell.set_endpoint_status(&endpoint_id, status);
+                        shell.set_machine_diagnostic(&endpoint_id, message.clone());
                         if status == endpoint::ClientEndpointStatus::Attention
                             && endpoint_id.is_local()
                         {

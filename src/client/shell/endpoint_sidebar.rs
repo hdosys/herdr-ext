@@ -90,12 +90,26 @@ pub(super) fn render_collapsed(
                     palette.overlay0
                 }),
             );
+            let mut status_badge = Rect::default();
             if !endpoint.endpoint_id.is_local() {
                 let (glyph, _, color) = endpoint_status_presentation(endpoint.status, palette);
-                put_right_text(buffer, rect, rect.y, glyph, Style::default().fg(color));
+                let width = display_width(glyph).min(rect.width);
+                status_badge = Rect::new(rect.right().saturating_sub(width), rect.y, width, 1);
+                put_right_text(
+                    buffer,
+                    rect,
+                    rect.y,
+                    glyph,
+                    state.machine_diagnostics.badge_style(
+                        endpoint,
+                        palette,
+                        Style::default().fg(color),
+                    ),
+                );
             }
             hits.machines.push(MachineHit {
                 rect,
+                status_badge,
                 collapse_toggle: Rect::new(rect.x, rect.y, u16::from(rect.width > 1), 1),
                 endpoint_id: endpoint.endpoint_id.clone(),
             });
@@ -365,16 +379,18 @@ pub(super) fn render_expanded(
                 let rect = Rect::new(body.x, y, content_width, 1);
                 let collapsed = state.collapsed_endpoints.contains(&endpoint.endpoint_id);
                 let marker = if collapsed { "▸" } else { "▾" };
-                render_endpoint_row(
+                let status_badge = render_endpoint_row(
                     buffer,
                     rect,
                     marker,
                     endpoint,
                     collapsed && &endpoint.endpoint_id == state.active_endpoint_id,
+                    state.machine_diagnostics,
                     palette,
                 );
                 hits.machines.push(MachineHit {
                     rect,
+                    status_badge,
                     collapse_toggle: Rect::new(
                         rect.x.saturating_add(1),
                         rect.y,
@@ -547,8 +563,9 @@ fn render_endpoint_row(
     marker: &str,
     endpoint: &ClientShellEndpoint,
     highlighted: bool,
+    auth: &super::machine_diagnostics::MachineDiagnostics,
     palette: &Palette,
-) {
+) -> Rect {
     if highlighted {
         buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
     }
@@ -558,7 +575,11 @@ fn render_endpoint_row(
     } else {
         state
     };
-    let signal = if endpoint.endpoint_id.is_local() {
+    let signal = if auth.required_for(endpoint) {
+        "! auth".to_owned()
+    } else if endpoint.status == ClientEndpointStatus::Attention {
+        "! error".to_owned()
+    } else if endpoint.endpoint_id.is_local() {
         String::new()
     } else if state.is_empty() {
         glyph.to_owned()
@@ -582,5 +603,17 @@ fn render_endpoint_row(
             )
             .add_modifier(Modifier::BOLD),
     );
-    put_right_text(buffer, rect, rect.y, &signal, Style::default().fg(color));
+    put_right_text(
+        buffer,
+        rect,
+        rect.y,
+        &signal,
+        auth.badge_style(endpoint, palette, Style::default().fg(color)),
+    );
+    Rect::new(
+        rect.right().saturating_sub(signal_width),
+        rect.y,
+        signal_width,
+        1,
+    )
 }

@@ -532,6 +532,7 @@ pub(super) fn handle_endpoint_attention(
             shell.cancel_endpoint_request(&request_id);
         }
         shell.set_endpoint_status(endpoint_id, endpoint::ClientEndpointStatus::Attention);
+        shell.set_machine_diagnostic(endpoint_id, message.clone());
         endpoint_was_active.then(|| format!("{}: {message}", shell.endpoint_label(endpoint_id)))
     });
     if let Some(message) = unavailable {

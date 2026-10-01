@@ -11,6 +11,17 @@ pub(super) fn command() -> Command {
                 .arg(json_flag()),
         )
         .subcommand(
+            Command::new("status")
+                .about("Check saved machines without prompting for authentication")
+                .arg(Arg::new("machine").value_name("LABEL_OR_ID"))
+                .arg(json_flag()),
+        )
+        .subcommand(
+            Command::new("reconnect")
+                .about("Authenticate a saved machine in this terminal and verify connectivity")
+                .arg(Arg::new("machine").value_name("LABEL_OR_ID").required(true)),
+        )
+        .subcommand(
             Command::new("add")
                 .about("Prepare the remote Herdr server and save an SSH machine")
                 .arg(

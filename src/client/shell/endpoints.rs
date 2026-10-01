@@ -15,6 +15,7 @@ pub(crate) struct ClientShellEndpoint {
 
 pub(super) struct MachineHit {
     pub(super) rect: Rect,
+    pub(super) status_badge: Rect,
     pub(super) collapse_toggle: Rect,
     pub(super) endpoint_id: ClientEndpointId,
 }
@@ -91,6 +92,7 @@ impl ClientShellState {
     }
 
     pub(crate) fn retire_endpoint(&mut self, endpoint_id: &ClientEndpointId) {
+        self.clear_machine_diagnostic(endpoint_id);
         self.retire_endpoint_notifications(endpoint_id);
         if let Some(endpoint) = self
             .endpoints
@@ -111,6 +113,12 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         status: ClientEndpointStatus,
     ) {
+        if matches!(
+            status,
+            ClientEndpointStatus::Online | ClientEndpointStatus::Disabled
+        ) {
+            self.clear_machine_diagnostic(endpoint_id);
+        }
         if let Some(endpoint) = self
             .endpoints
             .iter_mut()

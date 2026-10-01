@@ -56,6 +56,45 @@ fn state_with_remote() -> (ClientShellState, ClientEndpointId) {
 }
 
 #[test]
+fn machine_diagnostic_badge_reopens_notice_without_collapsing_machine() {
+    let (mut state, id) = state_with_remote();
+    state.set_endpoint_status(&id, ClientEndpointStatus::Attention);
+    state.set_machine_diagnostic(&id, "Permission denied (keyboard-interactive)".into());
+    for _ in 0..2 {
+        state.compose(120, 40).unwrap();
+        let hit = state
+            .hits
+            .machines
+            .iter()
+            .find(|hit| hit.endpoint_id == id)
+            .unwrap();
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.status_badge.x,
+            row: hit.status_badge.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]);
+        assert!(outcome.repaint);
+        assert!(!state.collapsed_endpoints.contains(&id));
+        let notice = state.visible_endpoint_notice.take().unwrap();
+        assert!(notice.body.contains("Permission denied"));
+        assert!(notice
+            .title
+            .contains("herdr machine reconnect 0123456789abcdef0123456789abcdef"));
+    }
+    state.set_endpoint_status(&id, ClientEndpointStatus::Online);
+    state.compose(120, 40).unwrap();
+    assert!(!state.machine_diagnostics.required_for(
+        state
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == id)
+            .unwrap()
+    ));
+}
+
+#[test]
 fn switching_machines_from_copy_mode_restores_terminal_input() {
     let (mut state, remote) = state_with_remote();
     let mut local_surface = surface();

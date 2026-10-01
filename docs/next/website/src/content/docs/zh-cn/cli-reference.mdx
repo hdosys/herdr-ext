@@ -63,7 +63,7 @@ herdr machine remove <profile-id>
 
 更改会自动应用到已打开的本地 Herdr 客户端，通常在一秒内生效。新增或启用的机器在后台连接；重命名不会重新连接。移除或禁用只会断开该机器，远程会话仍会继续运行。移除正在查看的机器会返回 Local；如果 Local 不可用，则显示不可用状态，直到重新连接。每份配置在客户端状态文件中保存一个不透明 ID、标签、SSH 目标、明确的远程会话名和启用状态。Herdr 不保存密码、私钥或其他 SSH 凭据。
 
-自动连接和重连均为非交互式。如果主机密钥、密码、密钥口令、MFA、安装、更新或重启需要批准，机器会显示 Attention，而不会打开隐藏的提示。请运行 Herdr 显示的独立连接命令，例如 `herdr --remote workbox`，在前台完成设置后重启客户端。仅当配置指向命名会话时，才加上 `--session <name>`。
+`herdr machine status [<label-or-id>] [--json]` 可非交互式检查 SSH 和远程 Herdr。`reachable` 表示本次检查成功，不代表 TUI 当前已连接。在终端运行 `herdr machine reconnect <label-or-id>` 可认证并验证连接，不会安装或更新 Herdr。已打开的客户端会在 30 秒内重试。点击 `! auth` 或 `! error` 可查看最新错误和 CLI 命令；侧边栏折叠时显示 `!`。平台限制请参阅[恢复 SSH 认证](/zh-cn/docs/connecting-machines/#恢复-ssh-认证)。需要远程设置时使用 `herdr --remote workbox`，仅在命名会话时添加 `--session <name>`。
 
 工作区、标签页、窗格 ID 和智能体名称仅在所属服务器内有效。在 UI 中选择机器不会改变已有窗格中命令继承的会话或 socket。远程自动化应在目标主机上针对目标会话运行 CLI，并从那里获取 ID。
 

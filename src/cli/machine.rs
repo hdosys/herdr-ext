@@ -1,9 +1,11 @@
 use serde::Serialize;
 
-use crate::client::endpoint::{EndpointCatalog, ProfileId};
+use crate::client::endpoint::{EndpointCatalog, ProfileId, SavedSshEndpoint};
 
 const HELP: &str = "Usage:
   herdr machine list [--json]
+  herdr machine status [<label-or-id>] [--json]
+  herdr machine reconnect <label-or-id>
   herdr machine add <ssh-target> --label <label> [--remote-session <name>]
   herdr machine rename <profile-id> --label <label>
   herdr machine remove <profile-id>
@@ -30,6 +32,8 @@ struct MachineListRow<'a> {
 pub(super) fn run_machine_command(args: &[String]) -> std::io::Result<i32> {
     match args.first().map(String::as_str) {
         Some("list") => list(&args[1..]),
+        Some("status") => status(&args[1..]),
+        Some("reconnect") => reconnect(&args[1..]),
         Some("add") => add(&args[1..]),
         Some("rename") => rename(&args[1..]),
         Some("remove") => remove(&args[1..]),
@@ -87,6 +91,142 @@ fn list(args: &[String]) -> std::io::Result<i32> {
         );
     }
     Ok(0)
+}
+
+#[derive(Serialize)]
+struct MachineStatusRow<'a> {
+    id: &'a str,
+    label: &'a str,
+    status: &'static str,
+    error: Option<String>,
+}
+
+fn status(args: &[String]) -> std::io::Result<i32> {
+    let mut json = false;
+    let mut selector = None;
+    for arg in args {
+        if arg == "--json" && !json {
+            json = true;
+        } else if !arg.starts_with('-') && selector.is_none() {
+            selector = Some(arg.as_str());
+        } else {
+            eprintln!("usage: herdr machine status [<label-or-id>] [--json]");
+            return Ok(2);
+        }
+    }
+    let catalog = load_catalog()?;
+    let profiles = match selector {
+        Some(selector) => match resolve_machine(&catalog.ssh, selector) {
+            Ok(profile) => vec![profile],
+            Err(error) => {
+                eprintln!("{error}");
+                return Ok(2);
+            }
+        },
+        None => catalog.ssh.iter().collect(),
+    };
+    let rows = profiles
+        .into_iter()
+        .map(|profile| {
+            let (status, error) = if !profile.enabled {
+                ("disabled", None)
+            } else {
+                match crate::remote::check_saved_ssh(&profile.target, &profile.session) {
+                    Ok(()) => ("reachable", None),
+                    Err(error) => {
+                        let message = error.to_string();
+                        let status = if crate::remote::ssh_error_requires_authentication(&message) {
+                            "auth required"
+                        } else {
+                            "error"
+                        };
+                        (status, Some(message))
+                    }
+                }
+            };
+            MachineStatusRow {
+                id: profile.id.as_str(),
+                label: &profile.label,
+                status,
+                error,
+            }
+        })
+        .collect::<Vec<_>>();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&rows).map_err(std::io::Error::other)?
+        );
+    } else {
+        for row in &rows {
+            println!("{}\t{}\t{}", row.id, row.label, row.status);
+            if let Some(error) = &row.error {
+                println!("  {}", error.escape_debug());
+            }
+        }
+        if rows.is_empty() {
+            println!("No saved SSH machines.");
+        }
+    }
+    Ok(i32::from(rows.iter().any(|row| row.error.is_some())))
+}
+
+fn reconnect(args: &[String]) -> std::io::Result<i32> {
+    use std::io::IsTerminal;
+    let [selector] = args else {
+        eprintln!("usage: herdr machine reconnect <label-or-id>");
+        return Ok(2);
+    };
+    let catalog = load_catalog()?;
+    let profile = match resolve_machine(&catalog.ssh, selector) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(2);
+        }
+    };
+    if !std::io::stdin().is_terminal() {
+        eprintln!("reconnect requires an interactive terminal; use herdr machine status for noninteractive checks");
+        return Ok(2);
+    }
+    let mut authentication = crate::remote::ssh_authentication_command(&profile.target)?;
+    if !authentication.command.status()?.success() {
+        eprintln!("SSH authentication failed; the saved machine was not changed.");
+        return Ok(1);
+    }
+    crate::remote::check_saved_ssh(&profile.target, &profile.session)?;
+    println!(
+        "Machine {} is reachable. Open Herdr clients retry within 30 seconds.",
+        profile.id
+    );
+    Ok(0)
+}
+
+fn resolve_machine<'a>(
+    profiles: &'a [SavedSshEndpoint],
+    selector: &str,
+) -> Result<&'a SavedSshEndpoint, String> {
+    let profile = if let Some(profile) = profiles
+        .iter()
+        .find(|profile| profile.id.as_str() == selector)
+    {
+        profile
+    } else {
+        let mut matches = profiles.iter().filter(|profile| profile.label == selector);
+        let profile = matches
+            .next()
+            .ok_or_else(|| format!("unknown machine '{selector}'; use `herdr machine list`"))?;
+        if matches.next().is_some() {
+            return Err(format!(
+                "machine label '{selector}' is ambiguous; use its profile ID"
+            ));
+        }
+        profile
+    };
+    if !profile.enabled {
+        return Err(format!("machine '{selector}' is disabled"));
+    }
+    Ok(profile)
 }
 
 fn add(args: &[String]) -> std::io::Result<i32> {

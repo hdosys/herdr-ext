@@ -49,6 +49,7 @@ impl ClientShellState {
                     == Some(ClientEndpointStatus::Online)
         });
         let mut render_state = render::ShellRenderState {
+            machine_diagnostics: &self.machine_diagnostics,
             endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
             collapsed_endpoints: &self.collapsed_endpoints,
@@ -127,6 +128,15 @@ impl ClientShellState {
             &self.config.keybinds,
             &self.config.palette,
         );
+        if let Some(notice) = &self.visible_endpoint_notice {
+            self.hits.notification_toast = endpoint_notices::render_notice(
+                &mut buffer,
+                Rect::new(0, 0, cols, rows),
+                notice,
+                1,
+                &self.config.palette,
+            );
+        }
         FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, None, &[])
     }
 
@@ -180,6 +190,7 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
+                machine_diagnostics: &self.machine_diagnostics,
                 endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,
                 collapsed_endpoints: &self.collapsed_endpoints,
