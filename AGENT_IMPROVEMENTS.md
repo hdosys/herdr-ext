@@ -32,7 +32,13 @@ configuration repository.
   `ZIG_GLOBAL_CACHE_DIR` routed native writes elsewhere; native shared-library
   symlink creation failed with `PermissionDenied` before Rust type checking.
   Include those effective variables in resource assignments before claiming
-  isolation. No filesystem cause or cache-corruption claim was established.
+  isolation. The later bounded diagnosis identified an already-assigned but disabled
+  symlink privilege; enabling it only in the build process allowed unchanged native
+  compilation. No global permission or cache relocation was needed. After guest
+  replacement, the guest-local compiler and Candidate cache were absent, requiring
+  another 312.460-second production compile and 157-second test compile. Consider
+  retaining the current validated compiler context and one bounded Candidate cache
+  through the existing provisioner/cache owner when that owner survives replacement.
   Do not add a version pin, alternate compiler fallback, or blind cache relocation.
   Expected benefit: avoid incomplete resource ownership, failed builds and repeated
   toolchain discovery after successful source integration. Owners:
