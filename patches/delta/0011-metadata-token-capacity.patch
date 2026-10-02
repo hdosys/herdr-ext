@@ -1,7 +1,7 @@
-From 91baab79c87173a594e150214140752503995f1e Mon Sep 17 00:00:00 2001
+From f23033ef028df3444f54697f1fa3d3780e4b74ad Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 26 Aug 2026 13:52:34 +0200
-Subject: [PATCH 9/30] feat(api): expand metadata token capacity
+Subject: [PATCH 9/22] feat(api): expand metadata token capacity
 
 ---
  docs/next/CHANGELOG.md              |  1 +
@@ -13,7 +13,7 @@ Subject: [PATCH 9/30] feat(api): expand metadata token capacity
  6 files changed, 105 insertions(+), 17 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index b2c65244cf3c107a4ac400b4c95f57079b7afef8..6c69d7e51bfa5dc240cdd8e742868f4da09dc240 100644
+index dfdf32bf973cda8ad4fea12c14a892e9d1f36fbd..fa3c16884bae56f8f1f3d0253348a74750c0a46e 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -6,6 +6,7 @@
@@ -25,10 +25,10 @@ index b2c65244cf3c107a4ac400b4c95f57079b7afef8..6c69d7e51bfa5dc240cdd8e742868f4d
  
  ### Fixed
 diff --git a/docs/next/api/herdr-api.schema.json b/docs/next/api/herdr-api.schema.json
-index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1ef6755c9 100644
+index a66b63e7a9b6e98df3a03839102b877c0a96e63f..510e093032ab82f1938740d48130aba3521f4e60 100644
 --- a/docs/next/api/herdr-api.schema.json
 +++ b/docs/next/api/herdr-api.schema.json
-@@ -857,7 +857,7 @@
+@@ -863,7 +863,7 @@
                "additionalProperties": {
                  "type": "string"
                },
@@ -37,7 +37,7 @@ index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1
                "propertyNames": {
                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
                },
-@@ -1101,7 +1101,7 @@
+@@ -1107,7 +1107,7 @@
                "additionalProperties": {
                  "type": "string"
                },
@@ -46,7 +46,7 @@ index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1
                "propertyNames": {
                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
                },
-@@ -3140,7 +3140,7 @@
+@@ -3062,7 +3062,7 @@
                    "null"
                  ]
                },
@@ -55,7 +55,7 @@ index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1
                "propertyNames": {
                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
                },
-@@ -4552,7 +4552,7 @@
+@@ -4486,7 +4486,7 @@
                    "null"
                  ]
                },
@@ -64,7 +64,7 @@ index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1
                "propertyNames": {
                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
                },
-@@ -6711,7 +6711,7 @@
+@@ -6654,7 +6654,7 @@
                "additionalProperties": {
                  "type": "string"
                },
@@ -73,7 +73,7 @@ index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1
                "propertyNames": {
                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
                },
-@@ -8022,7 +8022,7 @@
+@@ -7971,7 +7971,7 @@
                "additionalProperties": {
                  "type": "string"
                },
@@ -82,7 +82,7 @@ index 3dbfcf198ad295d2df12ca7c0da56f14a832701b..4532e918d04431e34413c14326df3ef1
                "propertyNames": {
                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
                },
-@@ -10713,7 +10713,7 @@
+@@ -10613,7 +10613,7 @@
                "additionalProperties": {
                  "type": "string"
                },
@@ -114,10 +114,10 @@ index bf0d7cafb6326b47ea4a22ddaec5236056212f1e..6a9f0262b0a13b4c38108e1f0c079e6a
          "additionalProperties": { "type": "string" }
      })
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
-index 7f6cca85aa17f34c8277d951227a1585cdd3dfe6..e71ce94f7e08ab36d5b6ceacb2e17b257f239bcd 100644
+index 970cfc37b56937355ae1fba3040191c77923ac3e..e57d4658f5ab0650a28b43f2eb2ff6b05231ade6 100644
 --- a/src/app/api/panes.rs
 +++ b/src/app/api/panes.rs
-@@ -4276,6 +4276,35 @@ mod tests {
+@@ -4433,6 +4433,35 @@ mod tests {
          assert!(app.state.terminals[&terminal_id].agent_metadata.is_empty());
      }
  
@@ -285,5 +285,5 @@ index a224938d3b4b7c98142fcd2067822bfca6107a59..0b0c2e955bb5c4dda6efc6b0e2b2c73b
      }
  }
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

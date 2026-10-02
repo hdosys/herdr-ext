@@ -1,7 +1,7 @@
-From 9ff923800beaf0a7ee0e4f472f69f2dbe7a85a58 Mon Sep 17 00:00:00 2001
+From 1818b214516f4407cc3825c5b44c27c8ace4c37a Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 17:49:01 +0200
-Subject: [PATCH 6/30] fix(worktree): scope Git trust to selected paths
+Subject: [PATCH 6/22] fix(worktree): scope Git trust to selected paths
 
 Refs herdrdev/herdr#3044
 ---
@@ -18,7 +18,7 @@ Refs herdrdev/herdr#3044
  10 files changed, 92 insertions(+), 26 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index ba2ce0eddf76597aaa90354568f5fdf52eb731a7..2865c99c4604f262eaf794e00244f9401d27c9ad 100644
+index 7484042d466e850f8cbced739721d673ac166bbd..e8048a427c2b023c134dab1891d02a084b2a4464 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -8,6 +8,7 @@
@@ -30,7 +30,7 @@ index ba2ce0eddf76597aaa90354568f5fdf52eb731a7..2865c99c4604f262eaf794e00244f940
  ### Changed
  - `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index b8d3017c5958990eccb2ad34de8f6cb6c15a92e0..11437cc7cff45119a1084733b32ec1b7a5a1df2b 100644
+index 430b98148bc38c61dcac4e82cb96ef5db1479707..6cc6f6a615fc246278e7355862853fb4d52271cd 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -6,6 +6,8 @@
@@ -40,13 +40,13 @@ index b8d3017c5958990eccb2ad34de8f6cb6c15a92e0..11437cc7cff45119a1084733b32ec1b7
 +- Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
 +- Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
  - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
- ## [0.9.0] - 2026-09-07
  
+ ## [0.9.2] - 2026-09-29
 diff --git a/src/app/api/worktrees.rs b/src/app/api/worktrees.rs
-index 71f2e03a1ef6e12730a75b4a1bc8a9e297104fce..5406c0b2ae471156d027e3644a16bf6aca358c9e 100644
+index b2fc0330eb674719376b1fa8c4bf6ff3a480cc0c..5f3141f582d0d2b9be6758ebf1597bd303408434 100644
 --- a/src/app/api/worktrees.rs
 +++ b/src/app/api/worktrees.rs
-@@ -2279,7 +2279,9 @@ mod tests {
+@@ -2459,7 +2459,9 @@ mod tests {
          let (runtime, _input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
          app.terminal_runtimes.insert(terminal_id.clone(), runtime);
  
@@ -58,10 +58,10 @@ index 71f2e03a1ef6e12730a75b4a1bc8a9e297104fce..5406c0b2ae471156d027e3644a16bf6a
  
          let checkout_key = crate::worktree::canonical_or_original(&checkout);
 diff --git a/src/app/api/worktrees/deferred.rs b/src/app/api/worktrees/deferred.rs
-index 9adbd70caa6f638507b014a64c79a39489634c95..e901571d52a719b75efda66c129f979de184d008 100644
+index 0f5ed547fe75a9fb13f8e49b116f93c80bc42612..536db13e048bac31fa6b4f4919d4c719ba13a4c4 100644
 --- a/src/app/api/worktrees/deferred.rs
 +++ b/src/app/api/worktrees/deferred.rs
-@@ -309,11 +309,11 @@ impl App {
+@@ -315,11 +315,11 @@ impl App {
              return;
          }
  
@@ -75,7 +75,7 @@ index 9adbd70caa6f638507b014a64c79a39489634c95..e901571d52a719b75efda66c129f979d
              };
  
          let operation_id = self.next_api_worktree_operation_id();
-@@ -342,13 +342,17 @@ impl App {
+@@ -348,13 +348,17 @@ impl App {
          let trust_repository = params.trust_repository;
          let event_tx = self.event_tx.clone();
          std::thread::spawn(move || {
@@ -149,10 +149,10 @@ index c26d5deae262d9f9881e03b656216c84fe593a18..cf432bc2001a2b7e655d1b5c6dc6472a
  }
  
 diff --git a/src/pane.rs b/src/pane.rs
-index ebfba266617bb4b3c6dc1d58f0a8dff80371ecfd..429d97a30e9b9cdbb1f273a8059200800690c223 100644
+index 373cf7d9592723c08af06f382f357f1ec4371163..ff813b01281bc49735a88a7a18583c74a12599d4 100644
 --- a/src/pane.rs
 +++ b/src/pane.rs
-@@ -1272,6 +1272,15 @@ impl PaneRuntimeIo {
+@@ -1395,6 +1395,15 @@ impl PaneRuntimeIo {
          }
      }
  
@@ -168,7 +168,7 @@ index ebfba266617bb4b3c6dc1d58f0a8dff80371ecfd..429d97a30e9b9cdbb1f273a805920080
      #[cfg(unix)]
      fn duplicate_handoff_fd(&self) -> std::io::Result<std::os::fd::RawFd> {
          match self {
-@@ -1802,7 +1811,7 @@ fn publish_reported_cwd(
+@@ -2087,7 +2096,7 @@ fn publish_reported_cwd(
  }
  
  impl PaneRuntime {
@@ -177,7 +177,7 @@ index ebfba266617bb4b3c6dc1d58f0a8dff80371ecfd..429d97a30e9b9cdbb1f273a805920080
          if let Some(handle) = self.detect_handle.take() {
              handle.abort();
          }
-@@ -1813,7 +1822,18 @@ impl PaneRuntime {
+@@ -2098,7 +2107,18 @@ impl PaneRuntime {
              self.child_pid.load(Ordering::Acquire),
              self.child_wait_completed.as_deref(),
          );
@@ -281,7 +281,7 @@ index 76e793ef467b55dc24c4792719e25373598a8a98..f12be0e5adefd53b79f2e8b09657ef1e
          }
      }
 diff --git a/src/terminal/runtime.rs b/src/terminal/runtime.rs
-index 57d45b9276869ddbf0284d58d0ddeb0e534ce7bc..f98b0f9d552678ff23903829ca95894737170f41 100644
+index 9171340906a6e964749d424653f860886d88b294..ac37a828c0ce0d628d34963da682e10c91be94e2 100644
 --- a/src/terminal/runtime.rs
 +++ b/src/terminal/runtime.rs
 @@ -17,8 +17,8 @@ use crate::layout::PaneId;
@@ -296,7 +296,7 @@ index 57d45b9276869ddbf0284d58d0ddeb0e534ce7bc..f98b0f9d552678ff23903829ca958947
  
      #[cfg(unix)]
 diff --git a/src/worktree.rs b/src/worktree.rs
-index 523bc502983ff4327dafd8754d5fc4a8c557d637..89b4ebad6dffce8c5ab4488744edc7e4739bd8c7 100644
+index 17f560a431146843d646efda4b69d60b7df56a35..ed61224676dca793466292348e413534a79a7fe9 100644
 --- a/src/worktree.rs
 +++ b/src/worktree.rs
 @@ -157,12 +157,12 @@ fn repository_git_command(repo_root: &Path, trust_repository: bool) -> std::proc
@@ -318,7 +318,7 @@ index 523bc502983ff4327dafd8754d5fc4a8c557d637..89b4ebad6dffce8c5ab4488744edc7e4
      args.push("-C".to_string());
      args.push(repo_root.display().to_string());
      args
-@@ -784,6 +784,8 @@ prunable stale
+@@ -830,6 +830,8 @@ prunable stale
          assert_eq!(
              command.args,
              vec![
@@ -327,7 +327,7 @@ index 523bc502983ff4327dafd8754d5fc4a8c557d637..89b4ebad6dffce8c5ab4488744edc7e4
                  "-C",
                  "/repo/herdr",
                  "worktree",
-@@ -804,6 +806,8 @@ prunable stale
+@@ -850,6 +852,8 @@ prunable stale
          assert_eq!(
              command.args,
              vec![
@@ -337,5 +337,5 @@ index 523bc502983ff4327dafd8754d5fc4a8c557d637..89b4ebad6dffce8c5ab4488744edc7e4
                  "/repo/herdr",
                  "worktree",
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

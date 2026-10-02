@@ -1,17 +1,17 @@
-From 53b6eeacb2a8dd8169a7ecfb2faef324311694f1 Mon Sep 17 00:00:00 2001
+From 5e1bc73c5ab56f1a4e7381ac4a4edf937e55746a Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 21:27:55 +0200
-Subject: [PATCH 29/30] feat(update): accept Herdr Extended asset names
+Subject: [PATCH 21/22] feat(update): accept Herdr Extended asset names
 
 ---
  src/update.rs | 78 +++++++++++++++++++++++++++++++++++++++------------
  1 file changed, 60 insertions(+), 18 deletions(-)
 
 diff --git a/src/update.rs b/src/update.rs
-index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea1c059139 100644
+index dec3ec46a207d21c4c69db0f337afcfe7830c626..bb58cae944da51acc72adaf9f3fe186a8b2d6959 100644
 --- a/src/update.rs
 +++ b/src/update.rs
-@@ -320,7 +320,10 @@ fn update_asset_key(os: &str, arch: &str) -> String {
+@@ -322,7 +322,10 @@ fn update_asset_key(os: &str, arch: &str) -> String {
      }
  }
  
@@ -23,7 +23,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
      let suffix = match asset_key {
          "linux-x86_64" => "linux_amd64",
          "linux-aarch64" => "linux_arm64",
-@@ -330,7 +333,35 @@ fn expected_release_asset_name(asset_key: &str, release_version: ReleaseVersion)
+@@ -332,7 +335,35 @@ fn expected_release_asset_name(asset_key: &str, release_version: ReleaseVersion)
          "windows-x86_64-installer" => "windows_amd64_setup.exe",
          _ => return None,
      };
@@ -60,7 +60,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
  }
  
  fn validate_preview_release_asset(
-@@ -338,15 +369,7 @@ fn validate_preview_release_asset(
+@@ -340,15 +371,7 @@ fn validate_preview_release_asset(
      asset: &AssetRef,
      release_version: ReleaseVersion,
  ) -> Result<(), String> {
@@ -77,7 +77,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
      let sha256 = asset
          .sha256
          .as_deref()
-@@ -708,8 +731,11 @@ fn download_windows_installer(release: &ReleaseInfo) -> Result<DownloadedWindows
+@@ -711,8 +734,11 @@ fn download_windows_installer(release: &ReleaseInfo) -> Result<DownloadedWindows
      let release_version = release
          .release_version
          .ok_or("selected Windows update has no release version")?;
@@ -91,7 +91,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
      let path = root.join(asset_name);
      let download = DownloadedWindowsInstaller { root, path };
  
-@@ -2455,7 +2481,7 @@ mod cross_platform_tests {
+@@ -2562,7 +2588,7 @@ mod cross_platform_tests {
      #[cfg(windows)]
      #[test]
      fn windows_installer_command_uses_verified_local_asset_and_start_gate() {
@@ -100,7 +100,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
          let start_gate = Path::new(r"C:\Temp\installer.start");
          let command = windows_installer_command(installer, start_gate);
          assert_eq!(command.get_program(), installer.as_os_str());
-@@ -2504,11 +2530,14 @@ mod cross_platform_tests {
+@@ -2611,11 +2637,14 @@ mod cross_platform_tests {
  
      #[cfg(windows)]
      #[test]
@@ -118,7 +118,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
          );
          let valid = AssetRef {
              url: format!(
-@@ -2525,6 +2554,18 @@ mod cross_platform_tests {
+@@ -2632,6 +2661,18 @@ mod cross_platform_tests {
          )
          .is_ok());
  
@@ -137,7 +137,7 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
          let mut invalid = valid.clone();
          invalid.format = Some("zip".to_string());
          assert!(validate_preview_release_asset(
-@@ -2630,7 +2671,8 @@ mod cross_platform_tests {
+@@ -2737,7 +2778,8 @@ mod cross_platform_tests {
          };
          let release_version = ReleaseVersion::parse("2026.08.12.2").unwrap();
          let asset_key = update_asset_key(platform_target().0, platform_target().1);
@@ -148,5 +148,5 @@ index 392567d5d3525aaede1a6678a821b54a38675289..782459f8f31bd802ce67c311b784a8ea
              asset_key,
              AssetRef {
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

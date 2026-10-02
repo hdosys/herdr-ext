@@ -1,28 +1,39 @@
-From 2feb66ca01accbbb834922665461ec8b4f28c938 Mon Sep 17 00:00:00 2001
+From 98fd19172a3b136a8402aec15ef94dd7e6893e8d Mon Sep 17 00:00:00 2001
 From: Jonathan Liebig <jonathan.liebig@gmail.com>
 Date: Wed, 9 Sep 2026 12:27:15 +0200
-Subject: [PATCH 15/30] fix(endpoint): keep Windows polling-peer writes
+Subject: [PATCH 13/22] fix(endpoint): keep Windows polling-peer writes
  progressing
 
 Backport herdrdev/herdr@c43bdfcfe1c5886d5ca05bc4127ce17d593eb8e8 and herdrdev/herdr@6bc877e17af64b2ebeb4fd5f3cfa620198645ebc. Keep the native polling-peer regression bounded.
 
 Refs herdrdev/herdr#3721, herdrdev/herdr#3651.
 ---
- src/api/server.rs                      |  6 +-
- src/api/server/pane_graphics_stream.rs |  1 +
- src/client/endpoint/writer.rs          | 43 ++++++++++++-
- src/client/handshake.rs                |  1 +
- src/ipc.rs                             | 83 ++++++++++++++++++++------
- src/remote/attach.rs                   |  1 +
- src/server/autodetect.rs               |  1 +
- src/server/client_accept.rs            |  4 +-
- src/server/client_transport.rs         |  1 +
- src/server/headless.rs                 |  1 +
- src/session.rs                         |  1 +
- 11 files changed, 119 insertions(+), 24 deletions(-)
+ src/api/client.rs                           |  1 +
+ src/api/server.rs                           |  6 +-
+ src/api/server/subscription_socket_tests.rs |  1 +
+ src/client/endpoint/writer.rs               | 37 +++++----
+ src/ipc.rs                                  | 83 ++++++++++++++++-----
+ src/server/autodetect.rs                    |  1 +
+ src/server/client_accept.rs                 |  4 +-
+ src/server/client_transport.rs              |  1 +
+ src/server/headless.rs                      |  1 +
+ src/session.rs                              |  1 +
+ 10 files changed, 99 insertions(+), 37 deletions(-)
 
+diff --git a/src/api/client.rs b/src/api/client.rs
+index b4ecfc4ebe2bf3be7cc6ca4ed92a80f967f22d57..94b18b08d8b51483a747b76b327c6788a11403f7 100644
+--- a/src/api/client.rs
++++ b/src/api/client.rs
+@@ -258,6 +258,7 @@ mod tests {
+ 
+     #[test]
+     fn status_timeout_closes_a_stalled_probe() {
++        #[cfg(unix)]
+         use interprocess::local_socket::traits::Listener as _;
+         let path =
+             std::env::temp_dir().join(format!("herdr-status-timeout-{}.sock", std::process::id()));
 diff --git a/src/api/server.rs b/src/api/server.rs
-index 58666b1342d35ea0689ee5ea8d52e48644c1f758..5e4a9690015762c2aa126661c8c1878d0b97883d 100644
+index 7e25bee8c7a6af58496f48322c4f1604d5d2974f..234aedb8a62c18cbd44cd6cb9891b0decc40e063 100644
 --- a/src/api/server.rs
 +++ b/src/api/server.rs
 @@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,63 +47,69 @@ index 58666b1342d35ea0689ee5ea8d52e48644c1f758..5e4a9690015762c2aa126661c8c1878d
  use tracing::{debug, error, info, warn};
  
  #[cfg(all(test, unix))]
-@@ -573,6 +575,7 @@ fn read_initial_request_line_with_limits(
+@@ -748,7 +750,6 @@ fn read_initial_request_line_with_limits(
  #[cfg(all(test, windows))]
  mod windows_tests {
      use super::*;
-+    #[cfg(unix)]
-     use interprocess::local_socket::traits::Listener as _;
+-    use interprocess::local_socket::traits::Listener as _;
      use std::io::{BufRead, BufReader};
      use std::sync::mpsc::{self, Receiver};
-@@ -957,6 +960,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
+ 
+@@ -1115,6 +1116,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
  #[cfg(all(test, unix))]
  mod tests {
      use super::*;
 +    #[cfg(unix)]
      use interprocess::local_socket::traits::Listener as _;
      use std::collections::HashMap;
-     use std::io::{BufRead, BufReader};
-diff --git a/src/api/server/pane_graphics_stream.rs b/src/api/server/pane_graphics_stream.rs
-index 0df857fc5b1b2403cb46664feea71f853a6429b3..3c24f18ef7b2264d599f4b28ff4463b2366fcd1f 100644
---- a/src/api/server/pane_graphics_stream.rs
-+++ b/src/api/server/pane_graphics_stream.rs
-@@ -632,6 +632,7 @@ mod tests {
-     #[cfg(unix)]
-     use crate::api::EventHub;
-     use crate::ipc::LocalStream;
-+    #[cfg(unix)]
-     use interprocess::local_socket::traits::Listener as _;
-     use std::io::{BufRead, BufReader, Write};
-     use std::path::PathBuf;
+     use std::io::{BufRead, BufReader, Read};
+diff --git a/src/api/server/subscription_socket_tests.rs b/src/api/server/subscription_socket_tests.rs
+index 35b0bf12f7e39fdb8bf32d6b287b3b3231462e87..18f443a6153fbb45dd422c9b36bf5c6c5faa1b1d 100644
+--- a/src/api/server/subscription_socket_tests.rs
++++ b/src/api/server/subscription_socket_tests.rs
+@@ -4,6 +4,7 @@ use crate::api::schema::{
+     ReadSource,
+ };
+ use crate::ipc::{poll_local_stream_read_count, LocalStreamReadCount};
++#[cfg(unix)]
+ use interprocess::local_socket::traits::Listener as _;
+ use serde_json::{json, Value};
+ use std::sync::atomic::AtomicU64;
 diff --git a/src/client/endpoint/writer.rs b/src/client/endpoint/writer.rs
-index 973ff2348e6d810cbcd8e29fe72b782ef089e67c..5d0bb2bbad0ec6cb1b494c19c478e3a93703fed3 100644
+index f7d67454a5bbd967feb07ce3ab96ca8a01fe6e01..0a6aeedab53f8fc86b91b508d1bf76ca7511b7dd 100644
 --- a/src/client/endpoint/writer.rs
 +++ b/src/client/endpoint/writer.rs
-@@ -162,12 +162,21 @@ fn write_frame(
+@@ -219,24 +219,19 @@ fn write_frame(
      mut frame: &[u8],
      stopped: &AtomicBool,
  ) -> io::Result<()> {
 -    let deadline = Instant::now() + WRITE_TIMEOUT;
+-    #[cfg(windows)]
+-    let mut deadline = deadline;
 +    let mut deadline = Instant::now() + WRITE_TIMEOUT;
      while !frame.is_empty() && !stopped.load(Ordering::Acquire) {
--        match writer.write(frame) {
+-        // Match interprocess's 512-byte pipe buffer hint: larger nonblocking Windows
+-        // writes can make no progress when the peer polls instead of blocking on read.
 +        // Match the Windows named-pipe buffer so large input frames do not require thousands of
 +        // polling intervals while a polling peer can still make progress.
-+        #[cfg(windows)]
-+        let chunk = &frame[..frame
-+            .len()
-+            .min(crate::ipc::WINDOWS_LOCAL_PIPE_BUFFER_BYTES)];
-+        #[cfg(not(windows))]
-+        let chunk = frame;
-+        match writer.write(chunk) {
+         #[cfg(windows)]
+-        let chunk = &frame[..frame.len().min(512)];
++        let chunk = &frame[..frame.len().min(crate::ipc::WINDOWS_LOCAL_PIPE_BUFFER_BYTES)];
+         #[cfg(not(windows))]
+         let chunk = frame;
+         match writer.write(chunk) {
              Ok(0) => {}
              Ok(written) => {
                  frame = &frame[written..];
+-                #[cfg(windows)]
+-                {
+-                    deadline = Instant::now() + WRITE_TIMEOUT;
+-                }
 +                deadline = Instant::now() + WRITE_TIMEOUT;
                  continue;
              }
              Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-@@ -190,6 +199,7 @@ mod tests {
+@@ -259,6 +254,7 @@ mod tests {
      use super::*;
  
      fn streams() -> (LocalStream, LocalStream, std::path::PathBuf) {
@@ -100,18 +117,20 @@ index 973ff2348e6d810cbcd8e29fe72b782ef089e67c..5d0bb2bbad0ec6cb1b494c19c478e3a9
          use interprocess::local_socket::traits::Listener as _;
          let path = std::env::temp_dir().join(format!(
              "herdr-writer-{}-{}.sock",
-@@ -276,7 +286,34 @@ mod tests {
+@@ -345,16 +341,24 @@ mod tests {
  
      #[test]
      fn native_endpoint_flush_drains_large_frames_before_detach() {
--        let (stream, mut peer, path) = streams();
+-        // The SSH bridge polls for available bytes instead of posting a blocking read.
+-        struct PollingPeer(LocalStream);
 +        struct PollingPeer {
 +            stream: LocalStream,
 +            deadline: Instant,
 +        }
-+        impl io::Read for PollingPeer {
-+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-+                loop {
+         impl io::Read for PollingPeer {
+             fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                 loop {
+-                    match crate::ipc::poll_local_stream_read_count(&mut self.0, buffer)? {
 +                    if Instant::now() >= self.deadline {
 +                        return Err(io::Error::new(
 +                            io::ErrorKind::TimedOut,
@@ -119,16 +138,19 @@ index 973ff2348e6d810cbcd8e29fe72b782ef089e67c..5d0bb2bbad0ec6cb1b494c19c478e3a9
 +                        ));
 +                    }
 +                    match crate::ipc::poll_local_stream_read_count(&mut self.stream, buffer)? {
-+                        crate::ipc::LocalStreamReadCount::Data(count) => return Ok(count),
-+                        crate::ipc::LocalStreamReadCount::Closed => return Ok(0),
-+                        crate::ipc::LocalStreamReadCount::Pending => {
+                         crate::ipc::LocalStreamReadCount::Data(count) => return Ok(count),
+                         crate::ipc::LocalStreamReadCount::Closed => return Ok(0),
+                         crate::ipc::LocalStreamReadCount::Pending => {
+-                            std::thread::sleep(IO_POLL_INTERVAL);
 +                            std::thread::sleep(IO_POLL_INTERVAL)
-+                        }
-+                    }
-+                }
-+            }
-+        }
-+        let (stream, peer, path) = streams();
+                         }
+                     }
+                 }
+@@ -362,7 +366,10 @@ mod tests {
+         }
+         let (stream, peer, path) = streams();
+         peer.set_nonblocking(true).unwrap();
+-        let mut peer = PollingPeer(peer);
 +        let mut peer = PollingPeer {
 +            stream: peer,
 +            deadline: Instant::now() + Duration::from_secs(10),
@@ -136,18 +158,6 @@ index 973ff2348e6d810cbcd8e29fe72b782ef089e67c..5d0bb2bbad0ec6cb1b494c19c478e3a9
          let mut transport = NativeEndpointTransport::with_lifetime(stream, ()).unwrap();
          let (done, received) = mpsc::channel();
          let reader = std::thread::spawn(move || {
-diff --git a/src/client/handshake.rs b/src/client/handshake.rs
-index cef4246ce197606438b514d79c7ae8644480aa5e..9f3869f1ebe651a63e2aa482ae9626ef9f09fd83 100644
---- a/src/client/handshake.rs
-+++ b/src/client/handshake.rs
-@@ -282,6 +282,7 @@ pub(super) fn do_handshake(
- #[cfg(all(test, windows))]
- mod tests {
-     use super::*;
-+    #[cfg(unix)]
-     use interprocess::local_socket::traits::Listener as _;
-     use std::io::Write as _;
- 
 diff --git a/src/ipc.rs b/src/ipc.rs
 index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5cf1408d9 100644
 --- a/src/ipc.rs
@@ -277,23 +287,11 @@ index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5
      use std::path::PathBuf;
  
      #[test]
-diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index aaae614e2c7f5ab021309114b62bc3cb384327f0..c7c754d62199c1b065992339b30990215caca2da 100644
---- a/src/remote/attach.rs
-+++ b/src/remote/attach.rs
-@@ -9,6 +9,7 @@ use std::process::{Command, Output, Stdio};
- 
- use interprocess::TryClone as _;
- use interprocess::local_socket::ListenerNonblockingMode;
-+#[cfg(unix)]
- use interprocess::local_socket::traits::Listener as _;
- use serde::{Deserialize, Serialize};
- use sha2::{Digest as _, Sha256};
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
-index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..7f190ab72ecd106dfc14dacec9303927ac8f0856 100644
+index cd3eec3ad337f2378599fa04f6e5f849f3cd93ee..9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60 100644
 --- a/src/server/autodetect.rs
 +++ b/src/server/autodetect.rs
-@@ -423,6 +423,7 @@ mod windows_tests {
+@@ -434,6 +434,7 @@ mod windows_tests {
          ))
          .unwrap());
  
@@ -317,10 +315,10 @@ index e2a8a42d981597afae17c2860fdc2cbc84219929..7712e10b813d65d8f094e6200bbfc9c5
  use tracing::{debug, error, warn};
  
 diff --git a/src/server/client_transport.rs b/src/server/client_transport.rs
-index b6287c06a9b93f7a1155cfcb00ada620d6d4bca2..578980fd5be0970720daef3894c14cc7b4115ca8 100644
+index f1311cd910182b9d5c6023589449877ffc8faf9a..7d05f27a39df18afb46168c6f08c76e1463f984f 100644
 --- a/src/server/client_transport.rs
 +++ b/src/server/client_transport.rs
-@@ -1371,6 +1371,7 @@ fn client_read_loop_with_endpoint_controls(
+@@ -1429,6 +1429,7 @@ fn client_read_loop_with_endpoint_controls(
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -329,7 +327,7 @@ index b6287c06a9b93f7a1155cfcb00ada620d6d4bca2..578980fd5be0970720daef3894c14cc7
      use std::path::PathBuf;
  
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index fd4dd8a1ce55b5cc7eb796e7783082909f57bb1f..791d7e98e49e572d2912c598950fab9f02d7bbe7 100644
+index 0ed9c97670ff1c7b3e0672d43a6acd4bf6ef5d77..71720f5abdbc2744e75a9e0c289a71378daeba03 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
 @@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -341,10 +339,10 @@ index fd4dd8a1ce55b5cc7eb796e7783082909f57bb1f..791d7e98e49e572d2912c598950fab9f
  #[cfg(windows)]
  use interprocess::local_socket::traits::Stream as _;
 diff --git a/src/session.rs b/src/session.rs
-index faa864c06050e40caa7c2eb00895c5e41247568f..815266b4efe7f7d2f810ca7c77f31e7f0cf6872b 100644
+index a7784c6e286d66797473059c0a10518419a9357a..6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -507,6 +507,7 @@ fn normalize_name(name: &str) -> Result<Option<String>, String> {
+@@ -534,6 +534,7 @@ fn normalize_name(name: &str) -> Result<Option<String>, String> {
  mod tests {
      use super::*;
      #[cfg(unix)]
@@ -353,5 +351,5 @@ index faa864c06050e40caa7c2eb00895c5e41247568f..815266b4efe7f7d2f810ca7c77f31e7f
      use std::sync::{Mutex, OnceLock};
  
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

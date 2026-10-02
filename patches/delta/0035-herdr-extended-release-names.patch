@@ -1,7 +1,7 @@
-From a8e061ee3995030ab8027adf62fba17396c6d91a Mon Sep 17 00:00:00 2001
+From bfd71a95f4af02e6239ffaa1dd1394a7528a6df1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 22:35:19 +0200
-Subject: [PATCH 30/30] feat(distribution): publish Herdr Extended asset names
+Subject: [PATCH 22/22] feat(distribution): publish Herdr Extended asset names
 
 ---
  scripts/preview.py                            | 20 +++++++-------
@@ -10,10 +10,10 @@ Subject: [PATCH 30/30] feat(distribution): publish Herdr Extended asset names
  3 files changed, 26 insertions(+), 25 deletions(-)
 
 diff --git a/scripts/preview.py b/scripts/preview.py
-index 964c9dd167bd59594f6ed08fd4187b4b9b85b7ff..898f0452348abd24eacbf275a4e1a8f319c0ace9 100644
+index cef2f0d767a63e19a1f40379087e822efdb48a66..9f2a55c26623e7632417a15b1fa0ffd9cf7315ab 100644
 --- a/scripts/preview.py
 +++ b/scripts/preview.py
-@@ -208,16 +208,16 @@ def parse_herdr_win_release_version(release_version: str) -> tuple[int, int, int
+@@ -121,16 +121,16 @@ def parse_herdr_win_release_version(release_version: str) -> tuple[int, int, int
      )
  
  
@@ -37,7 +37,7 @@ index 964c9dd167bd59594f6ed08fd4187b4b9b85b7ff..898f0452348abd24eacbf275a4e1a8f3
          ),
      }
  
-@@ -258,7 +258,7 @@ def candidate_build_id(
+@@ -171,7 +171,7 @@ def candidate_build_id(
  
  
  def default_asset_urls(repo: str, tag: str, release_version: str) -> dict[str, str]:
@@ -46,7 +46,7 @@ index 964c9dd167bd59594f6ed08fd4187b4b9b85b7ff..898f0452348abd24eacbf275a4e1a8f3
      expected_tag = f"v{release_version}"
      if tag != expected_tag:
          raise ValueError(
-@@ -411,7 +411,7 @@ def cmd_range_base(args: argparse.Namespace) -> int:
+@@ -319,7 +319,7 @@ def cmd_range_base(args: argparse.Namespace) -> int:
  
  
  def cmd_asset_names(args: argparse.Namespace) -> int:
@@ -55,7 +55,7 @@ index 964c9dd167bd59594f6ed08fd4187b4b9b85b7ff..898f0452348abd24eacbf275a4e1a8f3
      return 0
  
  
-@@ -469,7 +469,7 @@ def main() -> int:
+@@ -376,7 +376,7 @@ def main() -> int:
      endpoint_generation.add_argument("--source", default=str(ENDPOINT_PROTOCOL_SOURCE_PATH))
      endpoint_generation.set_defaults(func=cmd_endpoint_generation)
  
@@ -65,10 +65,10 @@ index 964c9dd167bd59594f6ed08fd4187b4b9b85b7ff..898f0452348abd24eacbf275a4e1a8f3
      asset_names.set_defaults(func=cmd_asset_names)
  
 diff --git a/scripts/test_preview.py b/scripts/test_preview.py
-index bf9b996b08797a209bb5834af8278da7afb65536..ee59ff7e06af8e2ea19f4e962e5570ae247c4a5a 100644
+index 4cd96ca3d27d6dabca8a9ce29ff6969a10201b43..7caa585a2364f7d24f9db84494136cecc54e3736 100644
 --- a/scripts/test_preview.py
 +++ b/scripts/test_preview.py
-@@ -65,7 +65,7 @@ class PreviewNotesTests(unittest.TestCase):
+@@ -58,7 +58,7 @@ class PreviewNotesTests(unittest.TestCase):
              )
              self.assertEqual(
                  data["assets"]["linux-x86_64"]["url"],
@@ -77,7 +77,7 @@ index bf9b996b08797a209bb5834af8278da7afb65536..ee59ff7e06af8e2ea19f4e962e5570ae
              )
              self.assertEqual(
                  data["assets"]["linux-x86_64"]["sha256"],
-@@ -73,7 +73,7 @@ class PreviewNotesTests(unittest.TestCase):
+@@ -66,7 +66,7 @@ class PreviewNotesTests(unittest.TestCase):
              )
              self.assertEqual(
                  data["assets"]["windows-x86_64"]["url"],
@@ -86,7 +86,7 @@ index bf9b996b08797a209bb5834af8278da7afb65536..ee59ff7e06af8e2ea19f4e962e5570ae
              )
              self.assertEqual(
                  data["assets"]["windows-x86_64"]["sha256"],
-@@ -82,7 +82,7 @@ class PreviewNotesTests(unittest.TestCase):
+@@ -75,7 +75,7 @@ class PreviewNotesTests(unittest.TestCase):
              self.assertEqual(data["assets"]["windows-x86_64"]["format"], "zip")
              self.assertEqual(
                  data["assets"]["windows-x86_64-installer"]["url"],
@@ -95,7 +95,7 @@ index bf9b996b08797a209bb5834af8278da7afb65536..ee59ff7e06af8e2ea19f4e962e5570ae
              )
              self.assertEqual(
                  data["assets"]["windows-x86_64-installer"]["format"], "nsis"
-@@ -101,23 +101,23 @@ class PreviewNotesTests(unittest.TestCase):
+@@ -94,23 +94,23 @@ class PreviewNotesTests(unittest.TestCase):
                  False,
              )
  
@@ -128,7 +128,7 @@ index bf9b996b08797a209bb5834af8278da7afb65536..ee59ff7e06af8e2ea19f4e962e5570ae
                  "windows-x86_64-installer"
              ],
          )
-@@ -131,7 +131,7 @@ class PreviewNotesTests(unittest.TestCase):
+@@ -124,7 +124,7 @@ class PreviewNotesTests(unittest.TestCase):
              with self.subTest(invalid=invalid), self.assertRaisesRegex(
                  ValueError, "release_version"
              ):
@@ -161,5 +161,5 @@ index 0b889677f06849f174dd8cb9f573dd0296a8c774..d4dde7a6fbf8b0e6368d0b5b89f2c56b
          || icon != format!("{},0", expected_launcher.display())
          || uninstall != format!("\"{}\"", expected_uninstaller.display())
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

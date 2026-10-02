@@ -1,14 +1,14 @@
-From d295122fc991298efc8713502e5668c6f854b213 Mon Sep 17 00:00:00 2001
+From e6675cb4f2e297c36dcd055f244fba686f390452 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
-Subject: [PATCH 3/30] feat(windows): manage fork distribution
+Subject: [PATCH 3/22] feat(windows): manage fork distribution
 
 ---
- .gitattributes                                |    2 +
+ .gitattributes                                |    4 +
  CHANGELOG.md                                  |    6 +
  Cargo.toml                                    |   10 +-
  README.zh-CN.md                               |    2 +-
- build.rs                                      |  110 +-
+ build.rs                                      |  107 +-
  distribution/agent-guide.md                   |   14 +-
  distribution/install.cmd                      |   21 -
  distribution/install.ps1                      |  935 ------
@@ -17,13 +17,13 @@ Subject: [PATCH 3/30] feat(windows): manage fork distribution
  .../next/website/src/content/docs/install.mdx |   40 +-
  .../src/content/docs/ja/cli-reference.mdx     |    6 +-
  .../website/src/content/docs/ja/install.mdx   |   32 +-
- .../src/content/docs/ja/windows-beta.mdx      |   28 +-
- .../website/src/content/docs/windows-beta.mdx |   28 +-
+ .../src/content/docs/ja/windows-beta.mdx      |   27 +-
+ .../website/src/content/docs/windows-beta.mdx |   27 +-
  .../src/content/docs/zh-cn/cli-reference.mdx  |    6 +-
  .../src/content/docs/zh-cn/install.mdx        |   32 +-
- .../src/content/docs/zh-cn/windows-beta.mdx   |   28 +-
+ .../src/content/docs/zh-cn/windows-beta.mdx   |   27 +-
  .../website/src/data/config-reference.json    |   12 +-
- justfile                                      |   11 +-
+ justfile                                      |    9 +-
  packaging/windows/installer/artwork/README.md |   28 +
  .../installer-welcome-finish-164x314.bmp      |  Bin 0 -> 154542 bytes
  .../installer-welcome-finish-205x393.bmp      |  Bin 0 -> 242142 bytes
@@ -33,14 +33,12 @@ Subject: [PATCH 3/30] feat(windows): manage fork distribution
  .../installer-welcome-finish-source.png       |  Bin 0 -> 1698169 bytes
  packaging/windows/installer/project.nsi       |  601 ++++
  .../windows/installer/validate-build.ps1      |  223 ++
- packaging/windows/managed-skill-hashes.txt    |    5 +
+ packaging/windows/managed-skill-hashes.txt    |    6 +
  scripts/package_windows_installer.ps1         |  704 +++++
- scripts/preview.py                            |  201 +-
+ scripts/preview.py                            |  202 +-
  scripts/test_preview.py                       |  298 +-
  .../windows_install_conpty_package_test.ps1   |  631 +---
  scripts/windows_installer_fault_test.ps1      | 1325 ++++++++
- src/app/api/plugins/panes.rs                  |    2 +-
- src/app/api/plugins/runtime.rs                |    2 +-
  src/app/mod.rs                                |   57 -
  src/bin/herdr-installer-helper.rs             |   44 +
  src/bin/herdr-launcher.rs                     |   36 +
@@ -53,9 +51,9 @@ Subject: [PATCH 3/30] feat(windows): manage fork distribution
  src/config/model.rs                           |   65 -
  src/integration/tests.rs                      |   26 +
  src/main.rs                                   |   73 +-
- src/managed_install.rs                        |  332 ++
- src/platform/mod.rs                           |   36 +-
- src/platform/unix_common.rs                   |    4 -
+ src/managed_install.rs                        |  341 +++
+ src/platform/mod.rs                           |   32 +-
+ src/platform/unix_common.rs                   |    6 +-
  src/platform/windows.rs                       |    9 +
  src/platform/windows/installer_helper.rs      |  271 ++
  .../windows/installer_helper_files.rs         | 1083 +++++++
@@ -70,12 +68,12 @@ Subject: [PATCH 3/30] feat(windows): manage fork distribution
  src/server/autodetect.rs                      |    6 +-
  src/server/handoff.rs                         |    2 +-
  src/session.rs                                |   57 +
- src/update.rs                                 | 1877 ++++++------
+ src/update.rs                                 | 1878 ++++++------
  tests/api_ping.rs                             |    5 +-
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 71 files changed, 12343 insertions(+), 3346 deletions(-)
+ 69 files changed, 12352 insertions(+), 3337 deletions(-)
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
  create mode 100644 packaging/windows/installer/artwork/README.md
@@ -102,16 +100,18 @@ Subject: [PATCH 3/30] feat(windows): manage fork distribution
  create mode 100644 src/platform/windows/managed_install.rs
 
 diff --git a/.gitattributes b/.gitattributes
-index 4158df58b6c743cab622deee75278385cc279176..3b2680fb7bd1bcb1ff32ebcbc4365c20e4534514 100644
+index 4158df58b6c743cab622deee75278385cc279176..dc16c2b158514790afe70a457b30d63924ccde17 100644
 --- a/.gitattributes
 +++ b/.gitattributes
-@@ -1,2 +1,4 @@
+@@ -1,2 +1,6 @@
  * text=auto eol=lf
  packaging/windows/licenses/* binary
 +# Unified diffs use a single space for blank context lines.
-+vendor/patches/**/*.patch whitespace=-blank-at-eol
++vendor/patches/**/*.patch whitespace=-blank-at-eol,-blank-at-eof
++# Preserve the imported Ghostty source bytes, including upstream whitespace.
++vendor/libghostty-vt/** whitespace=-blank-at-eol,-blank-at-eof
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 98d6dcc2de4d6b0fd05a7ad76a2fdbc7c6125829..81f8791d30799c5da74ad53ea2fab855c058ef61 100644
+index 78c4ee94f3bd0c33973a023e197fed4409256cb0..2dccde2037769196789b2ef30fa52b4a0bf7c664 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -2,6 +2,12 @@
@@ -126,20 +126,20 @@ index 98d6dcc2de4d6b0fd05a7ad76a2fdbc7c6125829..81f8791d30799c5da74ad53ea2fab855
 +
  ### Changed
  - `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.
- ## [0.9.0] - 2026-09-07
+ 
 diff --git a/Cargo.toml b/Cargo.toml
-index df637e6a347db0cde71d6116a903215292ca9bf3..f90608df0385d1dd0d4d87395718a9d2179cde98 100644
+index 38c72bd5473419ddda7863a5efd724977b7ad6f2..a460997950268d28b6a6ad640373119ef98157dd 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -3,6 +3,7 @@ name = "herdr"
- version = "0.9.0"
+ version = "0.9.2"
  edition = "2021"
  build = "build.rs"
 +default-run = "herdr"
  description = "terminal workspace manager for AI coding agents"
  license = "Apache-2.0"
  repository = "https://github.com/herdrdev/herdr"
-@@ -14,12 +15,19 @@ include = [
+@@ -14,7 +15,6 @@ include = [
      "assets/sounds/*",
      "docs/next/api/herdr-api.schema.json",
      "skills/herdr/SKILL.md",
@@ -147,7 +147,9 @@ index df637e6a347db0cde71d6116a903215292ca9bf3..f90608df0385d1dd0d4d87395718a9d2
      "README.md",
      "LICENSE",
      "Cargo.toml",
- ]
+@@ -24,6 +24,14 @@ include = [
+ members = ["crates/ghostty-vt"]
+ default-members = [".", "crates/ghostty-vt"]
  
 +[[bin]]
 +name = "herdr-launcher"
@@ -158,13 +160,13 @@ index df637e6a347db0cde71d6116a903215292ca9bf3..f90608df0385d1dd0d4d87395718a9d2
 +path = "src/bin/herdr-installer-helper.rs"
 +
  [dependencies]
+ ghostty-vt = { path = "crates/ghostty-vt" }
  base64 = "0.22.1"
- bincode = { version = "2", features = ["serde"] }
 diff --git a/README.zh-CN.md b/README.zh-CN.md
-index 1fc88d49ec4eabf1533c6371bcb926ecbfe8aeb6..b3ce316fa922c223a140fc97352441e85660ddc9 100644
+index 43549f12a43f199d52ab03934036bd49e5d51c3d..56c2168ad5a3571e2f79075842c918c1a358822c 100644
 --- a/README.zh-CN.md
 +++ b/README.zh-CN.md
-@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
+@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
  curl -fsSL https://herdr.dev/install.sh | sh
  ```
  
@@ -174,13 +176,12 @@ index 1fc88d49ec4eabf1533c6371bcb926ecbfe8aeb6..b3ce316fa922c223a140fc97352441e8
  然后在工作所在的目录启动它：
  
 diff --git a/build.rs b/build.rs
-index 7a2ac11feb4a7a3caa399a38977a540673cbdaca..50e4afa7ec9743974af60dde86ab69274ec2e8a7 100644
+index 99596d8eb3fe78c474636fd60926df7cf9a80536..a22314d611a5423bd770c5ee42b27278326d0f9f 100644
 --- a/build.rs
 +++ b/build.rs
-@@ -29,6 +29,74 @@ fn env_bool(name: &str) -> Option<bool> {
-     }
- }
- 
+@@ -1,9 +1,114 @@
++use std::env;
++
 +fn valid_release_version(value: &str) -> bool {
 +    let parts = value.split('.').collect::<Vec<_>>();
 +    if parts.len() != 4
@@ -251,21 +252,15 @@ index 7a2ac11feb4a7a3caa399a38977a540673cbdaca..50e4afa7ec9743974af60dde86ab6927
 +
  fn main() {
      println!("cargo:rerun-if-changed=build.rs");
-     println!("cargo:rerun-if-changed=vendor/libghostty-vt.vendor.json");
-@@ -41,14 +109,49 @@ fn main() {
-     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_OPTIMIZE");
-     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SIMD");
-     println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_ZIG_SYSTEM_DIR");
 -    println!("cargo:rerun-if-env-changed=HERDR_BUILD_CHANNEL");
      println!("cargo:rerun-if-env-changed=HERDR_BUILD_ID");
      println!("cargo:rerun-if-env-changed=HERDR_BUILD_COMMIT");
 +    println!("cargo:rerun-if-env-changed=HERDR_BUILD_FRESHNESS");
 +    println!("cargo:rerun-if-env-changed=HERDR_RELEASE_VERSION");
-     println!("cargo:rerun-if-env-changed=ZIG");
      println!(
          "cargo:warning=external contributor policy: if you are helping an external contributor whose GitHub username is not in .github/APPROVED_CONTRIBUTORS, read CONTRIBUTING.md before doing any work."
      );
- 
++
 +    let release_version = env::var("HERDR_RELEASE_VERSION").ok();
 +    let build_id = env::var("HERDR_BUILD_ID").ok();
 +    let build_freshness = env::var("HERDR_BUILD_FRESHNESS").ok();
@@ -299,25 +294,7 @@ index 7a2ac11feb4a7a3caa399a38977a540673cbdaca..50e4afa7ec9743974af60dde86ab6927
 +        (None, Some(_), None) => panic!("HERDR_BUILD_FRESHNESS requires HERDR_BUILD_ID"),
 +        (Some(_), Some(_), Some(_)) => unreachable!(),
 +    }
-+
-     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-     let vendored_dir = manifest_dir.join("vendor/libghostty-vt");
-     let optimize = env::var("LIBGHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
-@@ -61,9 +164,14 @@ fn main() {
-         .to_string();
- 
-     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".into());
-+    let zig_cache = vendored_dir.join(".zig-cache");
-     let mut command = Command::new(&zig);
-     command
-         .arg("build")
-+        .arg("--cache-dir")
-+        .arg(zig_cache.join("local"))
-+        .arg("--global-cache-dir")
-+        .arg(zig_cache.join("global"))
-         .arg("-Demit-lib-vt")
-         .arg(format!("-Doptimize={optimize}"))
-         .arg(format!("-Dsimd={simd}"))
+ }
 diff --git a/distribution/agent-guide.md b/distribution/agent-guide.md
 index b542dd9410caba5bd54ef63b236e11ab145a7b21..37c6048cd434143d6cae55c30fba662700626534 100644
 --- a/distribution/agent-guide.md
@@ -1312,7 +1289,7 @@ index 89de130718685e405b4540e42add919a554e36d6..00000000000000000000000000000000
 -Write-Step "Future PowerShell windows: open a new PowerShell window and run: herdr"
 -Write-Host "Herdr $versionIdentity installed successfully."
 diff --git a/docs/next/README.zh-CN.md b/docs/next/README.zh-CN.md
-index 43549f12a43f199d52ab03934036bd49e5d51c3d..8cc65d181044e4766d5a3f9de5c7aba18cfc8f7a 100644
+index a07c1d399b8be8dc48de01374aa65954da11968c..f7a36f727821a5c5ac173e8cb56a75ebbcda2d5a 100644
 --- a/docs/next/README.zh-CN.md
 +++ b/docs/next/README.zh-CN.md
 @@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
@@ -1325,7 +1302,7 @@ index 43549f12a43f199d52ab03934036bd49e5d51c3d..8cc65d181044e4766d5a3f9de5c7aba1
  然后在工作所在的目录启动它：
  
 diff --git a/docs/next/website/src/content/docs/cli-reference.mdx b/docs/next/website/src/content/docs/cli-reference.mdx
-index 2c11b2f9017628114d568f5d6a27fa1354bafa09..e201b2bcaaeab9e77d45e626cddda014c12e1f16 100644
+index 1a537a35dbd06f3368ea6fe103e3f66f39e5a6f9..b1d93bbed8dfc19b1208a5957c1f426d56c96da7 100644
 --- a/docs/next/website/src/content/docs/cli-reference.mdx
 +++ b/docs/next/website/src/content/docs/cli-reference.mdx
 @@ -16,11 +16,9 @@ herdr --remote workbox --provision --yes --json
@@ -1343,7 +1320,7 @@ index 2c11b2f9017628114d568f5d6a27fa1354bafa09..e201b2bcaaeab9e77d45e626cddda014
  ```
  
 diff --git a/docs/next/website/src/content/docs/install.mdx b/docs/next/website/src/content/docs/install.mdx
-index c0c422a55d298d8b679ed674bc051e958554be41..367bd8feb7c4da2e42ca2a1d204609611c12d1fe 100644
+index 5ec26d10e8601c101c5c88cf0da0377570ad4484..b2fc63426e540a5f99b5eb408761d0b153a35815 100644
 --- a/docs/next/website/src/content/docs/install.mdx
 +++ b/docs/next/website/src/content/docs/install.mdx
 @@ -13,19 +13,7 @@ On Linux or macOS, run:
@@ -1408,7 +1385,7 @@ index c0c422a55d298d8b679ed674bc051e958554be41..367bd8feb7c4da2e42ca2a1d20460961
  By default, `herdr update` installs the new binary and leaves endpoint-generation-1 servers and their pane processes running. Start Herdr again to reconnect with the updated client. Client-only changes work immediately. A new server-side action stays unavailable until that server is updated and restarted; the client shows a notice instead of disconnecting. Servers from before endpoint generation 1 need one final stop during update.
  
 diff --git a/docs/next/website/src/content/docs/ja/cli-reference.mdx b/docs/next/website/src/content/docs/ja/cli-reference.mdx
-index 2605a46772cf136cf73b255dc83fee6cc24dd9a3..b0713e0fa405ccf7999e1976f9989a07083952cf 100644
+index f6e2d8e1f5e23e62571c21b682019dda7148daf3..4b887d3caddaf44c6c2d19d088124cdbcc24fb27 100644
 --- a/docs/next/website/src/content/docs/ja/cli-reference.mdx
 +++ b/docs/next/website/src/content/docs/ja/cli-reference.mdx
 @@ -16,11 +16,9 @@ herdr --remote workbox --provision --yes --json
@@ -1426,7 +1403,7 @@ index 2605a46772cf136cf73b255dc83fee6cc24dd9a3..b0713e0fa405ccf7999e1976f9989a07
  ```
  
 diff --git a/docs/next/website/src/content/docs/ja/install.mdx b/docs/next/website/src/content/docs/ja/install.mdx
-index 8217d311a657735575a5f72518c540c1dd3b49c2..c5c9527f61801bed14a2f9e5a229adc0aae56174 100644
+index c23e9fb5e29535820f5aea34246c01de54741f04..497d09d9417f8339864e3b763048066b3ae4843c 100644
 --- a/docs/next/website/src/content/docs/ja/install.mdx
 +++ b/docs/next/website/src/content/docs/ja/install.mdx
 @@ -13,19 +13,7 @@ Linux または macOS では次を実行します:
@@ -1476,7 +1453,7 @@ index 8217d311a657735575a5f72518c540c1dd3b49c2..c5c9527f61801bed14a2f9e5a229adc0
  デフォルトでは、`herdr update` は新しいバイナリをインストールし、エンドポイント世代 1 のサーバーとペインプロセスを動かしたままにします。再度 Herdr を起動すると、更新済みクライアントで再接続します。クライアントだけの変更はすぐに使えます。新しいサーバー側アクションは、そのサーバーを更新して再起動するまで利用できず、クライアントは切断せずに通知を表示します。エンドポイント世代 1 より前のサーバーだけは、更新時に最後の 1 回の停止が必要です。
  
 diff --git a/docs/next/website/src/content/docs/ja/windows-beta.mdx b/docs/next/website/src/content/docs/ja/windows-beta.mdx
-index 7d51fe0d3ef5b178a622d0041f59cde33ac83ebb..167a92a53ab79dd4188750ab6bb6389715ea03c8 100644
+index db708133e86cff004d270399b7d2941793ae8896..47bbae18a850fe6a93be9ccf9af28ef110027c10 100644
 --- a/docs/next/website/src/content/docs/ja/windows-beta.mdx
 +++ b/docs/next/website/src/content/docs/ja/windows-beta.mdx
 @@ -7,23 +7,9 @@ description: ネイティブ Windows 対応、サポートされるワークフ
@@ -1505,32 +1482,17 @@ index 7d51fe0d3ef5b178a622d0041f59cde33ac83ebb..167a92a53ab79dd4188750ab6bb63897
  
  ## Windows でサポート
  
-@@ -80,7 +66,7 @@ switch_ascii_input_source_in_prefix = true
- 
- その他の Windows IME はまだこのオプションに対応していません。[設定](/ja/docs/configuration/#プレフィックス入力ソースの切り替え)を参照してください。
- 
--Windows 上の一部のエージェントは `ctrl+v` を受け取り、クリップボード画像を直接読み取れます。Herdr 自身のクリップボード画像リーダーはローカルのネイティブ Windows ペインには配線されていないため、エージェント自身による画像貼り付けはターミナルとエージェントに依存します。`alt+v` などエージェントの画像貼り付けショートカットによって、Herdr が管理するローカルクリップボードブリッジが追加されるわけではありません。リモートクリップボード画像ブリッジは、Linux/macOS ホストへの `herdr --remote` で別途サポートされます。
-+Windows 上の一部のエージェントは `ctrl+v` を受け取り、クリップボード画像を直接読み取れます。Herdr 自身のクリップボード画像リーダーはローカルのネイティブ Windows ペインには配線されていないため、エージェント自身による画像貼り付けはターミナルとエージェントに依存します。`alt+v` などエージェントの画像貼り付けショートカットによって、Herdr が管理するローカルクリップボードブリッジが追加されるわけではありません。リモートクリップボード画像ブリッジは、Windows 接続先を含む `herdr --remote` で別途サポートされます。
- 
- Kitty graphics はデフォルトで有効で、外側のターミナルに依存します。Herdr は他のプラットフォームと同様に Windows でも Kitty graphics protocol の出力を送ります。この経路は Windows の WezTerm から WSL 内の Herdr をホストする構成で動作確認されていますが、ネイティブ Windows のターミナルと ConPTY の組み合わせはすべて検証済みではありません。Windows Terminal は Herdr が使う Kitty graphics 経路を提供しません。外側のターミナルがグラフィックス出力を正しく扱えない場合は、`[terminal].kitty_graphics = false` に設定してください。
- 
-@@ -118,7 +104,6 @@ Herdr のペインテキストコピーは Windows で動作します。ペイ
- | 機能 | 状況 |
- | --- | --- |
- | ダイレクトターミナルアタッチ (`herdr terminal attach`) | 未サポート |
--| `herdr --remote` の接続先としての Windows | 未サポート |
- | ライブサーバーハンドオフ | 未サポート |
- | Unix ファイルディスクリプタのハンドオフ | 未サポート |
- | Unix フォアグラウンドプロセスグループ | 未サポート |
-@@ -129,11 +114,14 @@ Windows Terminal からは、Linux や macOS と同じリモートコマンド
+@@ -128,11 +114,16 @@ Windows Terminal からは、Linux や macOS と同じリモートコマンド
  
  ```powershell
  herdr --remote workbox
 +herdr --remote workbox --provision --yes --json
  ```
  
--接続先ホストは Linux または macOS である必要があります。Herdr はインストール済みの Windows OpenSSH クライアントと SSH 設定を使います。Windows OpenSSH では Herdr の Unix コントロールソケットによる接続再利用を使わないため、セットアップ中の繰り返しプロンプトを避けるには Windows の `ssh-agent` による鍵認証を推奨します。
-+対応するすべてのクライアントから x86_64 および ARM64 Windows ホストへ接続できます。通常の接続と保存済みマシンは、`PATH` または `%USERPROFILE%\.herdr\remote\herdr.exe` のエンドポイント互換バイナリを再利用します。バージョン差だけでは置換しません。明示的なプロビジョニングでは選択したランタイムの完全一致を要求し、承認されたサーバー停止より前に完全なポータブル ZIP を検証します。管理対象インストーラーやリモート `PATH` は変更しません。保存済み接続の再接続はインストールや再起動を行わず、明示されたセッションを保持します。Windows OpenSSH のデフォルトシェルは `cmd.exe` または PowerShell 7 が必要です。サーバーは SSH ユーザーの既存のアクティブなデスクトップセッションで起動し、SSH 切断後も存続します。Windows PowerShell 5.1、未知のシェル、曖昧なデスクトップセッションは拒否します。Windows 接続先ではライブハンドオフをサポートしません。
+-接続先ホストは Linux、macOS、Windows に対応します。Windows ホストでは `PATH` または現在有効な管理対象リリースから互換パッケージを再利用します。対話的なアタッチと保存済みマシンのセットアップは、必要に応じて完全なパッケージをインストール・更新する前に確認します。バックグラウンド再接続ではインストール済みパッケージだけを探し、インストールや更新の確認は行いません。Herdr はインストール済みの Windows OpenSSH クライアントと SSH 設定を使います。Windows OpenSSH では Herdr の Unix コントロールソケットによる接続再利用を使わないため、セットアップ中の繰り返しプロンプトを避けるには Windows の `ssh-agent` による鍵認証を推奨します。
++対応するすべてのクライアントから x86_64 および ARM64 Windows ホストへ接続できます。通常の接続と保存済みマシンは、`PATH` または `%USERPROFILE%\.herdr\remote\herdr.exe` のエンドポイント互換バイナリを再利用します。バージョン差だけでは置換しません。明示的なプロビジョニングでは選択したランタイムの完全一致を要求し、承認されたサーバー停止より前に完全なポータブル ZIP を検証します。管理対象インストーラーやリモート `PATH` は変更しません。保存済み接続の再接続はインストール、停止、置換、再起動、停止中サーバーの起動を行わず、明示されたセッションを保持します。バイナリストリームをバイト単位で保持するため、Windows OpenSSH のデフォルトシェルは `cmd.exe` または PowerShell 7（`pwsh.exe`）が必要です。サーバーは SSH ユーザーの既存のアクティブなデスクトップセッションで起動し、SSH 切断後も存続します。Windows PowerShell 5.1、未知のシェル、デスクトップセッションの不在や曖昧さは拒否します。Windows 接続先ではライブハンドオフをサポートしません。
++
++Herdr はインストール済みの Windows OpenSSH クライアントと SSH 設定を使います。Windows OpenSSH では Herdr の Unix コントロールソケットによる接続再利用を使わないため、セットアップ中の繰り返しプロンプトを避けるには Windows の `ssh-agent` による鍵認証を推奨します。
 +
 +Windows 接続先には `windows_remote_host` のサポートも必要です。クライアント専用の Windows バイナリでは SSH ブリッジを提供できません。
  
@@ -1540,7 +1502,7 @@ index 7d51fe0d3ef5b178a622d0041f59cde33ac83ebb..167a92a53ab79dd4188750ab6bb63897
  ## Windows の問題を報告する
  
 diff --git a/docs/next/website/src/content/docs/windows-beta.mdx b/docs/next/website/src/content/docs/windows-beta.mdx
-index 255727a20e4902cf3c9a2b336768b8ca0f165345..854624ab1f420b844f86a3014a773b65f919e4a8 100644
+index 888080c810852c1d1094b8ea4572610c5e585c67..116e26f9a83d0e1b1378b992eefc1cc9dd81b0e5 100644
 --- a/docs/next/website/src/content/docs/windows-beta.mdx
 +++ b/docs/next/website/src/content/docs/windows-beta.mdx
 @@ -7,23 +7,9 @@ Native Windows support is generally available.
@@ -1569,32 +1531,17 @@ index 255727a20e4902cf3c9a2b336768b8ca0f165345..854624ab1f420b844f86a3014a773b65
  
  ## Supported on Windows
  
-@@ -80,7 +66,7 @@ switch_ascii_input_source_in_prefix = true
- 
- Other Windows IMEs are not supported by this option yet. See [Configuration](/docs/configuration/#prefix-input-source-switching).
- 
--Some Windows agents can receive `ctrl+v` and read clipboard images directly. Herdr's own clipboard-image reader is not wired into local native Windows panes, so agent-native image paste remains dependent on the terminal and agent. Agent image-paste shortcuts such as `alt+v` do not add a Herdr-managed local clipboard bridge. Remote clipboard image bridging is supported separately through `herdr --remote` to Linux and macOS hosts.
-+Some Windows agents can receive `ctrl+v` and read clipboard images directly. Herdr's own clipboard-image reader is not wired into local native Windows panes, so agent-native image paste remains dependent on the terminal and agent. Agent image-paste shortcuts such as `alt+v` do not add a Herdr-managed local clipboard bridge. Remote clipboard image bridging is supported separately through `herdr --remote`, including Windows target hosts.
- 
- Kitty graphics is enabled by default and depends on the outer terminal. Herdr emits Kitty graphics protocol output on Windows as it does on other platforms. This path has been exercised with Windows WezTerm hosting Herdr through WSL, but native Windows terminal and ConPTY combinations are not all verified. Windows Terminal does not expose the Kitty graphics path Herdr uses. Set `[terminal].kitty_graphics = false` if the outer terminal mishandles graphics output.
- 
-@@ -118,7 +104,6 @@ For text paste, use `ctrl+shift+v` in Windows Terminal. Multiline text paste is
- | Capability | Status |
- | --- | --- |
- | Direct terminal attach (`herdr terminal attach`) | unsupported |
--| Windows as a `herdr --remote` target host | unsupported |
- | Live server handoff | unsupported |
- | Unix file-descriptor handoff | unsupported |
- | Unix foreground process groups | unsupported |
-@@ -129,11 +114,14 @@ From Windows Terminal, use the same remote command as Linux and macOS:
+@@ -128,11 +114,16 @@ From Windows Terminal, use the same remote command as Linux and macOS:
  
  ```powershell
  herdr --remote workbox
 +herdr --remote workbox --provision --yes --json
  ```
  
--The target host must run Linux or macOS. Herdr uses the installed Windows OpenSSH client and your SSH configuration. Windows OpenSSH does not use Herdr's Unix control-socket reuse, so key authentication through Windows `ssh-agent` is recommended to avoid repeated prompts during remote setup.
-+Every supported client can attach to x86_64 and ARM64 Windows hosts. Ordinary attachment and saved machines reuse an endpoint-compatible binary from `PATH` or `%USERPROFILE%\.herdr\remote\herdr.exe`; a version difference alone does not require replacement. Explicit provisioning instead requires the selected deployment's exact runtime identity and validates the complete portable ZIP before any approved server stop. It never runs the managed installer or changes remote `PATH`. Saved reconnects do not install or restart a server, and retain their explicitly selected session. The Windows OpenSSH default shell must be `cmd.exe` or PowerShell 7, and the server starts in the SSH user's existing active desktop session so it survives SSH closure. Windows PowerShell 5.1, an unknown shell, or an ambiguous desktop session fails closed. Windows remote hosts do not support live handoff.
+-The target host can run Linux, macOS, or Windows. On Windows hosts, remote attach reuses a compatible package from `PATH` or the active managed release. Interactive direct attach and saved-machine setup prompt before installing or updating the complete package when needed. Background saved reconnect only discovers installed packages and cannot prompt for installation or updates. Herdr uses the installed Windows OpenSSH client and your SSH configuration. Windows OpenSSH does not use Herdr's Unix control-socket reuse, so key authentication through Windows `ssh-agent` is recommended to avoid repeated prompts during remote setup.
++Every supported client can attach to x86_64 and ARM64 Windows hosts. Ordinary attachment and saved machines reuse an endpoint-compatible binary from `PATH` or `%USERPROFILE%\.herdr\remote\herdr.exe`; a version difference alone does not require replacement. Explicit provisioning instead requires the selected deployment's exact runtime identity and validates the complete portable ZIP before any approved server stop. It never runs the managed installer or changes remote `PATH`. Saved reconnects do not install, stop, replace, restart, or start a missing server, and retain their explicitly selected session. The Windows OpenSSH default shell must be `cmd.exe` or PowerShell 7 (`pwsh.exe`) to preserve the byte-exact binary stream, and the server starts in the SSH user's existing active desktop session so it survives SSH closure. Windows PowerShell 5.1, an unknown shell, or an absent or ambiguous desktop session fails closed. Windows remote hosts do not support live handoff.
++
++Herdr uses the installed Windows OpenSSH client and your SSH configuration. Windows OpenSSH does not use Herdr's Unix control-socket reuse, so key authentication through Windows `ssh-agent` is recommended to avoid repeated prompts during remote setup.
 +
 +Windows targets must also advertise `windows_remote_host` support. A client-only Windows binary is not sufficient to host the SSH bridge.
  
@@ -1604,7 +1551,7 @@ index 255727a20e4902cf3c9a2b336768b8ca0f165345..854624ab1f420b844f86a3014a773b65
  ## Reporting Windows issues
  
 diff --git a/docs/next/website/src/content/docs/zh-cn/cli-reference.mdx b/docs/next/website/src/content/docs/zh-cn/cli-reference.mdx
-index 74702ad55bf65150a3913ace691ccb92adf0286a..9eb016661bb8a5d702f5076ef36e96fc9896035b 100644
+index 538ec0b94a9ba65dadbd0f0631ea24db913a3757..f9e53737eadd088f8d4ac161600ff036646f80ea 100644
 --- a/docs/next/website/src/content/docs/zh-cn/cli-reference.mdx
 +++ b/docs/next/website/src/content/docs/zh-cn/cli-reference.mdx
 @@ -16,11 +16,9 @@ herdr --remote workbox --provision --yes --json
@@ -1622,7 +1569,7 @@ index 74702ad55bf65150a3913ace691ccb92adf0286a..9eb016661bb8a5d702f5076ef36e96fc
  ```
  
 diff --git a/docs/next/website/src/content/docs/zh-cn/install.mdx b/docs/next/website/src/content/docs/zh-cn/install.mdx
-index 8faba5063762feb8f360ae2c00f12a8e0d707c77..23917b2c5cd4adb35f10e5fa1cd4c6e4984c81d3 100644
+index 1d44c225df76ceaa5f75a3540da39bdfe318169a..1cecf378c564157b35806d3b22570197cb2e77e0 100644
 --- a/docs/next/website/src/content/docs/zh-cn/install.mdx
 +++ b/docs/next/website/src/content/docs/zh-cn/install.mdx
 @@ -13,19 +13,7 @@ Herdr 为 Linux、macOS 和 Windows 提供稳定通道二进制文件。Windows
@@ -1672,7 +1619,7 @@ index 8faba5063762feb8f360ae2c00f12a8e0d707c77..23917b2c5cd4adb35f10e5fa1cd4c6e4
  默认情况下,`herdr update` 会安装新二进制文件,并让端点第 1 代服务器及其窗格进程继续运行。再次启动 Herdr 即可用更新后的客户端重新连接。纯客户端改动会立即生效。新的服务器端操作会保持不可用,直到对应服务器更新并重启;客户端会显示通知,而不会断开连接。只有早于端点第 1 代的服务器需要在更新时再停止最后一次。
  
 diff --git a/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx b/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
-index 35b1ff33188b153aa10a227eb03f9e3dd19fed41..286dfec59ae893b15845bdb93f76edbb6acd0a9b 100644
+index 025f0f4d4d8b2538ee956225e844136ba83d807e..cf2d2d6b204aba57dd033272f98f5a31ce6c74d4 100644
 --- a/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
 +++ b/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
 @@ -7,23 +7,9 @@ Windows 原生支持已正式发布。
@@ -1701,32 +1648,17 @@ index 35b1ff33188b153aa10a227eb03f9e3dd19fed41..286dfec59ae893b15845bdb93f76edbb
  
  ## Windows 支持
  
-@@ -80,7 +66,7 @@ switch_ascii_input_source_in_prefix = true
- 
- 此选项暂不支持其他 Windows 输入法。参见[配置](/zh-cn/docs/configuration/#前缀输入源切换)。
- 
--Windows 上的部分智能体可以接收 `ctrl+v` 并直接读取剪贴板图像。Herdr 自己的剪贴板图像读取器尚未接入本地原生 Windows 窗格,因此智能体原生图像粘贴仍取决于终端和智能体。`alt+v` 等智能体图像粘贴快捷键不会增加由 Herdr 管理的本地剪贴板桥。远程剪贴板图像桥通过连接 Linux/macOS 主机的 `herdr --remote` 单独受支持。
-+Windows 上的部分智能体可以接收 `ctrl+v` 并直接读取剪贴板图像。Herdr 自己的剪贴板图像读取器尚未接入本地原生 Windows 窗格,因此智能体原生图像粘贴仍取决于终端和智能体。`alt+v` 等智能体图像粘贴快捷键不会增加由 Herdr 管理的本地剪贴板桥。远程剪贴板图像桥通过 `herdr --remote` 单独受支持,包括 Windows 目标主机。
- 
- Kitty graphics 默认启用，并取决于外层终端。Herdr 会像在其他平台上一样在 Windows 上输出 Kitty graphics protocol。这个路径已在 Windows WezTerm 托管 WSL 中 Herdr 的配置下得到验证，但原生 Windows 的各种终端与 ConPTY 组合尚未全部验证。Windows Terminal 不提供 Herdr 使用的 Kitty graphics 路径。如果外层终端无法正确处理图形输出，请设置 `[terminal].kitty_graphics = false`。
- 
-@@ -118,7 +104,6 @@ Herdr 的窗格文本复制在 Windows 上可用。在窗格内拖选文本即
- | 能力 | 状态 |
- | --- | --- |
- | 直接终端附加 (`herdr terminal attach`) | 不支持 |
--| Windows 作为 `herdr --remote` 的目标主机 | 不支持 |
- | 实时服务器交接 | 不支持 |
- | Unix 文件描述符交接 | 不支持 |
- | Unix 前台进程组 | 不支持 |
-@@ -129,11 +114,14 @@ Herdr 的窗格文本复制在 Windows 上可用。在窗格内拖选文本即
+@@ -128,11 +114,16 @@ Herdr 的窗格文本复制在 Windows 上可用。在窗格内拖选文本即
  
  ```powershell
  herdr --remote workbox
 +herdr --remote workbox --provision --yes --json
  ```
  
--目标主机必须运行 Linux 或 macOS。Herdr 使用已安装的 Windows OpenSSH 客户端和你的 SSH 配置。Windows OpenSSH 不使用 Herdr 的 Unix control socket 连接复用,因此建议通过 Windows `ssh-agent` 使用密钥认证,避免远程设置期间重复提示。
-+所有受支持的客户端都可以连接 x86_64 和 ARM64 Windows 主机。普通连接和已保存的机器会复用 `PATH` 或 `%USERPROFILE%\.herdr\remote\herdr.exe` 中端点兼容的二进制,不会仅因版本不同而替换。显式配置则要求所选运行时身份完全匹配,并在任何已批准的服务器停止之前验证完整的便携 ZIP。它不会运行受管理安装程序或更改远程 `PATH`。已保存连接的重连不会安装或重启服务器,并保持明确选择的会话。Windows OpenSSH 的默认 shell 必须是 `cmd.exe` 或 PowerShell 7。服务器在 SSH 用户现有的活动桌面会话中启动,因此 SSH 断开后仍可继续运行。Windows PowerShell 5.1、未知 shell 或不明确的桌面会话都会被拒绝。Windows 目标主机不支持实时交接。
+-目标主机可以运行 Linux、macOS 或 Windows。Windows 主机会复用 `PATH` 或当前有效的托管版本中的兼容软件包。交互式连接和保存机器设置会在安装或更新完整软件包前询问；后台重连只查找已安装的软件包，不会提示安装或更新。Herdr 使用已安装的 Windows OpenSSH 客户端和你的 SSH 配置。Windows OpenSSH 不使用 Herdr 的 Unix control socket 连接复用,因此建议通过 Windows `ssh-agent` 使用密钥认证,避免远程设置期间重复提示。
++所有受支持的客户端都可以连接 x86_64 和 ARM64 Windows 主机。普通连接和已保存的机器会复用 `PATH` 或 `%USERPROFILE%\.herdr\remote\herdr.exe` 中端点兼容的二进制,不会仅因版本不同而替换。显式配置则要求所选运行时身份完全匹配,并在任何已批准的服务器停止之前验证完整的便携 ZIP。它不会运行受管理安装程序或更改远程 `PATH`。已保存连接的重连不会安装、停止、替换、重启或启动未运行的服务器,并保持明确选择的会话。为逐字节保持二进制流，Windows OpenSSH 的默认 shell 必须是 `cmd.exe` 或 PowerShell 7（`pwsh.exe`）。服务器在 SSH 用户现有的活动桌面会话中启动,因此 SSH 断开后仍可继续运行。Windows PowerShell 5.1、未知 shell、缺少活动桌面会话或桌面会话不明确都会被拒绝。Windows 目标主机不支持实时交接。
++
++Herdr 使用已安装的 Windows OpenSSH 客户端和你的 SSH 配置。Windows OpenSSH 不使用 Herdr 的 Unix control socket 连接复用，因此建议通过 Windows `ssh-agent` 使用密钥认证，避免远程设置期间重复提示。
 +
 +Windows 目标还必须声明 `windows_remote_host` 支持。仅提供客户端功能的 Windows 二进制不足以托管 SSH 桥接。
  
@@ -1736,7 +1668,7 @@ index 35b1ff33188b153aa10a227eb03f9e3dd19fed41..286dfec59ae893b15845bdb93f76edbb
  ## 报告 Windows 问题
  
 diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
-index 6e58955dbd2b1b478501c7b00d6e9691b032acdc..68408a91d186e64c6077e199c2e64d5c72a0f60a 100644
+index ed6157768e91db7398f1252a950b1fbe28228c02..cd6327a2dd5d0520752f1dcacb4fe6f30d617f33 100644
 --- a/docs/next/website/src/data/config-reference.json
 +++ b/docs/next/website/src/data/config-reference.json
 @@ -447,21 +447,11 @@
@@ -1763,17 +1695,17 @@ index 6e58955dbd2b1b478501c7b00d6e9691b032acdc..68408a91d186e64c6077e199c2e64d5c
          {
            "key": "update.manifest_check",
 diff --git a/justfile b/justfile
-index f69bb38c9ac2906fed3087bcf3194d17ce59453c..a3648dc9a5a787b96ca2af613cd76c37d4577dfd 100644
+index af867d6f351d189e238fff6caf754863ccf7561a..28e84b90f1b2720e33d7cf5da39b6cc4b6b042bc 100644
 --- a/justfile
 +++ b/justfile
-@@ -17,8 +17,15 @@ maintenance-test:
-     {{python}} -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_config_reference_check scripts.test_docs_translation_parity scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_preview scripts.test_unix_installer scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
+@@ -22,8 +22,15 @@ test-windows-input *args:
+     pwsh -NoProfile -File scripts/test_windows_input.ps1 -AllowInputInjection -ClearClipboard {{args}}
  
  # Run one nextest filter, e.g. `just test-one codex_stale_working`
 +[script("powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")]
 +[windows]
 +test-one filter:
-+    cargo nextest run --locked --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
++    cargo nextest run --locked --lib --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
 +    exit $LASTEXITCODE
 +
 +[unix]
@@ -1783,15 +1715,6 @@ index f69bb38c9ac2906fed3087bcf3194d17ce59453c..a3648dc9a5a787b96ca2af613cd76c37
  
  # Enforce deterministic UI hot-path architecture boundaries
  ui-hot-path-architecture-test:
-@@ -47,7 +54,7 @@ ci filter='all()': lint
- [unix]
- windows-lint:
-     rustup target add x86_64-pc-windows-msvc
--    LIBGHOSTTY_VT_SIMD=false cargo clippy --bin herdr --locked --target x86_64-pc-windows-msvc -- -D warnings
-+    LIBGHOSTTY_VT_SIMD=false cargo clippy --bins --locked --target x86_64-pc-windows-msvc -- -D warnings
- 
- # Check formatting + run unit tests + Windows target lint + documentation contract tests
- [unix]
 diff --git a/packaging/windows/installer/artwork/README.md b/packaging/windows/installer/artwork/README.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..00a16fb8af74995d05370720af4b0957aeda2df7
@@ -54085,15 +54008,16 @@ index 0000000000000000000000000000000000000000..b2474524505ee34bb2742989a40301c3
 +[Console]::Out.WriteLine('Herdr Win installer build inputs validated successfully.')
 diff --git a/packaging/windows/managed-skill-hashes.txt b/packaging/windows/managed-skill-hashes.txt
 new file mode 100644
-index 0000000000000000000000000000000000000000..52d3ab81562acc9c6eac8a03262ae586845e28f6
+index 0000000000000000000000000000000000000000..29472821e836358fda3ccc1efd93963ceb99f66a
 --- /dev/null
 +++ b/packaging/windows/managed-skill-hashes.txt
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,6 @@
 +herdr-managed-skill-hashes-v1
 +0786182f02ebf92708e09d82d79e4614d1a9c30bfc337643cc2af1d0fb9db29f
 +237ad2ab2d8123e2bb37956d3a41eed141f2d22a7c36e415b7876c0397679099
 +25a68bc36d9309048db89e7d168f2e04d1689d734c5d72cc3688bf4ff9db1e9f
 +2752439d23fcc16235e1292599e7f7b31635166d6b01221d7bf759da5d571072
++b16ba0d9a22adbaf259d2022cd323801f8e51d530c94cb0cd23a69069292506b
 diff --git a/scripts/package_windows_installer.ps1 b/scripts/package_windows_installer.ps1
 new file mode 100644
 index 0000000000000000000000000000000000000000..25de34ebc8b870848da3eaea54b671cbb6bbe5a8
@@ -54805,7 +54729,7 @@ index 0000000000000000000000000000000000000000..25de34ebc8b870848da3eaea54b671cb
 +    nsis = "v$NsisVersion"
 +}).GetEnumerator() | ForEach-Object { "{0}={1}" -f $_.Key, $_.Value }
 diff --git a/scripts/preview.py b/scripts/preview.py
-index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b9b85b7ff 100644
+index feb062cb7e94434d4fd42d5c61e082360bbdfb1f..cef2f0d767a63e19a1f40379087e822efdb48a66 100644
 --- a/scripts/preview.py
 +++ b/scripts/preview.py
 @@ -2,9 +2,11 @@
@@ -54820,7 +54744,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
  from pathlib import Path
  from typing import Any
  
-@@ -14,13 +16,12 @@ ASSET_TARGETS = (
+@@ -14,11 +16,11 @@ ASSET_TARGETS = (
      "macos-x86_64",
      "macos-aarch64",
      "windows-x86_64",
@@ -54833,12 +54757,10 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
 -    **{target: f"herdr-{target}" for target in ASSET_TARGETS},
 -    "windows-x86_64": "herdr-windows-x86_64.zip",
 -}
- HIDDEN_SUBJECTS = (
--    "docs: publish release distribution",
-     "docs: update website manifest",
-     "docs: update preview manifest",
-     "chore: approve contributor",
-@@ -49,16 +50,22 @@ def normalize_version(version: str) -> str:
+ ENDPOINT_PROTOCOL_SOURCE_PATH = Path("src/protocol/endpoint.rs")
+ 
+ 
+@@ -30,16 +32,22 @@ def normalize_version(version: str) -> str:
      return version.strip().removeprefix("v")
  
  
@@ -54863,8 +54785,8 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
  
  
  def latest_stable_tag(ref: str | None = None) -> str:
-@@ -178,9 +185,87 @@ def build_notes(previous: str, commit: str, build_id: str, base_version: str, re
-     return "\n".join(lines).rstrip() + "\n"
+@@ -90,9 +98,87 @@ def build_notes(previous: str, commit: str, build_id: str, repo: str) -> str:
+     return f"Preview build {build_id}\n\n[View changes]({compare})\n"
  
  
 -def default_asset_urls(repo: str, tag: str) -> dict[str, str]:
@@ -54893,7 +54815,8 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
 +
 +def herdr_win_asset_names(release_version: str) -> dict[str, str]:
 +    parse_herdr_win_release_version(release_version)
-+    return {
+     return {
+-        target: f"https://github.com/{repo}/releases/download/{tag}/{EXPECTED_ASSET_NAMES[target]}"
 +        "linux-x86_64": f"herdr-win_v{release_version}_linux_amd64",
 +        "linux-aarch64": f"herdr-win_v{release_version}_linux_arm64",
 +        "macos-x86_64": f"herdr-win_v{release_version}_macos_amd64",
@@ -54947,13 +54870,12 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
 +        raise ValueError(
 +            f"tag must be {expected_tag} for release_version {release_version}"
 +        )
-     return {
--        target: f"https://github.com/{repo}/releases/download/{tag}/{EXPECTED_ASSET_NAMES[target]}"
++    return {
 +        target: f"https://github.com/{repo}/releases/download/{tag}/{names[target]}"
          for target in ASSET_TARGETS
      }
  
-@@ -195,17 +280,19 @@ def read_sha_file(path: Path | None) -> dict[str, str]:
+@@ -107,17 +193,19 @@ def read_sha_file(path: Path | None) -> dict[str, str]:
  
  
  def asset_objects(urls: dict[str, str], shas: dict[str, str]) -> dict[str, dict[str, str]]:
@@ -54981,7 +54903,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
          assets[target] = entry
      return assets
  
-@@ -219,25 +306,33 @@ def build_manifest(
+@@ -131,27 +219,33 @@ def build_manifest(
      built_at: str,
      base_version: str,
      protocol: int,
@@ -54989,6 +54911,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
      notes: str,
      shas: dict[str, str],
      retain: int,
+-    endpoint_generation: int | None = None,
 +    release_version: str,
  ) -> str:
 -    urls = default_asset_urls(repo, tag)
@@ -55000,7 +54923,8 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
      current = read_json(output) or {}
 -    builds = current.get("builds") if isinstance(current.get("builds"), dict) else {}
 -    builds = dict(builds)
--    endpoint_generation = read_endpoint_protocol_generation()
+-    if endpoint_generation is None:
+-        endpoint_generation = read_endpoint_protocol_generation()
 -    builds[build_id] = {
 +    require_newer_herdr_win_release(release_version, current)
 +    current_builds = current.get("builds")
@@ -55020,7 +54944,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
      ordered_builds = {
          key: builds[key]
          for key in sorted(
-@@ -249,6 +344,7 @@ def build_manifest(
+@@ -163,6 +257,7 @@ def build_manifest(
      manifest = {
          "schema_version": 1,
          "channel": "preview",
@@ -55028,7 +54952,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
          "base_version": normalize_version(base_version),
          "build_id": build_id,
          "commit": commit,
-@@ -259,6 +355,7 @@ def build_manifest(
+@@ -173,6 +268,7 @@ def build_manifest(
          "assets": assets,
          "builds": ordered_builds,
      }
@@ -55036,7 +54960,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
      return json.dumps(manifest, indent=2) + "\n"
  
  
-@@ -281,9 +378,11 @@ def cmd_manifest(args: argparse.Namespace) -> int:
+@@ -195,10 +291,11 @@ def cmd_manifest(args: argparse.Namespace) -> int:
          built_at=args.built_at,
          base_version=args.base_version,
          protocol=args.protocol,
@@ -55044,11 +54968,12 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
          notes=notes,
          shas=shas,
          retain=args.retain,
+-        endpoint_generation=args.endpoint_generation,
 +        release_version=args.release_version,
      )
      Path(args.output).write_text(content, encoding="utf-8")
      return 0
-@@ -296,6 +395,11 @@ def cmd_current_commit(args: argparse.Namespace) -> int:
+@@ -211,17 +308,47 @@ def cmd_current_commit(args: argparse.Namespace) -> int:
      return 0
  
  
@@ -55057,10 +54982,8 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
 +    return 0
 +
 +
- def cmd_select_commit(args: argparse.Namespace) -> int:
-     print(latest_publishable_commit(args.ref))
-     return 0
-@@ -306,12 +410,37 @@ def cmd_range_base(args: argparse.Namespace) -> int:
+ def cmd_range_base(args: argparse.Namespace) -> int:
+     print(preview_range_base(args.previous, args.commit))
      return 0
  
  
@@ -55099,7 +55022,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
      notes.add_argument("--previous")
      notes.add_argument("--commit", required=True)
      notes.add_argument("--build-id", required=True)
-@@ -321,7 +450,7 @@ def main() -> int:
+@@ -230,7 +357,7 @@ def main() -> int:
      notes.set_defaults(func=cmd_notes)
  
      manifest = sub.add_parser("manifest")
@@ -55108,11 +55031,7 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
      manifest.add_argument("--repo", default="herdrdev/herdr")
      manifest.add_argument("--tag", required=True)
      manifest.add_argument("--build-id", required=True)
-@@ -329,13 +458,35 @@ def main() -> int:
-     manifest.add_argument("--built-at", required=True)
-     manifest.add_argument("--base-version", required=True)
-     manifest.add_argument("--protocol", required=True, type=int)
-+    manifest.add_argument("--endpoint-generation", required=True, type=int)
+@@ -242,10 +369,31 @@ def main() -> int:
      manifest.add_argument("--notes", required=True)
      manifest.add_argument("--sha-file")
      manifest.add_argument("--retain", type=int, default=30)
@@ -55144,9 +55063,9 @@ index 935ee9b762236865c633135078502d49dcbed034..964c9dd167bd59594f6ed08fd4187b4b
 +    current.add_argument("--manifest", default="website/preview.json")
      current.set_defaults(func=cmd_current_commit)
  
-     select = sub.add_parser("select-commit")
+     range_base = sub.add_parser("range-base")
 diff --git a/scripts/test_preview.py b/scripts/test_preview.py
-index d3613d83895cf33e374d67384e1914996d7e4dd2..7f90fd060c2237cb7652f61c46d8cb192c34b290 100644
+index 36dae3b4adc510ed1211331c90b784f77b10c7b3..29d064cfc84a7f85d976c9ca9b7c8f623dc45c27 100644
 --- a/scripts/test_preview.py
 +++ b/scripts/test_preview.py
 @@ -9,6 +9,13 @@ from pathlib import Path
@@ -55162,8 +55081,8 @@ index d3613d83895cf33e374d67384e1914996d7e4dd2..7f90fd060c2237cb7652f61c46d8cb19
 +
  
  class PreviewNotesTests(unittest.TestCase):
-     def test_humanize_groups_conventional_subjects(self):
-@@ -32,66 +39,315 @@ class PreviewNotesTests(unittest.TestCase):
+     def test_notes_contain_only_build_and_comparison_link(self):
+@@ -25,63 +32,312 @@ class PreviewNotesTests(unittest.TestCase):
              content = preview.build_manifest(
                  output=output,
                  repo="herdrdev/herdr",
@@ -55183,6 +55102,7 @@ index d3613d83895cf33e374d67384e1914996d7e4dd2..7f90fd060c2237cb7652f61c46d8cb19
 -                },
 +                shas=VALID_SHAS,
                  retain=30,
+-                endpoint_generation=77,
 +                release_version=VALID_RELEASE_VERSION,
              )
              data = json.loads(content)
@@ -55200,7 +55120,7 @@ index d3613d83895cf33e374d67384e1914996d7e4dd2..7f90fd060c2237cb7652f61c46d8cb19
 +            )
              self.assertEqual(
 -                data["endpoint_generation"],
--                preview.read_endpoint_protocol_generation(),
+-                77,
 +                data["assets"]["linux-x86_64"]["url"],
 +                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_linux_amd64",
              )
@@ -55223,7 +55143,7 @@ index d3613d83895cf33e374d67384e1914996d7e4dd2..7f90fd060c2237cb7652f61c46d8cb19
 -            self.assertIn("2026-06-02-abcdef123456", data["builds"])
              self.assertEqual(
 -                data["builds"]["2026-06-02-abcdef123456"]["endpoint_generation"],
--                preview.read_endpoint_protocol_generation(),
+-                77,
 +                data["assets"]["windows-x86_64-installer"]["url"],
 +                "https://github.com/herdrdev/herdr/releases/download/v2026.06.02.1/herdr-win_v2026.06.02.1_windows_amd64_setup.exe",
 +            )
@@ -55493,13 +55413,9 @@ index d3613d83895cf33e374d67384e1914996d7e4dd2..7f90fd060c2237cb7652f61c46d8cb19
 +        with self.assertRaisesRegex(ValueError, "run_attempt"):
 +            preview.candidate_build_id("a" * 40, "b" * 40, "1", 0)
 +
-     def test_hidden_subjects_include_preview_manifest_commits(self):
-         self.assertTrue(preview.hidden_subject("docs: update preview manifest"))
-         self.assertTrue(preview.hidden_subject("docs: update website manifest"))
--        self.assertTrue(preview.hidden_subject("docs: publish release distribution"))
-         self.assertFalse(preview.hidden_subject("release: v0.7.0"))
-         self.assertFalse(preview.hidden_subject("fix: repair preview manifest"))
- 
+     def test_preview_range_base_advances_to_stable_tag(self):
+         with (
+             mock.patch.object(preview, "latest_stable_tag", return_value="v0.7.0"),
 diff --git a/scripts/windows_install_conpty_package_test.ps1 b/scripts/windows_install_conpty_package_test.ps1
 index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c2729de67 100644
 --- a/scripts/windows_install_conpty_package_test.ps1
@@ -57479,37 +57395,11 @@ index 0000000000000000000000000000000000000000..5d9c2cf3c838d58f3f8a446ffb1c618b
 +        Remove-TestOwnedUserProfile
 +    }
 +}
-diff --git a/src/app/api/plugins/panes.rs b/src/app/api/plugins/panes.rs
-index 8553ce91f7ab68bc6be892ba5f5898bbab1c5ecc..591ca243143d3b0f321465b38a5174dc50654dc8 100644
---- a/src/app/api/plugins/panes.rs
-+++ b/src/app/api/plugins/panes.rs
-@@ -260,7 +260,7 @@ impl App {
-             entrypoint.to_string(),
-         ));
-         env.push(("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json));
--        if let Ok(current_exe) = std::env::current_exe() {
-+        if let Ok(current_exe) = crate::managed_install::command_executable() {
-             env.push((
-                 "HERDR_BIN_PATH".to_string(),
-                 current_exe.display().to_string(),
-diff --git a/src/app/api/plugins/runtime.rs b/src/app/api/plugins/runtime.rs
-index b956fc987b3ade0a310464ca0021d00813216121..79feaa78029d6bd67d5434f3b4ee22a219fcf2ac 100644
---- a/src/app/api/plugins/runtime.rs
-+++ b/src/app/api/plugins/runtime.rs
-@@ -46,7 +46,7 @@ impl App {
-             ("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
-             ("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json),
-         ]);
--        if let Ok(current_exe) = std::env::current_exe() {
-+        if let Ok(current_exe) = crate::managed_install::command_executable() {
-             env.push((
-                 "HERDR_BIN_PATH".to_string(),
-                 current_exe.display().to_string(),
 diff --git a/src/app/mod.rs b/src/app/mod.rs
-index ffe4223c2086a9bb399b3c14a8a91652ecd9adcc..76d2991527c31ac07753ffc9cecf9ecb998bc527 100644
+index da26479da1941ee49cf8a387652973a31eded648..9bde5ff993ca71f160fa449c8d05d5007eff375e 100644
 --- a/src/app/mod.rs
 +++ b/src/app/mod.rs
-@@ -1037,14 +1037,6 @@ mod tests {
+@@ -1050,14 +1050,6 @@ mod tests {
          std::env::temp_dir().join(unique).join("config.toml")
      }
  
@@ -57524,7 +57414,7 @@ index ffe4223c2086a9bb399b3c14a8a91652ecd9adcc..76d2991527c31ac07753ffc9cecf9ecb
      #[test]
      fn git_refresh_deadline_is_suppressed_while_in_flight() {
          let mut app = test_app();
-@@ -1638,55 +1630,6 @@ mod tests {
+@@ -1651,55 +1643,6 @@ mod tests {
          let _ = std::fs::remove_dir_all(path.parent().unwrap());
      }
  
@@ -57848,10 +57738,10 @@ index 1fdedfbb7a000939e74f5dcdfcd3c55ab0dc45d1..6454f88ae73649e2cbdf1cb231046c7c
      }
  }
 diff --git a/src/cli.rs b/src/cli.rs
-index ea643f6ab0c5f240ab76e76a9bf159650c62774d..cc33f8ff88800b47c7dfcdc1e2da86c4ac56eb34 100644
+index aeedc07e4f0eb664cbe8c0544af62f6ffff96b74..27333fc0a967beefafa910f2e6768cb2e61ee869 100644
 --- a/src/cli.rs
 +++ b/src/cli.rs
-@@ -113,7 +113,6 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
+@@ -118,7 +118,6 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
          "status" => status::run_status_command(&args[2..])?,
          "completion" | "completions" => completion::run_completion_command(&args[2..])?,
          "config" => run_config_command(&args[2..])?,
@@ -57859,7 +57749,7 @@ index ea643f6ab0c5f240ab76e76a9bf159650c62774d..cc33f8ff88800b47c7dfcdc1e2da86c4
          "machine" => machine::run_machine_command(&args[2..])?,
          "workspace" => workspace::run_workspace_command(&args[2..])?,
          "worktree" => worktree::run_worktree_command(&args[2..])?,
-@@ -131,136 +130,6 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
+@@ -136,136 +135,6 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
      Ok(CommandOutcome::Handled(exit_code))
  }
  
@@ -57996,7 +57886,7 @@ index ea643f6ab0c5f240ab76e76a9bf159650c62774d..cc33f8ff88800b47c7dfcdc1e2da86c4
  fn run_config_command(args: &[String]) -> std::io::Result<i32> {
      let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
          print_config_help();
-@@ -1045,48 +914,6 @@ fn _print_json<T: Serialize>(value: &T) {
+@@ -1063,48 +932,6 @@ fn _print_json<T: Serialize>(value: &T) {
  
  #[cfg(test)]
  mod tests {
@@ -58043,10 +57933,10 @@ index ea643f6ab0c5f240ab76e76a9bf159650c62774d..cc33f8ff88800b47c7dfcdc1e2da86c4
 -    }
 -
      #[test]
-     fn parse_env_assignment_accepts_empty_values() {
-         assert_eq!(
+     fn session_name_parser_accepts_option_terminator() {
+         for name in ["-h", "--json"] {
 diff --git a/src/cli/server.rs b/src/cli/server.rs
-index d1b6e1bd05ce47f31a4a11b75cf7f7fefc9d2adb..6d23101430bef24fa8cf8379f9ee4f170fbe4bb8 100644
+index c8e5a616c69399464434ce21deebf47194a81be3..1b9336ec7929240388d9acb530e821b38662447f 100644
 --- a/src/cli/server.rs
 +++ b/src/cli/server.rs
 @@ -32,7 +32,7 @@ fn server_start(args: &[String]) -> std::io::Result<i32> {
@@ -58059,10 +57949,10 @@ index d1b6e1bd05ce47f31a4a11b75cf7f7fefc9d2adb..6d23101430bef24fa8cf8379f9ee4f17
          Ok(()) => Ok(0),
          Err(err) => {
 diff --git a/src/cli/spec.rs b/src/cli/spec.rs
-index 4a054e5acabc2b9024e1bcea03662e0224a119a4..413f397ccba8eb501653310c5c6af0001f352999 100644
+index 4c9958d6f526b3e9c0bf5b30227419d2c790a9c1..b58ea0e23e0998e27b4483518ae072482e8dd9ec 100644
 --- a/src/cli/spec.rs
 +++ b/src/cli/spec.rs
-@@ -32,7 +32,6 @@ pub(super) fn command() -> Command {
+@@ -33,7 +33,6 @@ pub(super) fn command() -> Command {
          .subcommand(update_command())
          .subcommand(status_command())
          .subcommand(config_command())
@@ -58070,7 +57960,7 @@ index 4a054e5acabc2b9024e1bcea03662e0224a119a4..413f397ccba8eb501653310c5c6af000
          .subcommand(machine::command())
          .subcommand(server_command())
          .subcommand(api_command())
-@@ -141,20 +140,6 @@ fn config_command() -> Command {
+@@ -142,20 +141,6 @@ fn config_command() -> Command {
          .subcommand(Command::new("reset-keys").about("Reset custom keybindings"))
  }
  
@@ -58092,7 +57982,7 @@ index 4a054e5acabc2b9024e1bcea03662e0224a119a4..413f397ccba8eb501653310c5c6af000
      Command::new("server")
          .about("Run or control the headless server")
 diff --git a/src/cli/status.rs b/src/cli/status.rs
-index 5b3c66d17c6750bc7f1877e400fa785178dc2476..5156c85648160e68112b11f874faedf6bca8a61d 100644
+index 76d1d2c70f43e890d4fa53a5d80953fc95039915..f7be04462342b43a632cd2c7429f44641e38e3da 100644
 --- a/src/cli/status.rs
 +++ b/src/cli/status.rs
 @@ -94,10 +94,8 @@ fn print_full_status(json: bool) -> std::io::Result<i32> {
@@ -58121,7 +58011,7 @@ index 5b3c66d17c6750bc7f1877e400fa785178dc2476..5156c85648160e68112b11f874faedf6
      println!("protocol: {}", crate::protocol::PROTOCOL_VERSION);
      println!(
          "endpoint_protocol_generation: {}",
-@@ -256,7 +252,8 @@ struct FullStatusJson {
+@@ -252,7 +248,8 @@ struct FullStatusJson {
  #[derive(Serialize)]
  struct ClientStatusJson {
      version: String,
@@ -58131,7 +58021,7 @@ index 5b3c66d17c6750bc7f1877e400fa785178dc2476..5156c85648160e68112b11f874faedf6
      protocol: u32,
      endpoint_protocol_generation: u32,
      endpoint_capabilities: Vec<&'static str>,
-@@ -307,7 +304,8 @@ fn client_status_json() -> ClientStatusJson {
+@@ -306,7 +303,8 @@ fn client_status_json() -> ClientStatusJson {
      }
      ClientStatusJson {
          version: crate::build_info::version(),
@@ -58141,7 +58031,7 @@ index 5b3c66d17c6750bc7f1877e400fa785178dc2476..5156c85648160e68112b11f874faedf6
          protocol: crate::protocol::PROTOCOL_VERSION,
          endpoint_protocol_generation: crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
          endpoint_capabilities,
-@@ -405,6 +403,10 @@ fn current_exe_label() -> String {
+@@ -413,6 +411,10 @@ fn current_exe_label() -> String {
          .unwrap_or_else(|err| format!("unknown ({err})"))
  }
  
@@ -58153,10 +58043,10 @@ index 5b3c66d17c6750bc7f1877e400fa785178dc2476..5156c85648160e68112b11f874faedf6
      eprintln!("herdr status commands:");
      eprintln!("  herdr status [--json]         show local client and running server status");
 diff --git a/src/config.rs b/src/config.rs
-index ab6f586bfe5aa6caa976642568ab230234007916..6e7d0b3cbd6a2d1f67a4279e06709c0d2379f5a1 100644
+index 97f9ac88ff2837fb6493dd84eef95af0b49b1cb3..c58975a81bc35033fa3cc75ef35047a114e74b22 100644
 --- a/src/config.rs
 +++ b/src/config.rs
-@@ -26,7 +26,7 @@ pub use self::{
+@@ -27,7 +27,7 @@ pub use self::{
          ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, PaneBordersConfig,
          ShellModeConfig, SidebarCollapsedModeConfig, StatusIndicatorStyle, TabBarPositionConfig,
          ToastClipboardPosition, ToastConfig, ToastDelivery, ToastHerdrPosition,
@@ -58166,7 +58056,7 @@ index ab6f586bfe5aa6caa976642568ab230234007916..6e7d0b3cbd6a2d1f67a4279e06709c0d
      sidebar::{
          AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
 diff --git a/src/config/model.rs b/src/config/model.rs
-index 604fe9ad3ea85435b581578f141a3db665bd8b43..9346ba4b789c22e0edfcee48374ad7c0196f89d8 100644
+index 0e2e57ced9fef30b32ab50a36549b1276ab47da4..cbff934a96c9b86f8e203d73ec5aeb466b014f00 100644
 --- a/src/config/model.rs
 +++ b/src/config/model.rs
 @@ -11,27 +11,9 @@ use super::{
@@ -58223,7 +58113,7 @@ index 604fe9ad3ea85435b581578f141a3db665bd8b43..9346ba4b789c22e0edfcee48374ad7c0
  #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
  #[serde(rename_all = "lowercase")]
  pub enum ToastDelivery {
-@@ -1295,53 +1264,19 @@ mod tests {
+@@ -1332,53 +1301,19 @@ mod tests {
      #[test]
      fn update_config_defaults_and_parses() {
          let default_config = Config::default();
@@ -58278,10 +58168,10 @@ index 604fe9ad3ea85435b581578f141a3db665bd8b43..9346ba4b789c22e0edfcee48374ad7c0
      fn terminal_default_shell_defaults_empty_and_parses() {
          let default_config = Config::default();
 diff --git a/src/integration/tests.rs b/src/integration/tests.rs
-index b22100742b793c5b4c5575eae9b30c8f17b2949b..9358e7e38a4a296799a2cf54adf09e8ecda07f8c 100644
+index bffe2f4511334a955c26b71a48d7159dc687e28e..7743fbf2021c2a919cb99ca69b8eb8a014441dba 100644
 --- a/src/integration/tests.rs
 +++ b/src/integration/tests.rs
-@@ -429,6 +429,32 @@ fn hermes_layout_makes_target_available() {
+@@ -432,6 +432,32 @@ fn hermes_layout_makes_target_available() {
      let _ = fs::remove_dir_all(base);
  }
  
@@ -58315,10 +58205,10 @@ index b22100742b793c5b4c5575eae9b30c8f17b2949b..9358e7e38a4a296799a2cf54adf09e8e
  fn codex_availability_finds_standalone_binary_under_codex_home() {
      let _lock = integration_env_lock();
 diff --git a/src/main.rs b/src/main.rs
-index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9e6e97972 100644
+index 54d72518e6cefaff572b365ac23e0bee5b2f7763..9d9b8ef16a0d87a086b8d4ae132847f61738cc41 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -31,6 +31,7 @@ mod ipc;
+@@ -32,6 +32,7 @@ mod ipc;
  mod kitty_graphics;
  mod layout;
  mod logging;
@@ -58326,7 +58216,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
  mod metadata_tokens;
  mod noninteractive_process;
  mod pane;
-@@ -119,12 +120,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -120,12 +121,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # kitty_graphics = true
  
  [update]
@@ -58342,8 +58232,8 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
  # version_check = true
  
  # Check herdr.dev for remote agent-detection manifest updates in the background.
-@@ -483,7 +482,21 @@ where
-         .collect()
+@@ -504,7 +503,21 @@ fn finish_cli(outcome: io::Result<cli::CommandOutcome>) -> io::Result<()> {
+     }
  }
  
 +#[cfg(windows)]
@@ -58364,7 +58254,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
      let raw_args: Vec<String> = match args_as_utf8(std::env::args_os()) {
          Ok(args) => args,
          Err(err) => {
-@@ -493,6 +506,21 @@ fn main() -> io::Result<()> {
+@@ -514,6 +527,21 @@ fn main() -> io::Result<()> {
          }
      };
      let raw_args = platform::prepare_interactive_server_bootstrap(raw_args)?;
@@ -58383,10 +58273,10 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
 +            std::process::exit(2);
 +        }
 +    }
-     let args = match session::configure_from_args(&raw_args) {
-         Ok(args) => args,
-         Err(err) => {
-@@ -606,14 +634,13 @@ fn main() -> io::Result<()> {
+     if let Some(outcome) = cli::maybe_run_machine(&raw_args) {
+         return finish_cli(outcome);
+     }
+@@ -622,14 +650,13 @@ fn main() -> io::Result<()> {
          println!("       herdr session attach <name>");
          println!("       herdr completion zsh");
          println!("       herdr update [--handoff]");
@@ -58402,7 +58292,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
          println!("       herdr workspace <subcommand> ...");
          println!("       herdr worktree <subcommand> ...");
          println!("       herdr tab <subcommand> ...");
-@@ -637,8 +664,8 @@ fn main() -> io::Result<()> {
+@@ -653,8 +680,8 @@ fn main() -> io::Result<()> {
                  "Start the persistent server if it is not running",
              ),
              (
@@ -58413,7 +58303,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
              ),
              (
                  "herdr server reload-config",
-@@ -648,10 +675,6 @@ fn main() -> io::Result<()> {
+@@ -664,10 +691,6 @@ fn main() -> io::Result<()> {
                  "herdr config reset-keys",
                  "Back up config.toml and remove custom keybindings",
              ),
@@ -58424,7 +58314,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
              ("herdr machine <subcommand>", "Manage saved SSH machines"),
              (
                  "herdr api <subcommand>",
-@@ -718,7 +741,7 @@ fn main() -> io::Result<()> {
+@@ -735,7 +758,7 @@ fn main() -> io::Result<()> {
  
      if args.iter().any(|a| a == "--version" || a == "-V") {
          platform::begin_cli_output();
@@ -58433,7 +58323,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
          return Ok(());
      }
  
-@@ -765,7 +788,6 @@ fn main() -> io::Result<()> {
+@@ -783,7 +806,6 @@ fn main() -> io::Result<()> {
                  "update",
                  "status",
                  "config",
@@ -58441,7 +58331,7 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
                  "machine",
                  "workspace",
                  "worktree",
-@@ -872,4 +894,25 @@ mod tests {
+@@ -901,4 +923,25 @@ mod tests {
              "argument 2 is not valid UTF-8"
          );
      }
@@ -58469,21 +58359,24 @@ index 84b19ad9ba5df1ca3e2ebc1ff26bd0562cb3d3dc..24d619798488245842565ddaee489af9
  }
 diff --git a/src/managed_install.rs b/src/managed_install.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..0f41e47877e18fb3b75f48c48c78350dce8b9517
+index 0000000000000000000000000000000000000000..c7474c2554573bbe88a06696385c517521e9f4d9
 --- /dev/null
 +++ b/src/managed_install.rs
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,341 @@
 +//! Shared managed-install identity and path contract.
 +
 +#[cfg(windows)]
 +use std::fs;
 +use std::{io, path::PathBuf};
 +
++#[cfg(windows)]
 +pub(crate) const RUNTIME_RECORD_HEADER: &str = "herdr-runtime-v1";
 +// Used by the dedicated launcher crate; the product crate only adopts leases.
 +#[allow(dead_code)]
 +pub(crate) const POINTER_RECORD_HEADER: &str = "herdr-pointer-v1";
++#[cfg(windows)]
 +pub(crate) const MANAGED_BIN_MARKER: &[u8] = b"herdr-managed-bin-v1\n";
++#[cfg(windows)]
 +pub(crate) const NATIVE_HELPER_NAME: &str = "installer-helper.exe";
 +// These names are consumed by the dedicated launcher and installer-helper binaries.
 +#[allow(dead_code)]
@@ -58504,9 +58397,11 @@ index 0000000000000000000000000000000000000000..0f41e47877e18fb3b75f48c48c78350d
 +#[allow(dead_code)]
 +pub(crate) const INSTALLER_STOP_SESSIONS_COMMAND: &str = "__installer-stop-sessions";
 +
++#[cfg(windows)]
 +#[derive(Clone, Debug, PartialEq, Eq)]
 +pub(crate) struct BuildId(String);
 +
++#[cfg(windows)]
 +impl BuildId {
 +    pub(crate) fn parse(value: &str) -> io::Result<Self> {
 +        let bytes = value.as_bytes();
@@ -58530,10 +58425,12 @@ index 0000000000000000000000000000000000000000..0f41e47877e18fb3b75f48c48c78350d
 +    }
 +}
 +
++#[cfg(windows)]
 +fn is_lower_hex(byte: u8) -> bool {
 +    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
 +}
 +
++#[cfg(windows)]
 +pub(crate) fn parse_record(
 +    bytes: &[u8],
 +    expected_header: &str,
@@ -58572,11 +58469,13 @@ index 0000000000000000000000000000000000000000..0f41e47877e18fb3b75f48c48c78350d
 +    })
 +}
 +
++#[cfg(windows)]
 +#[derive(Clone, Debug)]
 +pub(crate) struct ManagedInstall {
 +    root: PathBuf,
 +}
 +
++#[cfg(windows)]
 +impl ManagedInstall {
 +    pub(crate) fn new(root: PathBuf) -> Self {
 +        Self { root }
@@ -58806,10 +58705,10 @@ index 0000000000000000000000000000000000000000..0f41e47877e18fb3b75f48c48c78350d
 +    }
 +}
 diff --git a/src/platform/mod.rs b/src/platform/mod.rs
-index c868d2aabdd93939de513d18f682957a440d483d..42eb5cf2b577d8d13f6a6defa80681af7abbf398 100644
+index a88275908c290b8260a683451df0c4870fbef537..fc6dc642010472f2b65dbe613740926ceb89e57d 100644
 --- a/src/platform/mod.rs
 +++ b/src/platform/mod.rs
-@@ -99,8 +99,37 @@ pub(crate) fn configure_background_command(command: &mut std::process::Command)
+@@ -148,6 +148,31 @@ pub(crate) fn configure_background_command(command: &mut std::process::Command)
      configure_background_command_platform(command);
  }
  
@@ -58823,8 +58722,7 @@ index c868d2aabdd93939de513d18f682957a440d483d..42eb5cf2b577d8d13f6a6defa80681af
 +    adopt_managed_runtime_lease_platform()
 +}
 +
- #[cfg(not(windows))]
--pub(crate) fn prepare_interactive_server_bootstrap(args: Vec<String>) -> std::io::Result<Vec<String>> { Ok(args) }
++#[cfg(not(windows))]
 +pub(crate) struct ManagedRuntimeLease;
 +
 +#[cfg(not(windows))]
@@ -58839,25 +58737,21 @@ index c868d2aabdd93939de513d18f682957a440d483d..42eb5cf2b577d8d13f6a6defa80681af
 +    Ok(current)
 +}
 +
-+#[cfg(not(windows))]
-+pub(crate) fn prepare_interactive_server_bootstrap(
-+    args: Vec<String>,
-+) -> std::io::Result<Vec<String>> {
-+    Ok(args)
-+}
- 
  #[cfg(not(windows))]
- fn configure_background_command_platform(_command: &mut std::process::Command) {}
-@@ -267,7 +296,7 @@ pub(crate) struct RemoteSshConfigPaths {
+ pub(crate) fn prepare_interactive_server_bootstrap(
+     args: Vec<String>,
+@@ -337,9 +362,7 @@ mod unix_common;
  #[cfg(unix)]
- mod unix_common;
+ pub(crate) mod unix_image_files;
  #[cfg(unix)]
--pub(crate) use unix_common::{begin_cli_output, end_cli_output};
-+pub(crate) use unix_common::begin_cli_output;
+-pub(crate) use unix_common::{
+-    begin_cli_output, end_cli_output, forward_remote_bridge_stdio, RemoteBridgeWake,
+-};
++pub(crate) use unix_common::{begin_cli_output, forward_remote_bridge_stdio, RemoteBridgeWake};
  
  mod client_state;
  pub(crate) use client_state::{create_private_state_file, replace_file, sync_parent_directory};
-@@ -275,9 +304,6 @@ pub(crate) use client_state::{create_private_state_file, replace_file, sync_pare
+@@ -347,9 +370,6 @@ pub(crate) use client_state::{create_private_state_file, replace_file, sync_pare
  #[cfg(not(unix))]
  pub(crate) fn begin_cli_output() {}
  
@@ -58868,10 +58762,10 @@ index c868d2aabdd93939de513d18f682957a440d483d..42eb5cf2b577d8d13f6a6defa80681af
  mod linux;
  #[cfg(target_os = "linux")]
 diff --git a/src/platform/unix_common.rs b/src/platform/unix_common.rs
-index 104f6b69d40aa5b408bd06961ec97c972b5c5b72..07b9923096212eb57af1e0cb9ed71cdaba61cab7 100644
+index 8b76212c396121cb9d51c19083b944fb740cd723..389dd4bf82152ca787f73dacd922cb62c0499058 100644
 --- a/src/platform/unix_common.rs
 +++ b/src/platform/unix_common.rs
-@@ -46,10 +46,6 @@ pub(crate) fn begin_cli_output() {
+@@ -257,10 +257,6 @@ pub(crate) fn begin_cli_output() {
      set_sigpipe_disposition(libc::SIG_DFL);
  }
  
@@ -58882,11 +58776,20 @@ index 104f6b69d40aa5b408bd06961ec97c972b5c5b72..07b9923096212eb57af1e0cb9ed71cda
  pub(crate) fn remote_ssh_config_paths() -> super::RemoteSshConfigPaths {
      super::RemoteSshConfigPaths {
          user_config: std::env::var_os("HOME")
+@@ -397,7 +393,7 @@ pub(crate) fn hostname() -> Option<String> {
+ }
+ 
+ pub(crate) fn local_datetime() -> Option<time::PrimitiveDateTime> {
+-    let mut timestamp: libc::time_t = 0;
++    let mut timestamp = 0;
+     if unsafe { libc::time(&mut timestamp) } == -1 {
+         return None;
+     }
 diff --git a/src/platform/windows.rs b/src/platform/windows.rs
-index 8b5e1ab4f71f72224b03bdb63396922264f99f27..1e53244cc185cdebdf0e670156eaca6f55c758dd 100644
+index f55095e0c2bef6b8cee238bb30aed6eff0ce3366..df9439cf1513a9f7b5620b641ef2d7af3296c201 100644
 --- a/src/platform/windows.rs
 +++ b/src/platform/windows.rs
-@@ -154,6 +154,15 @@ use windows_sys::{
+@@ -394,6 +394,15 @@ use windows_sys::{
  
  use super::{ClipboardImage, ForegroundJob, Signal};
  
@@ -66340,10 +66243,10 @@ index b211e63d0f4d27f8e3a7278404a7e90e67fbc87d..d139ca2d078cc133d015538e365261ff
      fn marking_current_version_seen_preserves_latest_notes() {
          let path = std::env::temp_dir().join(format!(
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index 94b7e194de8548f76ff87bddd96a966dfd7a6c36..aa5da6a703e695ac2555717b47c876dbd0d5028c 100644
+index 17375e0ef8133cc3b9fd21ef9d5c9bf7fd556e69..a059d33b69b576834ac39b7b1d2a87397ecba732 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -3814,7 +3814,7 @@ fn run_client_process(
+@@ -4515,7 +4515,7 @@ fn run_client_process(
      reattach_command: &str,
      keybindings: RemoteKeybindings,
  ) -> io::Result<()> {
@@ -66353,10 +66256,10 @@ index 94b7e194de8548f76ff87bddd96a966dfd7a6c36..aa5da6a703e695ac2555717b47c876db
          .arg("client")
          .env(
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
-index e854363a92178bf65576d9cbe96d231357a54c51..d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9 100644
+index f90e39e31c744da94f15bb4f2a78fc40478ff40f..cd3eec3ad337f2378599fa04f6e5f849f3cd93ee 100644
 --- a/src/server/autodetect.rs
 +++ b/src/server/autodetect.rs
-@@ -239,9 +239,11 @@ fn validate_running_server_compatibility(saved_federation: bool) -> io::Result<(
+@@ -242,9 +242,11 @@ fn validate_running_server_compatibility(saved_federation: bool) -> io::Result<(
  ///   socket overrides, etc.), except inherited socket overrides are cleared when
  ///   this CLI invocation explicitly selected a session.
  ///
@@ -66371,10 +66274,10 @@ index e854363a92178bf65576d9cbe96d231357a54c51..d188f550e1ebf00cd3966d3b3c9fa1da
              err.kind(),
              format!("failed to determine herdr executable path: {err}"),
 diff --git a/src/server/handoff.rs b/src/server/handoff.rs
-index 2cd17144e0f2a98e7cb099c7c0d30bbb4837bb49..23e8ce0ce62b0edb6f3af072f73cb417e4b618a6 100644
+index aaa87f382ba95f3de425673f9d492d0acf04be37..a27aa175098b89d00b6f3225b5cd859fd21e53e5 100644
 --- a/src/server/handoff.rs
 +++ b/src/server/handoff.rs
-@@ -68,7 +68,7 @@ pub(crate) fn spawn_handoff_import(
+@@ -71,7 +71,7 @@ pub(crate) fn spawn_handoff_import(
      let exe = if let Some(import_exe) = import_exe {
          import_exe
      } else {
@@ -66384,7 +66287,7 @@ index 2cd17144e0f2a98e7cb099c7c0d30bbb4837bb49..23e8ce0ce62b0edb6f3af072f73cb417
                  err.kind(),
                  format!("failed to determine herdr executable path: {err}"),
 diff --git a/src/session.rs b/src/session.rs
-index 09657fa0c0c2b4d804750cbcd5c490f54c84741a..faa864c06050e40caa7c2eb00895c5e41247568f 100644
+index 29e3e17e9534028eddd02930b5af47538ffd80f6..a7784c6e286d66797473059c0a10518419a9357a 100644
 --- a/src/session.rs
 +++ b/src/session.rs
 @@ -14,6 +14,8 @@ const MAX_SESSION_NAME_LEN: usize = 64;
@@ -66440,7 +66343,7 @@ index 09657fa0c0c2b4d804750cbcd5c490f54c84741a..faa864c06050e40caa7c2eb00895c5e4
  pub(crate) fn stop_active_server() -> Result<(), String> {
      let socket_path = active_api_socket_path();
      let client_socket_path = crate::server::socket_paths::client_socket_path();
-@@ -499,6 +538,24 @@ mod tests {
+@@ -526,6 +565,24 @@ mod tests {
          assert_eq!(STOP_WAIT_TIMEOUT, Duration::from_secs(15));
      }
  
@@ -66466,7 +66369,7 @@ index 09657fa0c0c2b4d804750cbcd5c490f54c84741a..faa864c06050e40caa7c2eb00895c5e4
      fn stop_request_errors_wait_for_socket_state() {
          for kind in [
 diff --git a/src/update.rs b/src/update.rs
-index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d1801567321a0acf2 100644
+index e3c07a50ca8c71f4469d13dfbe627fea586ada46..633b89f516becdd97d82d53d66f6e5d8eafa0eec 100644
 --- a/src/update.rs
 +++ b/src/update.rs
 @@ -1,6 +1,6 @@
@@ -66650,7 +66553,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
                      format: format.filter(|value| !value.trim().is_empty()),
                  })
              }
-@@ -170,130 +230,20 @@ impl<'de> Deserialize<'de> for AssetRef {
+@@ -170,130 +230,21 @@ impl<'de> Deserialize<'de> for AssetRef {
      }
  }
  
@@ -66723,9 +66626,10 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
 +    release_version: String,
      commit: String,
 -    built_at: String,
-+    // Windows installs the complete setup; Unix compares this field before activation.
++    // Windows installs the complete setup; Unix compares these compatibility fields before activation.
 +    #[cfg_attr(windows, allow(dead_code))]
      protocol: u32,
++    #[cfg_attr(windows, allow(dead_code))]
      endpoint_generation: Option<u32>,
      notes: String,
      assets: BTreeMap<String, AssetRef>,
@@ -66785,7 +66689,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  }
  
  // ---------------------------------------------------------------------------
-@@ -303,9 +253,12 @@ impl ManifestReleaseMetadata {
+@@ -303,9 +254,12 @@ impl ManifestReleaseMetadata {
  /// Information about an available update.
  #[derive(Debug, Clone)]
  struct ReleaseInfo {
@@ -66799,17 +66703,16 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      build_id: Option<String>,
      commit: Option<String>,
      #[cfg(not(windows))]
-@@ -314,8 +267,7 @@ struct ReleaseInfo {
-     target_endpoint_generation: Option<u32>,
+@@ -315,7 +269,7 @@ struct ReleaseInfo {
      download_url: String,
      sha256: Option<String>,
--    #[cfg(windows)]
+     #[cfg(windows)]
 -    package_format: String,
 +    asset_format: Option<String>,
      notes_body: String,
  }
  
-@@ -323,30 +275,31 @@ impl ReleaseInfo {
+@@ -323,14 +277,15 @@ impl ReleaseInfo {
      fn label(&self) -> &str {
          &self.identity
      }
@@ -66829,11 +66732,12 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  }
  
  fn fetch_json_manifest<T>(url: &str) -> Result<T, String>
- where
+@@ -338,15 +293,17 @@ where
      T: serde::de::DeserializeOwned,
  {
--    let output = crate::noninteractive_process::curl_command()
-+    let output = crate::noninteractive_process::curl_command().arg("-sfL").arg(url)
+     let output = crate::noninteractive_process::curl_command()
++        .arg("-sfL")
++        .arg(url)
          .args([
 -            "-sfL",
 +            "-H",
@@ -66848,7 +66752,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
          ])
          .output()
          .map_err(|e| format!("curl failed: {e}"))?;
-@@ -359,92 +312,95 @@ where
+@@ -359,92 +316,95 @@ where
          .map_err(|e| format!("failed to parse update manifest JSON: {e}"))
  }
  
@@ -67021,7 +66925,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  }
  
  fn release_info_from_preview_manifest(
-@@ -457,56 +413,48 @@ fn release_info_from_preview_manifest(
+@@ -457,56 +417,48 @@ fn release_info_from_preview_manifest(
          ));
      }
      let build_id = manifest.build_id.trim();
@@ -67100,11 +67004,10 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
          build_id: Some(build_id.to_string()),
          commit: Some(manifest.commit.clone()),
          #[cfg(not(windows))]
-@@ -515,89 +463,101 @@ fn release_info_from_preview_manifest(
-         target_endpoint_generation: manifest.endpoint_generation,
+@@ -516,88 +468,101 @@ fn release_info_from_preview_manifest(
          download_url,
          sha256: asset.sha256.clone(),
--        #[cfg(windows)]
+         #[cfg(windows)]
 -        package_format: asset.package_format()?,
 +        asset_format: asset.format.clone(),
          notes_body,
@@ -67268,44 +67171,45 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  }
  
  // ---------------------------------------------------------------------------
-@@ -642,10 +602,9 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
-     let tmp_path = parent.join(format!(".herdr-update-{}.tmp", std::process::id()));
+@@ -643,9 +608,10 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
  
      // Download the exact asset URL (pinned to the release we checked)
--    let status = crate::noninteractive_process::curl_command()
+     let status = crate::noninteractive_process::curl_command()
 -        .args(["-sfL", "--max-time", "120", "-o"])
-+    let status = crate::noninteractive_process::curl_command().arg("-sfL").arg(&release.download_url)
+-        .arg(&tmp_path)
++        .arg("-sfL")
+         .arg(&release.download_url)
 +        .args(["--max-time", "120", "-o"])
-         .arg(&tmp_path)
--        .arg(&release.download_url)
++        .arg(&tmp_path)
          .status()
          .map_err(|e| format!("download failed: {e}"))?;
  
-@@ -699,105 +658,146 @@ fn install_downloaded_update(mut update: DownloadedUpdate) -> Result<(), String>
+@@ -698,105 +664,149 @@ fn install_downloaded_update(mut update: DownloadedUpdate) -> Result<(), String>
+     Ok(())
  }
  
- #[cfg(windows)]
--const WINDOWS_INSTALLER: &str = include_str!("../distribution/install.ps1");
-+struct DownloadedWindowsInstaller {
-+    root: PathBuf,
-+    path: PathBuf,
-+}
- 
+-pub(crate) const WINDOWS_INSTALLER: &str = include_str!("../distribution/install.ps1");
+-
  #[cfg(windows)]
 -struct DownloadedWindowsUpdate {
 -    package_path: PathBuf,
 -    installer_path: PathBuf,
-+impl Drop for DownloadedWindowsInstaller {
-+    fn drop(&mut self) {
-+        let _ = fs::remove_dir_all(&self.root);
-+    }
++struct DownloadedWindowsInstaller {
++    root: PathBuf,
++    path: PathBuf,
  }
  
  #[cfg(windows)]
 -impl Drop for DownloadedWindowsUpdate {
--    fn drop(&mut self) {
++impl Drop for DownloadedWindowsInstaller {
+     fn drop(&mut self) {
 -        let _ = fs::remove_file(&self.package_path);
 -        let _ = fs::remove_file(&self.installer_path);
++        let _ = fs::remove_dir_all(&self.root);
++    }
++}
++
++#[cfg(windows)]
 +fn create_windows_update_temp_root() -> Result<PathBuf, String> {
 +    let nonce = std::time::SystemTime::now()
 +        .duration_since(std::time::UNIX_EPOCH)
@@ -67347,11 +67251,6 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
 -    };
 -    fs::write(&update.installer_path, WINDOWS_INSTALLER)
 -        .map_err(|err| format!("failed to prepare Windows installer: {err}"))?;
--
--    let status = crate::noninteractive_process::curl_command()
--        .args(["-sfL", "--max-time", "120", "-o"])
--        .arg(&update.package_path)
--        .arg(&release.download_url)
 +        .ok_or("selected Windows update asset has no SHA-256 digest")?;
 +    let root = create_windows_update_temp_root()?;
 +    let release_version = release
@@ -67361,8 +67260,12 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
 +        .ok_or("selected Windows update has no installer asset name")?;
 +    let path = root.join(asset_name);
 +    let download = DownloadedWindowsInstaller { root, path };
-+
-+    let status = crate::noninteractive_process::curl_command().arg("-sfL").arg(&release.download_url)
+ 
+     let status = crate::noninteractive_process::curl_command()
+-        .args(["-sfL", "--max-time", "120", "-o"])
+-        .arg(&update.package_path)
++        .arg("-sfL")
+         .arg(&release.download_url)
 +        .args(["--max-time", "120", "-o"])
 +        .arg(&download.path)
          .status()
@@ -67502,7 +67405,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  }
  
  // ---------------------------------------------------------------------------
-@@ -1373,7 +1373,7 @@ fn runtime_matches_release(status: &crate::api::RuntimeStatus, release: &Release
+@@ -1372,7 +1382,7 @@ fn runtime_matches_release(status: &crate::api::RuntimeStatus, release: &Release
      let protocol_matches = release
          .target_protocol
          .is_none_or(|protocol| status.protocol == Some(protocol));
@@ -67511,7 +67414,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      protocol_matches && version_matches
  }
  
-@@ -1607,7 +1607,7 @@ fn live_handoff_server_via_api_for_release_at(
+@@ -1606,7 +1616,7 @@ fn live_handoff_server_via_api_for_release_at(
      let params = ServerLiveHandoffParams {
          import_exe: Some(updated_exe.display().to_string()),
          expected_protocol: release.target_protocol,
@@ -67520,7 +67423,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      };
  
      send_server_update_method_at(
-@@ -1694,7 +1694,7 @@ fn wait_for_server_handoff_at(
+@@ -1693,7 +1703,7 @@ fn wait_for_server_handoff_at(
          socket_path,
          timeout,
          release.target_protocol,
@@ -67529,7 +67432,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      )
  }
  
-@@ -1886,7 +1886,9 @@ fn print_running_session_update_outcomes(
+@@ -1882,7 +1892,9 @@ fn print_running_session_update_outcomes(
  // ---------------------------------------------------------------------------
  
  pub(crate) fn update_install_command() -> &'static str {
@@ -67540,19 +67443,21 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
          HOMEBREW_UPDATE_COMMAND
      } else if is_mise_managed_install() {
          MISE_UPDATE_COMMAND
-@@ -1902,6 +1904,11 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
+@@ -1898,7 +1910,12 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
          HERDR_UPDATE_COMMAND => {
              "detach, run `herdr update`, then run Herdr again to reconnect".to_string()
          }
+-        HOMEBREW_UPDATE_COMMAND => {
 +        WINGET_UPDATE_COMMAND => {
 +            format!(
 +                "detach, run `{WINGET_UPDATE_COMMAND}`, then restart this Herdr session when ready"
 +            )
 +        }
-         HOMEBREW_UPDATE_COMMAND => {
++        HOMEBREW_UPDATE_COMMAND => {
              "detach, run `brew update && brew upgrade herdr`, then run Herdr again to reconnect"
                  .to_string()
-@@ -1940,40 +1947,25 @@ fn is_mise_managed_install() -> bool {
+         }
+@@ -1936,40 +1953,25 @@ fn is_mise_managed_install() -> bool {
      is_mise_managed_exe_path_following_links(&current_exe)
  }
  
@@ -67609,7 +67514,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      }
  }
  
-@@ -2111,36 +2103,24 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
+@@ -2107,36 +2109,24 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
  
  /// Manual self-update command (`herdr update`).
  pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
@@ -67651,7 +67556,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
          return Err(
              "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Herdr".into(),
          );
-@@ -2150,20 +2130,28 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+@@ -2146,20 +2136,28 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
          return Err("run `herdr update` outside herdr after detaching from the session".into());
      }
  
@@ -67683,7 +67588,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      }
      if let Err(e) = crate::release_notes::save_pending(release.label(), &release.notes_body) {
          tracing::warn!("failed to save pending release notes: {e}");
-@@ -2172,25 +2160,20 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+@@ -2168,25 +2166,20 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
      #[cfg(windows)]
      {
          let _ = options;
@@ -67718,18 +67623,27 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
 -            "Open a new terminal, or reconnect SSH, then start Herdr again to use the updated client. Running servers remain active; restart them later only if you need server-side changes from {}.",
 -            release.label()
 -        );
+         print_saved_machine_update_notice();
      }
  
-     #[cfg(not(windows))]
-@@ -2230,6 +2213,7 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
-     Ok(release.version)
+@@ -2261,7 +2254,7 @@ fn saved_machine_update_notice_lines(
+     ];
+     lines.extend(labels.into_iter().map(|label| format!("  {label}")));
+     lines.push(
+-        "run `herdr update` on each one. it will tell you what to restart there.".to_string(),
++        "For provisioned Windows runtimes, use `herdr --remote <target> --session <session> --provision` from your client. For other installations, run `herdr update` on that machine.".to_string(),
+     );
+     lines
+ }
+@@ -2333,6 +2326,7 @@ fn kept_server_notice_lines(kept: &[KeptServer<'_>], release_label: &str) -> Vec
+     }
  }
  
 +#[cfg(not(windows))]
  fn print_outdated_integration_notice_with_updated_binary(updated_exe: &Path) {
      let status = Command::new(updated_exe)
          .args(["integration", "status", "--outdated-only"])
-@@ -2265,29 +2249,39 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2368,29 +2362,39 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
          return;
      }
  
@@ -67781,7 +67695,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      let release = match check_latest() {
          Ok(Some(r)) => r,
          Ok(None) => return,
-@@ -2297,10 +2291,39 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2400,10 +2404,39 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
          }
      };
  
@@ -67823,7 +67737,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
          release.download_url
      );
  
-@@ -2314,59 +2337,20 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2417,59 +2450,20 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
      );
  
      // Notify the TUI — blocking_send is safe from a std::thread
@@ -67892,7 +67806,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  // ---------------------------------------------------------------------------
  // Helpers
  // ---------------------------------------------------------------------------
-@@ -2397,6 +2381,319 @@ fn platform_target() -> (&'static str, &'static str) {
+@@ -2500,6 +2494,319 @@ fn platform_target() -> (&'static str, &'static str) {
  // Tests
  // ---------------------------------------------------------------------------
  
@@ -68192,7 +68106,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
 +    fn update_install_instruction_distinguishes_install_from_restart() {
 +        assert_eq!(
 +            update_install_instruction(HERDR_UPDATE_COMMAND),
-+            "detach, run `herdr update`, then follow its restart guidance"
++            "detach, run `herdr update`, then run Herdr again to reconnect"
 +        );
 +        assert_eq!(
 +            update_install_instruction(WINGET_UPDATE_COMMAND),
@@ -68200,11 +68114,11 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
 +        );
 +        assert_eq!(
 +            update_install_instruction(HOMEBREW_UPDATE_COMMAND),
-+            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready"
++            "detach, run `brew update && brew upgrade herdr`, then run Herdr again to reconnect"
 +        );
 +        assert_eq!(
 +            update_install_instruction(MISE_UPDATE_COMMAND),
-+            "detach, run `mise upgrade herdr`, then restart this Herdr session when ready"
++            "detach, run `mise upgrade herdr`, then run Herdr again to reconnect"
 +        );
 +    }
 +}
@@ -68212,7 +68126,16 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
  #[cfg(all(test, unix))]
  mod tests {
      use super::*;
-@@ -2470,7 +2767,8 @@ mod tests {
+@@ -2538,7 +2845,7 @@ mod tests {
+                 "your SSH machines run their own herdr and may be older:",
+                 "  rohan",
+                 "  workbox",
+-                "run `herdr update` on each one. it will tell you what to restart there.",
++                "For provisioned Windows runtimes, use `herdr --remote <target> --session <session> --provision` from your client. For other installations, run `herdr update` on that machine.",
+             ]
+         );
+     }
+@@ -2670,7 +2977,8 @@ mod tests {
          ReleaseInfo {
              version: Version::parse(version).unwrap(),
              identity: version.to_string(),
@@ -68222,15 +68145,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
              build_id: None,
              commit: None,
              target_protocol,
-@@ -2479,6 +2777,7 @@ mod tests {
-             ),
-             download_url: "https://example.com/herdr".to_string(),
-             sha256: None,
-+            asset_format: None,
-             notes_body: "### Changed\n- One".to_string(),
-         }
-     }
-@@ -2666,22 +2965,6 @@ mod tests {
+@@ -2866,22 +3174,6 @@ mod tests {
          assert!(is_package_manager_managed_exe_path(path));
      }
  
@@ -68253,7 +68168,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      #[test]
      fn non_nix_store_path_is_not_detected() {
          let path = Path::new("/usr/local/bin/herdr");
-@@ -2689,85 +2972,6 @@ mod tests {
+@@ -2889,85 +3181,6 @@ mod tests {
          assert!(!is_nix_store_exe_path(path));
      }
  
@@ -68339,7 +68254,15 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
      #[test]
      fn fake_release_notes_default_to_real_large_changelog_section() {
          let _guard = env_lock().lock().unwrap();
-@@ -3119,7 +3323,8 @@ mod tests {
+@@ -3044,6 +3257,7 @@ mod tests {
+     fn update_requires_server_restart_only_without_the_endpoint_baseline() {
+         let release = fake_release("0.5.6", Some(4));
+         let compatible = crate::api::RuntimeStatus {
++            binary: None,
+             version: Some("0.5.5".to_string()),
+             protocol: Some(2),
+             capabilities: Some(crate::api::schema::ServerCapabilities {
+@@ -3321,7 +3535,8 @@ mod tests {
          let release = ReleaseInfo {
              version: Version::parse("0.5.6").unwrap(),
              identity: "0.5.6".to_string(),
@@ -68349,15 +68272,15 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
              build_id: None,
              commit: None,
              target_protocol: Some(3),
-@@ -3128,6 +3333,7 @@ mod tests {
-             ),
-             download_url: "https://example.com/herdr".to_string(),
-             sha256: None,
-+            asset_format: None,
-             notes_body: "### Changed\n- One".to_string(),
-         };
-         let plan = RunningServerUpdatePlan {
-@@ -3303,7 +3509,8 @@ mod tests {
+@@ -3380,6 +3595,7 @@ mod tests {
+             },
+             requires_server_restart: false,
+             server: crate::api::RuntimeStatus {
++                binary: None,
+                 version: Some("9.8.6".to_string()),
+                 protocol: Some(76),
+                 capabilities: Some(crate::api::schema::ServerCapabilities {
+@@ -3506,7 +3722,8 @@ mod tests {
          let release = ReleaseInfo {
              version: Version::parse("9.8.7").unwrap(),
              identity: "9.8.7".to_string(),
@@ -68367,15 +68290,7 @@ index 454e45975cd848389ba8ae7801ceee9491c0eaf0..d30018920043c1fdb4c1710d18015673
              build_id: None,
              commit: None,
              target_protocol: Some(77),
-@@ -3312,6 +3519,7 @@ mod tests {
-             ),
-             download_url: "https://example.com/herdr".to_string(),
-             sha256: None,
-+            asset_format: None,
-             notes_body: "### Changed\n- One".to_string(),
-         };
- 
-@@ -3414,407 +3622,4 @@ mod tests {
+@@ -3617,407 +3834,4 @@ mod tests {
          assert!(os == "linux" || os == "macos", "os: {os}");
          assert!(arch == "x86_64" || arch == "aarch64", "arch: {arch}");
      }
@@ -68820,7 +68735,7 @@ index 91dab149a2ecdb929407d9b6fe443550c0b1b49b..adc50d9ac952578ab585d9951bbdc1c8
  };
  use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 diff --git a/tests/cli/sessions.rs b/tests/cli/sessions.rs
-index 8e5fc48f66732dd4b4f678d97e6d38816710ef30..6f9daefb79855e0d0c30df714859ba913da0da71 100644
+index 66232ce2b766356145fb777ba253f2ecd1854e76..2148dc21d01c5030e17e14bd76188f695f2ae895 100644
 --- a/tests/cli/sessions.rs
 +++ b/tests/cli/sessions.rs
 @@ -375,6 +375,7 @@ fn status_commands_report_client_and_server_versions() {
@@ -68871,9 +68786,9 @@ index 8e5fc48f66732dd4b4f678d97e6d38816710ef30..6f9daefb79855e0d0c30df714859ba91
 +    );
 +    assert_eq!(full_json["client"]["protocol"], CURRENT_PROTOCOL);
      assert_eq!(full_json["client"]["endpoint_protocol_generation"], 1);
+     assert_eq!(full_json["client"]["remote_host_bridge"], true);
      assert_eq!(full_json["server"]["status"], "running");
-     assert_eq!(full_json["server"]["running"], true);
-@@ -473,14 +478,15 @@ fn status_commands_report_client_and_server_versions() {
+@@ -474,14 +479,15 @@ fn status_commands_report_client_and_server_versions() {
  
      let server_json = run_cli_json(&socket_path, &["status", "server", "--json"]);
      assert_eq!(server_json["status"], "running");
@@ -68891,10 +68806,10 @@ index 8e5fc48f66732dd4b4f678d97e6d38816710ef30..6f9daefb79855e0d0c30df714859ba91
 +    assert_eq!(client_json["herdr_version"], env!("CARGO_PKG_VERSION"));
 +    assert_eq!(client_json["protocol"], CURRENT_PROTOCOL);
      assert_eq!(client_json["endpoint_protocol_generation"], 1);
+     assert_eq!(client_json["remote_host_bridge"], true);
      assert!(client_json["binary"]
-         .as_str()
 diff --git a/tests/support/mod.rs b/tests/support/mod.rs
-index b2dae4bec26299a1b1f402295db89cb52248cbec..622047b8e768079b7df39540dbc6840220a7d930 100644
+index cc29afe9a99acb3bbf922d87a2255e92c0014fb0..7a5c90077554f1e663e68fc4e349806fe20f2ba2 100644
 --- a/tests/support/mod.rs
 +++ b/tests/support/mod.rs
 @@ -13,6 +13,20 @@ static INIT: Once = Once::new();
@@ -68919,5 +68834,5 @@ index b2dae4bec26299a1b1f402295db89cb52248cbec..622047b8e768079b7df39540dbc68402
  pub const CURRENT_ENDPOINT_PROTOCOL_GENERATION: u32 = 1;
  pub const SERVER_MESSAGE_SERVER_SHUTDOWN: u32 = 3;
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

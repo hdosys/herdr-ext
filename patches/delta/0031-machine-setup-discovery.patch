@@ -1,7 +1,7 @@
-From ac466a136af7bd52e579f524d6ad1f7206be0d71 Mon Sep 17 00:00:00 2001
+From 02bd7edf2402975564e48f8cd25674fdef9e9adc Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 10 Sep 2026 16:13:05 +0200
-Subject: [PATCH 26/30] feat(client): surface machine setup in menu
+Subject: [PATCH 18/22] feat(client): surface machine setup in menu
 
 ---
  src/client/shell/global_menu.rs            |  7 +++++++
@@ -42,10 +42,10 @@ index e5bd6f78b43a4ef305b590f2d7c53a4ad97970a8..e27df8419c18b5facf74c8557cad1029
          }
          outcome.repaint = true;
 diff --git a/src/client/shell/tests/chrome_context.rs b/src/client/shell/tests/chrome_context.rs
-index 5747bb971de468da46fba5af5febd064caef060a..4c5263a1585b43eda32b82e53a601d2a5ee8a398 100644
+index ed21bc8a7456325a808b56f1654776b5fbd89e40..9772cd3d0c4a057925bd833db58102b9c84e7142 100644
 --- a/src/client/shell/tests/chrome_context.rs
 +++ b/src/client/shell/tests/chrome_context.rs
-@@ -309,6 +309,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
+@@ -407,6 +407,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
      assert!(text.contains("settings"));
      assert!(text.contains("keybinds"));
      assert!(text.contains("reload config"));
@@ -53,7 +53,7 @@ index 5747bb971de468da46fba5af5febd064caef060a..4c5263a1585b43eda32b82e53a601d2a
      assert!(text.contains("detach"));
  
      let keybinds = state.hits.global_menu_rows[1].0;
-@@ -324,6 +325,16 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
+@@ -422,6 +423,16 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
      state.overlay = Some(ClientShellOverlay::GlobalMenu(ClientGlobalMenuOverlay {
          highlighted: 3,
      }));
@@ -93,5 +93,5 @@ index 7107aa713db59876189d6b3195477ce5bdfdf235..9fc3008a51a374ced117701ec941d009
      let bottom_row_start = usize::from(notes.width) * usize::from(notes.height - 1);
      let bottom_row = notes.cells[bottom_row_start..]
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

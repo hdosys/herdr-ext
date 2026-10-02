@@ -1,7 +1,7 @@
-From 2c805dcfb32a0dba6ef2431fee28a245c5586d91 Mon Sep 17 00:00:00 2001
+From 514ff770f8901772123ad2da5f21bf06e31ee4de Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:50:01 +0200
-Subject: [PATCH 24/30] fix(client): preserve Local startup errors during saved
+Subject: [PATCH 17/22] fix(client): preserve Local startup errors during saved
  federation
 
 Validate running Local endpoints even with saved machines enabled. Retain startup/connect/handshake diagnostics in transient startup data and the existing notice owner, keep Local notices visible across projection changes, and never freeze healthy remote presentation for a Local attention event. Preserve normal restored selection and standalone failure.
@@ -13,21 +13,21 @@ Refs herdrdev/herdr#3759.
  .../docs/zh-cn/connecting-machines.mdx        |  2 +
  src/client/endpoint/registry.rs               | 35 ++++++++
  src/client/loop_config.rs                     |  1 +
- src/client/mod.rs                             | 49 ++++++-----
- src/client/shell/actions.rs                   | 19 +++++
+ src/client/mod.rs                             | 47 ++++++----
+ src/client/shell/actions.rs                   | 19 ++++
  src/client/shell/endpoint_notices.rs          |  6 +-
  src/client/shell/state.rs                     |  6 +-
  src/client/shell/tests/endpoints.rs           | 55 ++++++++++++
- src/client/startup.rs                         | 56 ++++++++++++-
+ src/client/startup.rs                         | 56 +++++++++++-
  src/main.rs                                   |  2 +-
- src/server/autodetect.rs                      | 84 +++++++++++++++----
- 13 files changed, 276 insertions(+), 43 deletions(-)
+ src/server/autodetect.rs                      | 86 +++++++++++++++----
+ 13 files changed, 277 insertions(+), 42 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/connecting-machines.mdx b/docs/next/website/src/content/docs/connecting-machines.mdx
-index 2d78eb8c2053d8217f90995864a38fff0477e484..273d1bcbedf5d8eabfc9e1420d9bd4ac52f4daf6 100644
+index 824f78573456e44322daef1a6cfe3fc124c1e9c2..8161e545347651fc6d3471b6bebad4187f3a13b0 100644
 --- a/docs/next/website/src/content/docs/connecting-machines.mdx
 +++ b/docs/next/website/src/content/docs/connecting-machines.mdx
-@@ -71,6 +71,8 @@ Renaming changes the displayed label without reconnecting. Disabling keeps the p
+@@ -85,6 +85,8 @@ Renaming changes the displayed label without reconnecting. Disabling keeps the p
  
  Removing or disabling the machine you are viewing returns you to Local. If Local is unavailable, Herdr shows that and retries its connection instead of selecting a different remote machine. With enabled saved machines, the client can remain usable even if Local fails or restarts.
  
@@ -35,12 +35,12 @@ index 2d78eb8c2053d8217f90995864a38fff0477e484..273d1bcbedf5d8eabfc9e1420d9bd4ac
 +
  ## Connection problems
  
- - **Reconnecting:** Herdr retries with bounded backoff after a network interruption, sleep, or SSH failure. SSH connections are checked for application-level activity and probed when quiet, so a broken connection does not stay Online indefinitely. Local detects native connection closure or failure instead of using remote health probes.
+ - **Reconnecting:** Herdr retries automatically after a network interruption, sleep, or SSH failure. Repeated failures increase the delay up to two minutes; brief successful connections do not reset it. A connection must remain healthy for a minute before the next interruption gets a fast retry. SSH connections are checked for application-level activity and probed when quiet, so a broken connection does not stay Online indefinitely. Local detects native connection closure or failure instead of using remote health probes.
 diff --git a/docs/next/website/src/content/docs/ja/connecting-machines.mdx b/docs/next/website/src/content/docs/ja/connecting-machines.mdx
-index a7539eb6e04f3853890f7fbe8d67f186e2e8d2e5..7a351de374f432b6f7cf13f445ed3f9b30efb66f 100644
+index 5dcb6e971b840b19463b9dd7f62c08c08b4d6d4f..f494ed3d1fb3e8e454eb947a8c95ea8aa726f213 100644
 --- a/docs/next/website/src/content/docs/ja/connecting-machines.mdx
 +++ b/docs/next/website/src/content/docs/ja/connecting-machines.mdx
-@@ -65,6 +65,8 @@ herdr machine remove <profile-id>
+@@ -85,6 +85,8 @@ herdr machine remove <profile-id>
  
  表示中のマシンを削除または無効化すると Local に戻ります。Local が利用できない場合は、別のリモートを選ばず、その状態を表示して再接続します。有効な保存済みマシンがあれば、Local が失敗または再起動してもクライアントを使い続けられます。
  
@@ -48,12 +48,12 @@ index a7539eb6e04f3853890f7fbe8d67f186e2e8d2e5..7a351de374f432b6f7cf13f445ed3f9b
 +
  ## 接続の問題
  
- - **Reconnecting:** ネットワーク中断、スリープ、SSH 障害の後は、上限のある待機間隔で再試行します。SSH 接続はアプリケーションの通信を監視し、通信がない間はヘルスチェックを行うため、切れた接続が Online のままになりません。Local はリモート用のプローブではなく、ネイティブ接続の終了や失敗を検知します。
+ - **Reconnecting:** ネットワーク中断、スリープ、SSH 障害の後は自動で再試行します。失敗が続くと待機間隔は最大 2 分まで延び、短時間だけ接続に成功してもリセットされません。1 分間安定して接続できると、次の中断では再び短い間隔で再試行します。SSH 接続はアプリケーションの通信を監視し、通信がない間はヘルスチェックを行うため、切れた接続が Online のままになりません。Local はリモート用のプローブではなく、ネイティブ接続の終了や失敗を検知します。
 diff --git a/docs/next/website/src/content/docs/zh-cn/connecting-machines.mdx b/docs/next/website/src/content/docs/zh-cn/connecting-machines.mdx
-index 8abea9633768865e806d97475254643144dd1d45..e841b10de74f68394ceb4baa8d30c83422bf94dc 100644
+index 7185f8742950e347313cf83f5f0e2324b00b5921..ae28677bfc18cd2e57ce91b0f0c3d4008704454d 100644
 --- a/docs/next/website/src/content/docs/zh-cn/connecting-machines.mdx
 +++ b/docs/next/website/src/content/docs/zh-cn/connecting-machines.mdx
-@@ -65,6 +65,8 @@ herdr machine remove <profile-id>
+@@ -85,6 +85,8 @@ herdr machine remove <profile-id>
  
  移除或禁用正在查看的机器会返回 Local。如果 Local 不可用，Herdr 会显示该状态并重试连接，而不是选择其他远程机器。有已启用的保存机器时，即使 Local 失败或重启，客户端仍可继续使用。
  
@@ -61,7 +61,7 @@ index 8abea9633768865e806d97475254643144dd1d45..e841b10de74f68394ceb4baa8d30c834
 +
  ## 连接问题
  
- - **Reconnecting：** 网络中断、睡眠或 SSH 故障后，Herdr 会以有上限的退避间隔重试。SSH 连接会监测应用层活动并在空闲时探测，避免已断开的连接一直显示 Online。Local 使用本地连接关闭或失败来判断断线，而不是远程健康探测。
+ - **Reconnecting：** 网络中断、睡眠或 SSH 故障后，Herdr 会自动重试。连续失败会将间隔增加到最多两分钟，短暂连接成功不会重置间隔。连接稳定一分钟后，下一次中断才会恢复快速重试。SSH 连接会监测应用层活动并在空闲时探测，避免已断开的连接一直显示 Online。Local 使用本地连接关闭或失败来判断断线，而不是远程健康探测。
 diff --git a/src/client/endpoint/registry.rs b/src/client/endpoint/registry.rs
 index 437f39f37f6b90930e9e56a38dcc1e92c39b7fbf..2eb4302ac9618842667864ed85339d4d1d5c56ff 100644
 --- a/src/client/endpoint/registry.rs
@@ -109,7 +109,7 @@ index 437f39f37f6b90930e9e56a38dcc1e92c39b7fbf..2eb4302ac9618842667864ed85339d4d
      fn negotiated_remote_health_probe_expires_the_connection() {
          let mut registry = EndpointRegistry::new(
 diff --git a/src/client/loop_config.rs b/src/client/loop_config.rs
-index 53ef9f389241249eeb7e8e7d886b7b3ec3a5cf17..e9aa7aed63f4293f6c0ae68b2dd813cd32bde978 100644
+index 97979bbfa2825c400089329c5c04ab11bfdd16b8..f046f1d1d96e87c319f5071ac097fe3bba32b938 100644
 --- a/src/client/loop_config.rs
 +++ b/src/client/loop_config.rs
 @@ -1,6 +1,7 @@
@@ -121,10 +121,10 @@ index 53ef9f389241249eeb7e8e7d886b7b3ec3a5cf17..e9aa7aed63f4293f6c0ae68b2dd813cd
      pub(super) mouse_scroll_lines: usize,
      pub(super) redraw_on_focus_gained: bool,
 diff --git a/src/client/mod.rs b/src/client/mod.rs
-index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d2876eac1 100644
+index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062ccce55096 100644
 --- a/src/client/mod.rs
 +++ b/src/client/mod.rs
-@@ -52,6 +52,7 @@ use transport::*;
+@@ -57,6 +57,7 @@ use transport::*;
  
  #[cfg(test)]
  pub(crate) use shell::{ClientShellConfig, ClientShellState};
@@ -132,7 +132,7 @@ index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d
  pub use startup::{run_client, run_terminal_attach};
  pub use terminal_sessions::{run_terminal_session_control, run_terminal_session_observe};
  
-@@ -138,6 +139,7 @@ fn run_client_with_mode(
+@@ -159,6 +160,7 @@ fn run_client_with_mode(
      attach_request: Option<(String, bool)>,
      attach_escape: Option<AttachEscapeState>,
      log_message: &'static str,
@@ -140,17 +140,15 @@ index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d
  ) -> io::Result<()> {
      init_logging();
  
-@@ -170,7 +172,8 @@ fn run_client_with_mode(
-     let endpoint_keybindings = shell_config
+@@ -196,6 +198,7 @@ fn run_client_with_mode(
          .as_ref()
          .is_some_and(shell::ClientShellConfig::uses_endpoint_keybindings);
--    let loop_config = ClientLoopConfig {
-+    let mut loop_config = ClientLoopConfig {
+     let mut loop_config = ClientLoopConfig {
 +        local_startup_error: None,
          sound_config: loaded_config.config.ui.sound,
          mouse_scroll_lines,
          redraw_on_focus_gained,
-@@ -197,17 +200,21 @@ fn run_client_with_mode(
+@@ -224,17 +227,21 @@ fn run_client_with_mode(
      };
      let federated = endpoint_catalog.has_enabled_ssh();
  
@@ -182,7 +180,7 @@ index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d
      };
  
      // Get the terminal geometry before handshake (before raw mode).
-@@ -258,14 +265,9 @@ fn run_client_with_mode(
+@@ -286,14 +293,9 @@ fn run_client_with_mode(
              Ok((stream, handshake))
          })
          .transpose();
@@ -200,7 +198,7 @@ index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d
  
      // The federated shell can show connection notices without any server snapshot.
      let direct_attach = attach_escape.is_some();
-@@ -424,6 +426,9 @@ async fn run_client_loop(
+@@ -498,6 +500,9 @@ async fn run_client_loop(
                  endpoint::ClientEndpointStatus::Connecting,
              );
          }
@@ -210,10 +208,10 @@ index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d
      }
      let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
      // Cell size reported by the host terminal, packed as width<<32 | height.
-@@ -1150,6 +1155,12 @@ async fn run_client_loop(
-                     }
+@@ -1289,6 +1294,12 @@ async fn run_client_loop(
                      let unavailable = state.shell.as_mut().and_then(|shell| {
                          shell.set_endpoint_status(&endpoint_id, status);
+                         shell.set_machine_diagnostic(&endpoint_id, message.clone());
 +                        if status == endpoint::ClientEndpointStatus::Attention
 +                            && endpoint_id.is_local()
 +                        {
@@ -224,10 +222,10 @@ index d08ed5ea833126bb53a092c321bb23921cbbb922..a358d3e09728d42477cf596fb629134d
                              && shell.endpoint_is_active(&endpoint_id))
                          .then(|| format!("{}: {message}", shell.endpoint_label(&endpoint_id)))
 diff --git a/src/client/shell/actions.rs b/src/client/shell/actions.rs
-index 119988f611568cf13ce3bbb5f067c7fd11b82495..ef9e5475987a649d5362d2c3ad1f60a17397ba6a 100644
+index 6df3721154fecc63dd64ddf9afaa699605fb1ea4..ea255fafcd62286738f65f61f4281b23d85c8cb2 100644
 --- a/src/client/shell/actions.rs
 +++ b/src/client/shell/actions.rs
-@@ -472,6 +472,25 @@ impl ClientShellState {
+@@ -488,6 +488,25 @@ impl ClientShellState {
          )
      }
  
@@ -271,10 +269,10 @@ index e796d2c557e505b85c7b734b3aafcb3b55f246d9..c23d294d493cfa07261136e66864d2b4
          palette,
      )
 diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
-index 6a8990beaf79c7cbb9c27596d9d55cc4e9b94319..47b5d9b3d8fcaf3e6fd4851265d654c379e6a11d 100644
+index 85ae6cd7c425428a3b1eec907aea6f7e12190f94..fafb38bcdf0e5a5ced1794be4d58e9cbc1ddf8ff 100644
 --- a/src/client/shell/state.rs
 +++ b/src/client/shell/state.rs
-@@ -737,6 +737,7 @@ pub(super) enum ClientEndpointNoticeKind {
+@@ -691,6 +691,7 @@ pub(super) enum ClientEndpointNoticeKind {
      Rejected,
      Timeout,
      Unavailable,
@@ -282,7 +280,7 @@ index 6a8990beaf79c7cbb9c27596d9d55cc4e9b94319..47b5d9b3d8fcaf3e6fd4851265d654c3
  }
  
  #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-@@ -1295,7 +1296,10 @@ impl ClientShellState {
+@@ -1272,7 +1273,10 @@ impl ClientShellState {
          self.popup_pending_deadline = None;
          self.pending_integration_installs = 0;
          self.endpoint_notice_seen.clear();
@@ -292,13 +290,13 @@ index 6a8990beaf79c7cbb9c27596d9d55cc4e9b94319..47b5d9b3d8fcaf3e6fd4851265d654c3
 +                && notice.deadline > std::time::Instant::now()
 +        });
          self.endpoint_error = None;
+         self.endpoint_error_deadline = None;
          self.navigate_workspace_id = None;
-         self.overlay = self
 diff --git a/src/client/shell/tests/endpoints.rs b/src/client/shell/tests/endpoints.rs
-index e425b794bbb84d6d37b0466643105ddb452352df..71f2458fe2b134ae8a22a3eacd9f18e3cc255d88 100644
+index f327f8c1668e99c56ef02d32be9b24ccc2ee16ed..e287540ca2d2f2cc314ea7181d730ad92710b837 100644
 --- a/src/client/shell/tests/endpoints.rs
 +++ b/src/client/shell/tests/endpoints.rs
-@@ -198,6 +198,61 @@ fn machine_navigation_does_not_require_a_local_snapshot_or_surface() {
+@@ -543,6 +543,61 @@ fn machine_navigation_does_not_require_a_local_snapshot_or_surface() {
      }
  }
  
@@ -435,10 +433,10 @@ index 40ee2cc8e82b58f8ab5ed94cc97232aa126d8060..be389167f24537d59bdb78cbd5eb1a24
  }
  
 diff --git a/src/main.rs b/src/main.rs
-index bd1842ee807dab1a0909211f94b48a631e5663cd..cd870f070e64f7c3b3a0a8593ddfc4a6b666c605 100644
+index 32725bc1a22229451cedc485b0714fb99c5c0749..1ef199a58938445365957ca78ad254d55ad04916 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -598,7 +598,7 @@ fn main() -> io::Result<()> {
+@@ -620,7 +620,7 @@ fn main() -> io::Result<()> {
      if args.get(1).map(|s| s.as_str()) == Some("client") {
          let loaded_config = config::Config::load();
          exit_if_nested_disabled(&loaded_config.config);
@@ -448,10 +446,18 @@ index bd1842ee807dab1a0909211f94b48a631e5663cd..cd870f070e64f7c3b3a0a8593ddfc4a6
  
      if args.get(1).map(|s| s.as_str()) == Some("update") {
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
-index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa149142fb 100644
+index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad20342a64912b 100644
 --- a/src/server/autodetect.rs
 +++ b/src/server/autodetect.rs
-@@ -191,8 +191,11 @@ fn client_protocol_welcome_is_ready(
+@@ -23,6 +23,7 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
+ const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
+ 
+ /// Maximum time one Windows readiness connection may wait for Welcome.
++#[cfg(windows)]
+ const CLIENT_PROTOCOL_READINESS_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(250);
+ 
+ /// Timeout for checking the stable JSON API before attaching to the binary protocol socket.
+@@ -194,8 +195,11 @@ fn client_protocol_welcome_is_ready(
      }
  }
  
@@ -465,7 +471,7 @@ index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa
          return Err(io::Error::other(format!(
              "a herdr server is listening, but its status API is unavailable.\n\n{}\nIf that fails, stop the old server process manually.",
              crate::session::active_restart_after_update_guidance()
-@@ -266,7 +269,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
+@@ -269,7 +273,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
  pub fn start_server_daemon_with_exe(exe: PathBuf) -> io::Result<()> {
      let socket_path = client_socket_path();
      if is_server_listening_at(&socket_path) {
@@ -474,7 +480,7 @@ index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa
          return Ok(());
      }
      let mut command = build_server_daemon_command(exe);
-@@ -367,31 +370,76 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
+@@ -378,31 +382,77 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
  
      let startup = if is_server_listening_at(&socket_path) {
          info!("server already running, attaching as client");
@@ -530,6 +536,7 @@ index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa
 +                ),
 +                surface_interest: true,
 +                health_check: true,
++                ssh_agent_registration: false,
 +            }),
 +        };
 +        assert!(validate_running_server_compatibility(Some(status.clone()), true).is_ok());
@@ -563,7 +570,7 @@ index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa
  #[cfg(all(test, windows))]
  mod windows_tests {
      #[test]
-@@ -682,7 +730,8 @@ test "$sid" = "$$"
+@@ -694,7 +744,8 @@ test "$sid" = "$$"
          let path = dir.join("api.sock");
          std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &path);
  
@@ -573,7 +580,7 @@ index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa
  
          assert!(
              err.to_string().contains("status API is unavailable"),
-@@ -718,7 +767,8 @@ test "$sid" = "$$"
+@@ -730,7 +781,8 @@ test "$sid" = "$$"
              stream.flush().unwrap();
          });
  
@@ -584,5 +591,5 @@ index d188f550e1ebf00cd3966d3b3c9fa1daf3b38ca9..e49430e3cf12d17a44d90c27c884e4fa
  
          let _ = handle.join();
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

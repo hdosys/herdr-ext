@@ -1,143 +1,24 @@
-From 56fc66564766f2daa4be6d8ee27715c3e33f349e Mon Sep 17 00:00:00 2001
+From 559a0e78c0ce57a2af54f3fd566618dadd332b00 Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:49:19 +0200
-Subject: [PATCH 21/30] fix(focus): project successful public agent focus to
+Subject: [PATCH 15/22] fix(focus): project successful public agent focus to
  clients
 
 Backport herdrdev/herdr@ec338ce01a1e8fa5217c0cfd46fcfb83d93257f2. Resolve the agent after pending events, use the shared public-focus path, and keep failed requests local to their error result.
 
 Refs herdrdev/herdr#3764, herdrdev/herdr#3760.
 ---
- src/server/headless/client_views.rs |  34 ++++++--
- src/server/headless/tests/mod.rs    | 128 ++++++++++++++++++++++++++++
- 2 files changed, 155 insertions(+), 7 deletions(-)
+ src/server/headless/tests/mod.rs | 35 ++++++++++++++++++++++++++++++--
+ 1 file changed, 33 insertions(+), 2 deletions(-)
 
-diff --git a/src/server/headless/client_views.rs b/src/server/headless/client_views.rs
-index 2257a05ea960aecfa0970b22ffaa7593a85a2e42..1fd0a2f660614deb1d07fbc9c1bb1bb9beda8fa4 100644
---- a/src/server/headless/client_views.rs
-+++ b/src/server/headless/client_views.rs
-@@ -248,7 +248,8 @@ impl HeadlessServer {
- 
-         matches!(
-             method,
--            Method::CommandInvoke(_)
-+            Method::AgentFocus(_)
-+                | Method::CommandInvoke(_)
-                 | Method::LayoutSetSplitRatio(_)
-                 | Method::PaneClose(_)
-                 | Method::PaneCopyMotion(_)
-@@ -286,7 +287,8 @@ impl HeadlessServer {
- 
-         matches!(
-             method,
--            Method::CommandInvoke(_)
-+            Method::AgentFocus(_)
-+                | Method::CommandInvoke(_)
-                 | Method::LayoutSetSplitRatio(_)
-                 | Method::PaneClose(_)
-                 | Method::PaneEditScrollback(_)
-@@ -839,6 +841,10 @@ impl HeadlessServer {
-                 }),
-             _ => None,
-         };
-+        let agent_focus_target = match &msg.request.method {
-+            api::schema::Method::AgentFocus(params) => Some(params.target.clone()),
-+            _ => None,
-+        };
-         let create_focus_requested = match &msg.request.method {
-             api::schema::Method::WorkspaceCreate(params) => params.focus,
-             api::schema::Method::TabCreate(params) => params.focus,
-@@ -848,19 +854,33 @@ impl HeadlessServer {
-             &msg.request.method,
-             api::schema::Method::WorktreeOpen(params) if params.focus
-         );
--        let response_proxy = inspect_worktree_open.then(|| {
-+        let response_proxy = (agent_focus_target.is_some() || inspect_worktree_open).then(|| {
-             let (proxy_tx, proxy_rx) = std::sync::mpsc::channel();
-             let original = std::mem::replace(&mut msg.respond_to, proxy_tx);
-             (original, proxy_rx)
-         });
-         let reconcile = Self::shell_locations_may_need_reconcile(&msg.request.method);
-         let changed = self.handle_api_request_with_shutdown_check_inner(msg, false);
--        let worktree_open_succeeded = forward_proxied_api_response(response_proxy);
-+        let proxied_request_succeeded = forward_proxied_api_response(response_proxy);
-+        let successful_agent_focus_target = proxied_request_succeeded
-+            .then(|| {
-+                agent_focus_target.as_deref().and_then(|target| {
-+                    self.app.resolve_agent_target(target).ok().map(|resolved| {
-+                        crate::ui::TabSurfaceTarget {
-+                            workspace_index: resolved.ws_idx,
-+                            tab_index: resolved.tab_idx,
-+                        }
-+                    })
-+                })
-+            })
-+            .flatten();
-         let target_changed = self.default_shell_target() != target_before;
--        let public_focus_succeeded = explicit_public_focus_target
--            .is_some_and(|target| self.default_shell_target() == Some(target))
-+        let explicit_focus_succeeded = successful_agent_focus_target
-+            .or(explicit_public_focus_target)
-+            .is_some_and(|target| self.default_shell_target() == Some(target));
-+        let public_focus_succeeded = explicit_focus_succeeded
-             || (create_focus_requested && target_changed)
--            || worktree_open_succeeded;
-+            || (inspect_worktree_open && proxied_request_succeeded);
-         if public_focus_succeeded {
-             self.focus_all_shell_clients_on_default_target();
-         }
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index d844e3c09bca7e68d5b2db3d2d7afd39eaea64b1..de33945b7dc6d181df5c7de8faea6f40815284fd 100644
+index 7f92d86a8846c40d88d3849cffbd633de42abc03..0e3a6c5e6227ec2998f16ae2a698f4d92d532a71 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
-@@ -2076,6 +2076,134 @@ async fn public_workspace_focus_preserves_each_clients_remembered_tabs() {
-     shutdown_test_runtimes(&mut server);
- }
+@@ -2823,6 +2823,33 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
+     let diverged_surface = recv_pane_surface(&render_rx, "diverged surface");
+     assert!(frame_text(&diverged_surface.frame).contains("SECOND_WORKSPACE"));
  
-+#[tokio::test]
-+async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
-+    let mut server = test_headless_server();
-+    let mut first = crate::workspace::Workspace::test_new("first");
-+    let first_pane = first.tabs[0].root_pane;
-+    first.insert_test_runtime(
-+        first_pane,
-+        crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"FIRST_AGENT"),
-+    );
-+    let mut second = crate::workspace::Workspace::test_new("second");
-+    let second_pane = second.tabs[0].root_pane;
-+    second.insert_test_runtime(
-+        second_pane,
-+        crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"SECOND_WORKSPACE"),
-+    );
-+    server.app.state.workspaces = vec![first, second];
-+    server.app.state.ensure_test_terminals();
-+    server.app.state.active = Some(0);
-+    server.app.state.selected = 0;
-+    server.app.state.mode = crate::app::Mode::Terminal;
-+    let first_workspace_id = server.app.public_workspace_id(0);
-+    let first_tab_id = server.app.public_tab_id(0, 0).unwrap();
-+    let first_pane_id = server.app.public_pane_id(0, first_pane).unwrap();
-+    let second_tab_id = server.app.public_tab_id(1, 0).unwrap();
-+
-+    let (control_rx, render_rx) = connect_test_shell(&mut server, 9, 80, 23);
-+    let _ = control_rx
-+        .recv_timeout(Duration::from_secs(2))
-+        .expect("initial snapshot");
-+    assert!(server.focus_shell_client_on_tab(9, &second_tab_id));
-+    assert!(server.claim_shell_tab_geometry(9, false));
-+    server.render_and_stream();
-+    let diverged = client_shell_snapshot(read_server_message(
-+        control_rx
-+            .recv_timeout(Duration::from_secs(2))
-+            .expect("diverged snapshot"),
-+    ));
-+    assert_eq!(
-+        diverged.focused_workspace_id.as_deref(),
-+        Some(server.app.public_workspace_id(1).as_str())
-+    );
-+    let diverged_surface = recv_pane_surface(&render_rx, "diverged surface");
-+    assert!(frame_text(&diverged_surface.frame).contains("SECOND_WORKSPACE"));
-+
 +    let (respond_to, failed_response) = std::sync::mpsc::channel();
 +    server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
 +        request: crate::api::schema::Request {
@@ -148,7 +29,6 @@ index d844e3c09bca7e68d5b2db3d2d7afd39eaea64b1..de33945b7dc6d181df5c7de8faea6f40
 +        },
 +        respond_to,
 +        response_write_complete: None,
-+        stream_active: None,
 +    });
 +    let failed: serde_json::Value = serde_json::from_str(
 +        &failed_response
@@ -166,65 +46,24 @@ index d844e3c09bca7e68d5b2db3d2d7afd39eaea64b1..de33945b7dc6d181df5c7de8faea6f40
 +        Some(second_tab_id.as_str())
 +    );
 +
-+    server
-+        .app
-+        .event_tx
-+        .try_send(AppEvent::AgentProcessDetected {
-+            pane_id: first_pane,
-+            agent: crate::detect::Agent::Claude,
-+            observed_at: Instant::now(),
-+        })
-+        .unwrap();
-+    let (respond_to, response_rx) = std::sync::mpsc::channel();
-+    server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
-+        request: crate::api::schema::Request {
-+            id: "focus-first-agent".into(),
-+            method: crate::api::schema::Method::AgentFocus(crate::api::schema::AgentTarget {
-+                target: first_pane_id.clone(),
-+            }),
-+        },
-+        respond_to,
-+        response_write_complete: None,
-+        stream_active: None,
-+    });
+     server
+         .app
+         .event_tx
+@@ -2843,8 +2870,12 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
+         respond_to,
+         response_write_complete: None,
+     });
+-    let response: crate::api::schema::SuccessResponse =
+-        serde_json::from_str(&response_rx.recv().expect("agent focus response")).unwrap();
 +    let response: crate::api::schema::SuccessResponse = serde_json::from_str(
 +        &response_rx
 +            .recv_timeout(Duration::from_secs(2))
 +            .expect("agent focus response"),
 +    )
 +    .unwrap();
-+    let crate::api::schema::ResponseResult::AgentInfo { agent } = response.result else {
-+        panic!("expected agent info");
-+    };
-+    assert_eq!(agent.pane_id, first_pane_id);
-+    assert!(agent.focused);
-+    assert_eq!(server.app.state.active, Some(0));
-+    let location = server.clients[&9].shell_location.as_ref().unwrap();
-+    assert_eq!(
-+        location.focused_workspace_id.as_deref(),
-+        Some(first_workspace_id.as_str())
-+    );
-+    assert_eq!(location.focused_tab_id(), Some(first_tab_id.as_str()));
-+
-+    server.render_and_stream();
-+    let replacement = client_shell_snapshot(read_server_message(
-+        control_rx
-+            .recv_timeout(Duration::from_secs(2))
-+            .expect("agent focus replacement snapshot"),
-+    ));
-+    assert_eq!(
-+        replacement.focused_workspace_id.as_deref(),
-+        Some(first_workspace_id.as_str())
-+    );
-+    let replacement_surface = recv_pane_surface(&render_rx, "agent focus replacement surface");
-+    assert!(frame_text(&replacement_surface.frame).contains("FIRST_AGENT"));
-+    assert!(!frame_text(&replacement_surface.frame).contains("SECOND_WORKSPACE"));
-+    shutdown_test_runtimes(&mut server);
-+}
-+
- #[tokio::test]
- async fn public_api_focus_replaces_every_client_shell_projection() {
-     let mut server = test_headless_server();
+     let crate::api::schema::ResponseResult::AgentInfo { agent } = response.result else {
+         panic!("expected agent info");
+     };
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

@@ -1,32 +1,32 @@
-From 047b50f27aabb7d0e73ba93b57efe28942c3378d Mon Sep 17 00:00:00 2001
+From 8f9605cff053eebfca2c341152bcc77defe7b3b0 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 01:46:36 +0200
-Subject: [PATCH 10/30] feat(agent): add completion alert controls
+Subject: [PATCH 10/22] feat(agent): add completion alert controls
 
 ---
- docs/next/CHANGELOG.md                        |  2 +
- docs/next/api/herdr-api.schema.json           |  4 ++
+ docs/next/CHANGELOG.md                        |  2 ++
+ docs/next/api/herdr-api.schema.json           |  4 +++
  .../src/content/docs/configuration.mdx        |  9 +++--
- .../website/src/content/docs/socket-api.mdx   |  4 +-
- .../website/src/data/config-reference.json    |  6 +++
+ .../website/src/content/docs/socket-api.mdx   |  4 ++-
+ .../website/src/data/config-reference.json    |  6 ++++
  src/api/schema/panes.rs                       |  3 ++
- src/app/actions.rs                            | 38 ++++++++++++-------
+ src/app/actions.rs                            | 35 +++++++++++++------
  src/app/api/panes.rs                          |  1 +
  src/app/api/plugins/mod.rs                    |  1 +
  src/cli/pane.rs                               |  1 +
  src/client/shell/config.rs                    |  3 ++
- src/client/shell/notification_policy.rs       | 27 ++++++++++++-
+ src/client/shell/notification_policy.rs       | 27 +++++++++++++-
  src/client/shell/settings.rs                  | 13 ++++++-
- src/client/shell/settings_overlay.rs          | 12 ++++++
- src/client/shell/state.rs                     |  4 ++
+ src/client/shell/settings_overlay.rs          | 12 +++++++
+ src/client/shell/state.rs                     |  4 +++
  src/config/model.rs                           | 11 +++++-
  src/config/write.rs                           |  5 +++
  src/events.rs                                 |  1 +
- src/server/headless/tests/mod.rs              |  2 +
- 19 files changed, 127 insertions(+), 20 deletions(-)
+ src/server/headless/tests/mod.rs              |  2 ++
+ 19 files changed, 127 insertions(+), 17 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 6c69d7e51bfa5dc240cdd8e742868f4da09dc240..5fdf7cf00f59f8a082505b142605d1fb25f741df 100644
+index fa3c16884bae56f8f1f3d0253348a74750c0a46e..17f25feff9591eb0787eb50e45c227182544c177 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -8,8 +8,10 @@
@@ -41,10 +41,10 @@ index 6c69d7e51bfa5dc240cdd8e742868f4da09dc240..5fdf7cf00f59f8a082505b142605d1fb
  - Windows `agent start` now launches npm-installed agents with arguments through the interactive shell instead of passing a bare shim name to `Start-Process`. (#2685)
  - Full-lifecycle agent sessions now regain hook authority after a temporary foreground takeover ends instead of remaining permanently stale. (#1033)
 diff --git a/docs/next/api/herdr-api.schema.json b/docs/next/api/herdr-api.schema.json
-index 4532e918d04431e34413c14326df3ef1ef6755c9..64be90c2f9fa7d31b930685b7c8f6079605167a3 100644
+index 510e093032ab82f1938740d48130aba3521f4e60..01be9ada3dc0e30d2feabe1085248da257fd782b 100644
 --- a/docs/next/api/herdr-api.schema.json
 +++ b/docs/next/api/herdr-api.schema.json
-@@ -3020,6 +3020,10 @@
+@@ -2932,6 +2932,10 @@
              },
              "state": {
                "$ref": "#/schemas/request/$defs/PaneAgentState"
@@ -56,10 +56,10 @@ index 4532e918d04431e34413c14326df3ef1ef6755c9..64be90c2f9fa7d31b930685b7c8f6079
            },
            "required": [
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
-index 6fa1c411cb663f45f665406c26dc41ffac3f0a13..6922ca27a8d502795b948933d79996240f965dc8 100644
+index 4eb86d05416b85141970fa8d239b6a9349aaaf02..07fc370436cd2ef9550c99346f4e9dfdd0c9b612 100644
 --- a/docs/next/website/src/content/docs/configuration.mdx
 +++ b/docs/next/website/src/content/docs/configuration.mdx
-@@ -470,9 +470,12 @@ Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mob
+@@ -521,9 +521,12 @@ Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mob
  
  ## Notifications
  
@@ -73,7 +73,7 @@ index 6fa1c411cb663f45f665406c26dc41ffac3f0a13..6922ca27a8d502795b948933d7999624
  [ui.toast]
  delivery = "herdr"
  delay_seconds = 1
-@@ -481,7 +484,7 @@ delay_seconds = 1
+@@ -532,7 +535,7 @@ delay_seconds = 1
  position = "bottom-right"
  ```
  
@@ -82,7 +82,7 @@ index 6fa1c411cb663f45f665406c26dc41ffac3f0a13..6922ca27a8d502795b948933d7999624
  
  On macOS, `system` tries `terminal-notifier` first and falls back to `/usr/bin/osascript` when it is unavailable or fails. The fallback appears as Script Editor in Notification Center and cannot activate the hosting terminal. Install `terminal-notifier` with `brew install terminal-notifier`. For a supported, detected terminal, it can activate the terminal app when you click the notification. Alternatively, choose `terminal` to let a supported outer terminal own the notification.
  
-@@ -496,7 +499,7 @@ done_path = "sounds/done.mp3"
+@@ -547,7 +550,7 @@ done_path = "sounds/done.mp3"
  request_path = "sounds/request.mp3"
  ```
  
@@ -92,10 +92,10 @@ index 6fa1c411cb663f45f665406c26dc41ffac3f0a13..6922ca27a8d502795b948933d7999624
  Per-agent sound overrides accept `default`, `on`, or `off`. Use detected agent labels such as `claude`, `codex`, `devin`, or `droid` as keys. Droid is muted by default.
  
 diff --git a/docs/next/website/src/content/docs/socket-api.mdx b/docs/next/website/src/content/docs/socket-api.mdx
-index 13a71abb9e39fb6ba2dd58e488eb679035d3a5ca..cbe70a70ae0c3d478a095163af879f06563cbbfc 100644
+index 5becbd8ea375e9eeef6c3b75f75c597b026a8560..fd17fc5d83dfdc80ba7fd939e0dda3e3f89f06bd 100644
 --- a/docs/next/website/src/content/docs/socket-api.mdx
 +++ b/docs/next/website/src/content/docs/socket-api.mdx
-@@ -711,7 +711,9 @@ Integrations report agent state with `pane.report_agent`.
+@@ -670,7 +670,9 @@ Integrations report agent state with `pane.report_agent`.
  ```
  
  `state` carries semantic agent state and affects waits, notifications, and
@@ -107,10 +107,10 @@ index 13a71abb9e39fb6ba2dd58e488eb679035d3a5ca..cbe70a70ae0c3d478a095163af879f06
  Session-only official integrations report native session references with `pane.report_agent_session`. State-reporting integrations can still include native session references in `pane.report_agent`. State-independent session reports do not affect waits, notifications, or rollups.
  
 diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
-index 8878b81af014cd72b4b9eb7ab643edd021c5751f..f93fc993eacc0818f3945dfa1bd3dbb0331022e7 100644
+index f895ff12d2fcda8330beed0a67e88be8c032be19..5d340e9cd1a5a9c9830b09a82932007f7c0935e7 100644
 --- a/docs/next/website/src/data/config-reference.json
 +++ b/docs/next/website/src/data/config-reference.json
-@@ -1080,6 +1080,12 @@
+@@ -1110,6 +1110,12 @@
        "id": "notifications",
        "title": "Notifications",
        "keys": [
@@ -124,13 +124,13 @@ index 8878b81af014cd72b4b9eb7ab643edd021c5751f..f93fc993eacc0818f3945dfa1bd3dbb0
            "key": "ui.toast.delivery",
            "type": "enum",
 diff --git a/src/api/schema/panes.rs b/src/api/schema/panes.rs
-index 517870f771a4340649850613551a470384597014..3df9d25311295a59c1ea536282da9daf6df8a4e2 100644
+index 9dbe0221dbbb8fb92fc6506bea7ed2efeaf728ea..016fed4b221c526ac8551275f0f59c857bfeb3c3 100644
 --- a/src/api/schema/panes.rs
 +++ b/src/api/schema/panes.rs
-@@ -458,6 +458,9 @@ pub struct PaneReportAgentParams {
-     pub agent_session_id: Option<String>,
+@@ -376,6 +376,9 @@ pub struct PaneReportAgentParams {
+     /// first element must be a plain command name.
      #[serde(default, skip_serializing_if = "Option::is_none")]
-     pub agent_session_path: Option<String>,
+     pub resume_argv: Option<Vec<String>>,
 +    /// Suppress completion attention when this report ends a user-cancelled operation.
 +    #[serde(default, skip_serializing_if = "super::is_false")]
 +    pub suppress_completion: bool,
@@ -138,10 +138,10 @@ index 517870f771a4340649850613551a470384597014..3df9d25311295a59c1ea536282da9daf
  
  #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 diff --git a/src/app/actions.rs b/src/app/actions.rs
-index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf1436dfe7ee 100644
+index e1ae2ffc967d0aa387319af854a56c04355ea600..21fa589dd02b3dbce5b22f074c3b0468ad9cc0f9 100644
 --- a/src/app/actions.rs
 +++ b/src/app/actions.rs
-@@ -1674,6 +1674,7 @@ impl AppState {
+@@ -1478,6 +1478,7 @@ impl AppState {
                  message,
                  seq,
                  session_ref,
@@ -149,7 +149,7 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              } => {
                  if crate::agent_resume::is_reserved_native_state_source(&source, &agent_label) {
                      self.update_terminal_state(pane_id, |terminal| {
-@@ -1682,16 +1683,20 @@ impl AppState {
+@@ -1486,16 +1487,20 @@ impl AppState {
                      .into_iter()
                      .collect()
                  } else {
@@ -180,21 +180,39 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
                      .into_iter()
                      .collect()
                  }
-@@ -1868,9 +1873,10 @@ impl AppState {
-         }
-         let agent_released = mutation.agent_released;
-         let change = mutation.effective_state_change.or(unchanged_change)?;
--        let suppress_completion = force_suppress_completion
--            || (change.state == AgentState::Idle
--                && (managed_launch_pending || suppress_acquisition_completion));
-+        let suppress_completion = change.state == AgentState::Idle
-+            && (force_suppress_completion
-+                || managed_launch_pending
-+                || suppress_acquisition_completion);
-         if change.previous_state != change.state {
-             self.next_agent_state_change_seq += 1;
-             if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
-@@ -3314,6 +3320,7 @@ mod tests {
+@@ -3209,6 +3214,7 @@ mod tests {
+                 pane_id,
+                 source: "custom:worker".into(),
+                 agent_label: label.into(),
++                suppress_completion: false,
+                 state,
+                 message: None,
+                 seq: Some(seq),
+@@ -3572,6 +3578,7 @@ mod tests {
+ 
+     fn report_custom_agent_with_resume(state: &mut AppState, pane_id: PaneId, argv: &[&str]) {
+         state.handle_app_event(AppEvent::HookStateReported {
++            suppress_completion: false,
+             pane_id,
+             source: "prime-agent".into(),
+             agent_label: "prime-agent".into(),
+@@ -3643,6 +3650,7 @@ mod tests {
+             pane_id,
+             source: "custom:other".into(),
+             agent_label: "other".into(),
++            suppress_completion: false,
+             state: AgentState::Working,
+             message: None,
+             seq: None,
+@@ -3743,6 +3751,7 @@ mod tests {
+             observed_at: std::time::Instant::now(),
+         });
+         state.handle_app_event(AppEvent::HookStateReported {
++            suppress_completion: false,
+             pane_id,
+             source: "herdr:pi".into(),
+             agent_label: "pi".into(),
+@@ -3772,6 +3781,7 @@ mod tests {
          let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
  
          state.handle_app_event(AppEvent::HookStateReported {
@@ -202,7 +220,7 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              pane_id: bg_pane_id,
              source: "custom:hermes".into(),
              agent_label: "hermes".into(),
-@@ -3352,6 +3359,7 @@ mod tests {
+@@ -3810,6 +3820,7 @@ mod tests {
              observed_at: std::time::Instant::now(),
          });
          state.handle_app_event(AppEvent::HookStateReported {
@@ -210,7 +228,7 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              pane_id: bg_pane_id,
              source: "herdr:codex".into(),
              agent_label: "codex".into(),
-@@ -3400,6 +3408,7 @@ mod tests {
+@@ -3858,6 +3869,7 @@ mod tests {
              observed_at: std::time::Instant::now(),
          });
          state.handle_app_event(AppEvent::HookStateReported {
@@ -218,7 +236,7 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              pane_id,
              source: "herdr:claude".into(),
              agent_label: "claude".into(),
-@@ -3509,6 +3518,7 @@ mod tests {
+@@ -3967,6 +3979,7 @@ mod tests {
              observed_at: std::time::Instant::now(),
          });
          state.handle_app_event(AppEvent::HookStateReported {
@@ -226,7 +244,7 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              pane_id,
              source: "herdr:devin".into(),
              agent_label: "devin".into(),
-@@ -3533,6 +3543,7 @@ mod tests {
+@@ -3991,6 +4004,7 @@ mod tests {
          let second_session = test_dir.join("two.jsonl").display().to_string();
  
          let first_updates = state.handle_app_event(AppEvent::HookStateReported {
@@ -234,7 +252,7 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              pane_id,
              source: "custom:pi".into(),
              agent_label: "pi".into(),
-@@ -3545,6 +3556,7 @@ mod tests {
+@@ -4003,6 +4017,7 @@ mod tests {
          state.session_dirty = false;
  
          let second_updates = state.handle_app_event(AppEvent::HookStateReported {
@@ -243,22 +261,22 @@ index ca6f67046fde1c39805f1a85828b148320e3e32d..752d6829d41629b8faa6442128c3cf14
              source: "custom:pi".into(),
              agent_label: "pi".into(),
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
-index e71ce94f7e08ab36d5b6ceacb2e17b257f239bcd..3e4d63c24e884929c31fa048dde22b483dc434b1 100644
+index e57d4658f5ab0650a28b43f2eb2ff6b05231ade6..2666b64e5eadc60723afae2cb87fc29c1554ef10 100644
 --- a/src/app/api/panes.rs
 +++ b/src/app/api/panes.rs
-@@ -1552,6 +1552,7 @@ impl App {
+@@ -1575,6 +1575,7 @@ impl App {
              state: detect_state_from_api(params.state),
              message: params.message,
              seq: params.seq,
 +            suppress_completion: params.suppress_completion,
          });
- 
-         encode_success(id, ResponseResult::Ok {})
+         let applied =
+             report_is_newer && self.session_report_applied(ws_idx, pane_id, session_ref.as_ref());
 diff --git a/src/app/api/plugins/mod.rs b/src/app/api/plugins/mod.rs
-index 8ad083d43f0e3c5e96e43f1ee9bb3f54af45e340..f3b348dd63b35caf7c56c3822c8c2f56a51600e9 100644
+index c9b37bfebd2173141db1be0d75cd05c1242e2889..857bc2d9c78451e5eac01a949c4a5ea805781729 100644
 --- a/src/app/api/plugins/mod.rs
 +++ b/src/app/api/plugins/mod.rs
-@@ -3125,6 +3125,7 @@ action = "missing"
+@@ -3320,6 +3320,7 @@ action = "missing"
          let _ = app.handle_pane_report_agent(
              "report".into(),
              crate::api::schema::PaneReportAgentParams {
@@ -267,22 +285,22 @@ index 8ad083d43f0e3c5e96e43f1ee9bb3f54af45e340..f3b348dd63b35caf7c56c3822c8c2f56
                  source: "test".into(),
                  agent: "codex".into(),
 diff --git a/src/cli/pane.rs b/src/cli/pane.rs
-index 17d3c144b43102c19206f1a203d4c1296a3ba215..e3d636592661327160b84d5b6c29ff72cf14bd91 100644
+index 33583ee48690330df7a56f6e4b313d58ccf772e8..d92c5ae4d9b4f0589ff66144ddfe3c9e0daf7242 100644
 --- a/src/cli/pane.rs
 +++ b/src/cli/pane.rs
-@@ -1290,6 +1290,7 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
-         seq,
+@@ -1284,6 +1284,7 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
          agent_session_id,
          agent_session_path,
+         resume_argv,
 +        suppress_completion: false,
      }))
  }
  
 diff --git a/src/client/shell/config.rs b/src/client/shell/config.rs
-index e8a9b4bb8694357e2f74088f436ea63df4389f38..c2f851639fffb33d8ad4c76f1092eaf656f65c08 100644
+index 6a743518528c87050cb3eb61ce35c2e57ed41183..51b4c778afd5a5f3e81365599400aea0785aa403 100644
 --- a/src/client/shell/config.rs
 +++ b/src/client/shell/config.rs
-@@ -60,6 +60,7 @@ impl ClientShellState {
+@@ -77,6 +77,7 @@ impl ClientShellState {
                      &loaded.diagnostics,
                      &loaded.invalid_sections,
                  );
@@ -290,7 +308,7 @@ index e8a9b4bb8694357e2f74088f436ea63df4389f38..c2f851639fffb33d8ad4c76f1092eaf6
                  if let Some(appearance) = self.host_appearance {
                      self.config.palette = crate::app::client_palette_for_appearance(
                          &self.config.theme_runtime,
-@@ -110,6 +111,7 @@ impl ClientShellConfig {
+@@ -127,6 +128,7 @@ impl ClientShellConfig {
              status_indicators: config.ui.status_indicators,
              sound_enabled: config.ui.sound.enabled,
              toast_delivery: config.ui.toast.delivery,
@@ -298,7 +316,7 @@ index e8a9b4bb8694357e2f74088f436ea63df4389f38..c2f851639fffb33d8ad4c76f1092eaf6
              toast_delay_seconds: config.ui.toast.delay_seconds,
              toast_position: config.ui.toast.herdr.position,
              copy_on_select: config.ui.copy_on_select,
-@@ -312,6 +314,7 @@ impl ClientShellConfig {
+@@ -334,6 +336,7 @@ impl ClientShellConfig {
                  self.status_indicators = ui.status_indicators;
                  self.sound_enabled = ui.sound.enabled;
                  self.toast_delivery = ui.toast.delivery;
@@ -356,7 +374,7 @@ index f3eeeb3c4f50fb54eb5259e7fa7984c3df47e207..f4ca29941e09abe00cfebc771b42c93a
              .visible_notification
              .as_ref()
 diff --git a/src/client/shell/settings.rs b/src/client/shell/settings.rs
-index 200201c5d6bedaaa2a473dae4d38a1072bd149ab..869c4f4dc0cafda16351bca7a366c55417092278 100644
+index b4474bc794f663c494c8bc19328030633635dc07..920b5c5201fed583c965a214203bfeebecf81db4 100644
 --- a/src/client/shell/settings.rs
 +++ b/src/client/shell/settings.rs
 @@ -50,6 +50,9 @@ impl ClientShellState {
@@ -394,7 +412,7 @@ index 200201c5d6bedaaa2a473dae4d38a1072bd149ab..869c4f4dc0cafda16351bca7a366c554
                  let delivery = match selected {
                      0 => crate::config::ToastDelivery::Off,
 diff --git a/src/client/shell/settings_overlay.rs b/src/client/shell/settings_overlay.rs
-index ea59ad02971ecd3d75215c82233ad5e2bf3e6b24..8df82383b0c0f9001c3facb2e2bb97827de0a13b 100644
+index 25f37b2a0e26100e870f28f5f7876e2d94970237..b45cf7734834ab3464ec692fcaa5cee0045b0d5d 100644
 --- a/src/client/shell/settings_overlay.rs
 +++ b/src/client/shell/settings_overlay.rs
 @@ -194,6 +194,18 @@ pub(super) fn render_settings_overlay(
@@ -417,10 +435,10 @@ index ea59ad02971ecd3d75215c82233ad5e2bf3e6b24..8df82383b0c0f9001c3facb2e2bb9782
              render_integrations(buffer, content, settings, palette);
          }
 diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
-index 9de144f547fe2e3fa79c9104eab1cc11b4b2cd57..648f01708b8f83320f0535b44b736886dd22ed01 100644
+index 6a0a7250c48e66ed358a2bf7242b25866e68635e..85ae6cd7c425428a3b1eec907aea6f7e12190f94 100644
 --- a/src/client/shell/state.rs
 +++ b/src/client/shell/state.rs
-@@ -83,6 +83,7 @@ pub(crate) struct ClientShellConfig {
+@@ -27,6 +27,7 @@ pub(crate) struct ClientShellConfig {
      pub(super) status_indicators: crate::config::StatusIndicatorStyle,
      pub(super) sound_enabled: bool,
      pub(super) toast_delivery: crate::config::ToastDelivery,
@@ -428,7 +446,7 @@ index 9de144f547fe2e3fa79c9104eab1cc11b4b2cd57..648f01708b8f83320f0535b44b736886
      pub(super) toast_delay_seconds: u64,
      pub(super) toast_position: crate::config::ToastHerdrPosition,
      pub(super) copy_on_select: bool,
-@@ -441,6 +442,7 @@ pub(super) enum ClientSettingsSection {
+@@ -387,6 +388,7 @@ pub(super) enum ClientSettingsSection {
      Theme,
      Indicators,
      Sound,
@@ -436,7 +454,7 @@ index 9de144f547fe2e3fa79c9104eab1cc11b4b2cd57..648f01708b8f83320f0535b44b736886
      Toast,
      Integrations,
  }
-@@ -450,6 +452,7 @@ impl ClientSettingsSection {
+@@ -396,6 +398,7 @@ impl ClientSettingsSection {
          Self::Theme,
          Self::Indicators,
          Self::Sound,
@@ -444,7 +462,7 @@ index 9de144f547fe2e3fa79c9104eab1cc11b4b2cd57..648f01708b8f83320f0535b44b736886
          Self::Toast,
          Self::Integrations,
      ];
-@@ -459,6 +462,7 @@ impl ClientSettingsSection {
+@@ -405,6 +408,7 @@ impl ClientSettingsSection {
              Self::Theme => "theme",
              Self::Indicators => "indicators",
              Self::Sound => "sound",
@@ -453,10 +471,10 @@ index 9de144f547fe2e3fa79c9104eab1cc11b4b2cd57..648f01708b8f83320f0535b44b736886
              Self::Integrations => "integrations",
          }
 diff --git a/src/config/model.rs b/src/config/model.rs
-index d9f8acbe09408cea8998aa9712161247eb28615a..754a4ad7e19e0f36fd99418ec489637c11a0c1b3 100644
+index fdc09c8df133453ebfc54ea5b5bf55a299389c94..5a2bf8260db352c31be012fc346a6bcfc6ff938d 100644
 --- a/src/config/model.rs
 +++ b/src/config/model.rs
-@@ -940,6 +940,9 @@ pub struct UiConfig {
+@@ -1036,6 +1036,9 @@ pub struct UiConfig {
      /// Accent color for highlights, borders, and navigation UI.
      /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
      pub accent: String,
@@ -466,7 +484,7 @@ index d9f8acbe09408cea8998aa9712161247eb28615a..754a4ad7e19e0f36fd99418ec489637c
      /// Optional visual toast notifications for background workspace events.
      pub toast: ToastConfig,
      /// Play sounds when agents change state in background workspaces.
-@@ -1161,6 +1164,7 @@ impl Default for UiConfig {
+@@ -1259,6 +1262,7 @@ impl Default for UiConfig {
              status_indicators: StatusIndicatorStyle::Dots,
              sidebar: SidebarConfig::default(),
              accent: "cyan".into(),
@@ -474,7 +492,7 @@ index d9f8acbe09408cea8998aa9712161247eb28615a..754a4ad7e19e0f36fd99418ec489637c
              toast: ToastConfig::default(),
              sound: SoundConfig::default(),
          }
-@@ -1783,6 +1787,9 @@ mouse_scroll_lines = 0
+@@ -1884,6 +1888,9 @@ mouse_scroll_lines = 0
      #[test]
      fn toast_config_parses() {
          let toml = r#"
@@ -484,7 +502,7 @@ index d9f8acbe09408cea8998aa9712161247eb28615a..754a4ad7e19e0f36fd99418ec489637c
  [ui.toast]
  delivery = "terminal"
  delay_seconds = 2
-@@ -1795,6 +1802,7 @@ enabled = false
+@@ -1896,6 +1903,7 @@ enabled = false
  position = "top-center"
  "#;
          let config: Config = toml::from_str(toml).unwrap();
@@ -492,7 +510,7 @@ index d9f8acbe09408cea8998aa9712161247eb28615a..754a4ad7e19e0f36fd99418ec489637c
          assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
          assert_eq!(config.ui.toast.delay_seconds, 2);
          assert_eq!(config.ui.toast.herdr.position, ToastHerdrPosition::TopLeft);
-@@ -1806,8 +1814,9 @@ position = "top-center"
+@@ -1907,8 +1915,9 @@ position = "top-center"
      }
  
      #[test]
@@ -504,7 +522,7 @@ index d9f8acbe09408cea8998aa9712161247eb28615a..754a4ad7e19e0f36fd99418ec489637c
          assert_eq!(config.ui.toast.delay_seconds, 1);
          assert_eq!(
 diff --git a/src/config/write.rs b/src/config/write.rs
-index 752445831f0056ddc10b9d9d1b2b92d5eab29616..ef4f089b3315ce3b41feed4524166fba65b192f1 100644
+index f34ec2f655ebaca74d6aa1c968f260db1e23c623..a4bb3446b7d926c6cf1da4642690ff00ce31dd5c 100644
 --- a/src/config/write.rs
 +++ b/src/config/write.rs
 @@ -3,6 +3,7 @@ pub(crate) enum ConfigEdit<'a> {
@@ -534,10 +552,10 @@ index 752445831f0056ddc10b9d9d1b2b92d5eab29616..ef4f089b3315ce3b41feed4524166fba
                  let value = match delivery {
                      super::ToastDelivery::Off => "\"off\"",
 diff --git a/src/events.rs b/src/events.rs
-index 956389912a03bb6143d1299c536c2e4f37920185..3f1ed53b18d9f56bcc6f441f856fcd4bd03fae03 100644
+index c87a50a349ca75f00ed3ae88c87bde51058811e1..1d67c00b26cffd8cbcd4a7415375381981c20f9f 100644
 --- a/src/events.rs
 +++ b/src/events.rs
-@@ -87,6 +87,7 @@ pub enum AppEvent {
+@@ -110,6 +110,7 @@ pub enum AppEvent {
          message: Option<String>,
          seq: Option<u64>,
          session_ref: Option<crate::agent_resume::AgentSessionRef>,
@@ -546,10 +564,10 @@ index 956389912a03bb6143d1299c536c2e4f37920185..3f1ed53b18d9f56bcc6f441f856fcd4b
      /// Agent session identity was reported without state authority.
      AgentSessionReported {
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index 9c148a162cd7cf0fecc8e782dd26b27d83757664..d844e3c09bca7e68d5b2db3d2d7afd39eaea64b1 100644
+index 868d77102a3c37c7a6645209c2a27322f8c2146b..7f92d86a8846c40d88d3849cffbd633de42abc03 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
-@@ -4656,6 +4656,7 @@ fn headless_scheduled_tasks_expire_agent_metadata() {
+@@ -5792,6 +5792,7 @@ fn headless_scheduled_tasks_expire_agent_metadata() {
  
      assert!(
          server.handle_internal_event_with_forwarding(AppEvent::HookStateReported {
@@ -557,7 +575,7 @@ index 9c148a162cd7cf0fecc8e782dd26b27d83757664..d844e3c09bca7e68d5b2db3d2d7afd39
              pane_id,
              source: "custom:pi".into(),
              agent_label: "pi".into(),
-@@ -6354,6 +6355,7 @@ fn stale_api_agent_report_does_not_forward_done_sound() {
+@@ -7888,6 +7889,7 @@ fn stale_api_agent_report_does_not_forward_done_sound() {
          request: api::schema::Request {
              id: "stale".into(),
              method: api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
@@ -566,5 +584,5 @@ index 9c148a162cd7cf0fecc8e782dd26b27d83757664..d844e3c09bca7e68d5b2db3d2d7afd39
                  source: "herdr:pi".into(),
                  agent: "pi".into(),
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

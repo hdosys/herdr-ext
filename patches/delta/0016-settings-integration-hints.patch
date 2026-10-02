@@ -1,7 +1,7 @@
-From d0ebc7e15ce37da57368aa52b6b8a35098fbba07 Mon Sep 17 00:00:00 2001
+From 18bd3ec531481dea1a10ab544b257135b3ecfda6 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 30 Aug 2026 17:33:23 +0200
-Subject: [PATCH 13/30] fix(settings): show valid integration hints
+Subject: [PATCH 11/22] fix(settings): show valid integration hints
 
 Refs herdrdev/herdr#2880
 ---
@@ -9,7 +9,7 @@ Refs herdrdev/herdr#2880
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/src/client/shell/settings_overlay.rs b/src/client/shell/settings_overlay.rs
-index 8df82383b0c0f9001c3facb2e2bb97827de0a13b..e5eeec0705825292029866a9a4efebeec99b5d1c 100644
+index b45cf7734834ab3464ec692fcaa5cee0045b0d5d..456a3e0b145c3037698bd5e3aaa8fb51685e2eed 100644
 --- a/src/client/shell/settings_overlay.rs
 +++ b/src/client/shell/settings_overlay.rs
 @@ -251,7 +251,11 @@ pub(super) fn render_settings_overlay(
@@ -26,5 +26,5 @@ index 8df82383b0c0f9001c3facb2e2bb97827de0a13b..e5eeec0705825292029866a9a4efebee
      );
  
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

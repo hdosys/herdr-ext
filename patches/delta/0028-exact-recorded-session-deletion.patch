@@ -1,21 +1,21 @@
-From 7d4c4834f0499d78fef390c63eee1ebfaa869ddb Mon Sep 17 00:00:00 2001
+From 765237b936e7a2c7248ac3a930ed223495fedc9b Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:26:02 +0200
-Subject: [PATCH 23/30] fix(session): require exact recorded names before
+Subject: [PATCH 16/22] fix(session): require exact recorded names before
  deletion
 
 Resolve deletion through immediate directory entries, keep the existing exact-target live-socket guard, and report unmatched names rather than claiming deletion. Exercise case aliases with a task-owned Windows private listener and no environment mutation.
 
 Refs herdrdev/herdr#3819.
 ---
- src/session.rs | 104 +++++++++++++++++++++++++++++++++++++++++++++++--
- 1 file changed, 100 insertions(+), 4 deletions(-)
+ src/session.rs | 129 +++++++++++++++++++++++++++++++++++++------------
+ 1 file changed, 99 insertions(+), 30 deletions(-)
 
 diff --git a/src/session.rs b/src/session.rs
-index faa864c06050e40caa7c2eb00895c5e41247568f..7b563ef135eccea13e444d266d70290caa1b6f2e 100644
+index 6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b..f6371697f98f7db3743c1d913137cb2bc6f70f32 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -336,18 +336,47 @@ fn stop_socket_with_timeout(
+@@ -336,20 +336,47 @@ fn stop_socket_with_timeout(
  }
  
  pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
@@ -27,7 +27,9 @@ index faa864c06050e40caa7c2eb00895c5e41247568f..7b563ef135eccea13e444d266d70290c
          return Err("deleting the default session is not supported".to_string());
      }
      validate_name(name)?;
--    let socket_path = api_socket_path_for(Some(name));
+-    let Some(dir) = exact_session_dir_for_delete(name)? else {
+-        return Ok(session_info(Some(name)));
+-    };
 +    let entries = std::fs::read_dir(sessions_dir).map_err(|err| {
 +        format!(
 +            "failed to enumerate sessions at {}: {err}",
@@ -48,14 +50,13 @@ index faa864c06050e40caa7c2eb00895c5e41247568f..7b563ef135eccea13e444d266d70290c
 +        }
 +    }
 +    let dir = matched.ok_or_else(|| format!("no session with the exact name {name:?}; use `herdr session list` to check its spelling"))?;
-+    let socket_path = dir.join("herdr.sock");
+     let socket_path = dir.join("herdr.sock");
      if is_running_at(&socket_path) {
          return Err(format!(
              "session {name} is running; stop it before deleting"
          ));
      }
 -    let info = session_info(Some(name));
--    let dir = data_dir_for(Some(name));
 +    let info = SessionInfo {
 +        name: name.to_owned(),
 +        default: false,
@@ -66,7 +67,39 @@ index faa864c06050e40caa7c2eb00895c5e41247568f..7b563ef135eccea13e444d266d70290c
      match std::fs::remove_dir_all(&dir) {
          Ok(()) => Ok(info),
          Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(info),
-@@ -515,7 +544,6 @@ mod tests {
+@@ -357,31 +384,6 @@ pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
+     }
+ }
+ 
+-fn exact_session_dir_for_delete(name: &str) -> Result<Option<PathBuf>, String> {
+-    let sessions_dir = crate::config::config_dir().join("sessions");
+-    let entries = match std::fs::read_dir(&sessions_dir) {
+-        Ok(entries) => entries,
+-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+-        Err(err) => return Err(err.to_string()),
+-    };
+-    for entry in entries {
+-        let entry = entry.map_err(|err| err.to_string())?;
+-        if entry.file_name() == std::ffi::OsStr::new(name) {
+-            return Ok(Some(entry.path()));
+-        }
+-    }
+-
+-    // A path lookup alone can resolve a different spelling on case-insensitive
+-    // filesystems. Never probe its socket or delete it without an exact entry.
+-    match std::fs::symlink_metadata(sessions_dir.join(name)) {
+-        Ok(_) => Err(format!(
+-            "session {name} does not match an exact session name; use the spelling shown by `herdr session list`"
+-        )),
+-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+-        Err(err) => Err(err.to_string()),
+-    }
+-}
+-
+ fn send_stop_request(
+     mut stream: LocalStream,
+     request: &serde_json::Value,
+@@ -543,7 +545,6 @@ mod tests {
          LOCK.get_or_init(|| Mutex::new(()))
      }
  
@@ -74,7 +107,7 @@ index faa864c06050e40caa7c2eb00895c5e41247568f..7b563ef135eccea13e444d266d70290c
      fn unique_test_path(name: &str) -> std::path::PathBuf {
          let nanos = std::time::SystemTime::now()
              .duration_since(std::time::UNIX_EPOCH)
-@@ -1090,6 +1118,74 @@ mod tests {
+@@ -1118,6 +1119,74 @@ mod tests {
          assert!(delete_session(DEFAULT_SESSION_NAME).is_err());
      }
  
@@ -150,5 +183,5 @@ index faa864c06050e40caa7c2eb00895c5e41247568f..7b563ef135eccea13e444d266d70290c
      fn list_sessions_skips_reserved_default_directory() {
          let _guard = env_lock().lock().unwrap();
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

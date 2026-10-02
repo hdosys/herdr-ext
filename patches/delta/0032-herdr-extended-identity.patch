@@ -1,7 +1,7 @@
-From 8769510c7217a3ce03eb028a73ebc6bcab065b21 Mon Sep 17 00:00:00 2001
+From 6ae3e0895b7557d412a835885611928e89928c94 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 18:24:37 +0200
-Subject: [PATCH 27/30] feat(distribution): rename fork to Herdr Extended
+Subject: [PATCH 19/22] feat(distribution): rename fork to Herdr Extended
 
 ---
  CHANGELOG.md                                  |  2 +-
@@ -32,7 +32,7 @@ Subject: [PATCH 27/30] feat(distribution): rename fork to Herdr Extended
  25 files changed, 68 insertions(+), 64 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 639c78a827c9520d6f23baa7401cc158ecf9badb..6bcd737b045ce138f371686f6d512d36b54b001f 100644
+index bc0b7d683062e41e608b57dfca72a4760c8e3d96..d48b8360d368a4301e8efe681581a65cda3f97d8 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -4,7 +4,7 @@
@@ -45,10 +45,10 @@ index 639c78a827c9520d6f23baa7401cc158ecf9badb..6bcd737b045ce138f371686f6d512d36
  ### Fixed
  - Windows Agent autostart now treats `nu` and `nu.exe` as the same Nushell executable, so either accepted shell spelling reaches the existing new-tab launch path.
 diff --git a/README.zh-CN.md b/README.zh-CN.md
-index b3ce316fa922c223a140fc97352441e85660ddc9..24a0fb1b2be743dc4e1a8ebae3cef76bc5139bcd 100644
+index 56c2168ad5a3571e2f79075842c918c1a358822c..a17d2dc079edae7911483faf257d43cb24d65294 100644
 --- a/README.zh-CN.md
 +++ b/README.zh-CN.md
-@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
+@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
  curl -fsSL https://herdr.dev/install.sh | sh
  ```
  
@@ -71,7 +71,7 @@ index 37c6048cd434143d6cae55c30fba662700626534..9d66c7dad2b7a02db0313761f32c6b5d
  Homebrew, mise, and Nix installs, verification, and manual downloads: https://herdr.dev/docs/install/. Direct installs use the stable channel by default and update with `herdr update`; preview is opt-in. Package-manager installs update through that package manager. Check the version with `herdr --version`.
  
 diff --git a/docs/next/README.zh-CN.md b/docs/next/README.zh-CN.md
-index 8cc65d181044e4766d5a3f9de5c7aba18cfc8f7a..8a31fd4762f20401b94a5a430fbfda35a65cd08b 100644
+index f7a36f727821a5c5ac173e8cb56a75ebbcda2d5a..33965f7f1aa96a7ccde84b1c335c48e49f3dbff2 100644
 --- a/docs/next/README.zh-CN.md
 +++ b/docs/next/README.zh-CN.md
 @@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
@@ -84,7 +84,7 @@ index 8cc65d181044e4766d5a3f9de5c7aba18cfc8f7a..8a31fd4762f20401b94a5a430fbfda35
  然后在工作所在的目录启动它：
  
 diff --git a/docs/next/website/src/content/docs/install.mdx b/docs/next/website/src/content/docs/install.mdx
-index 367bd8feb7c4da2e42ca2a1d204609611c12d1fe..d316c5c2e747ef9447a23069619af8d7df28ef4b 100644
+index b2fc63426e540a5f99b5eb408761d0b153a35815..e633d263dd7e4ed3dd1c0875b5953c6afc2c0725 100644
 --- a/docs/next/website/src/content/docs/install.mdx
 +++ b/docs/next/website/src/content/docs/install.mdx
 @@ -13,7 +13,7 @@ On Linux or macOS, run:
@@ -115,7 +115,7 @@ index 367bd8feb7c4da2e42ca2a1d204609611c12d1fe..d316c5c2e747ef9447a23069619af8d7
  By default, `herdr update` installs the new binary and leaves endpoint-generation-1 servers and their pane processes running. Start Herdr again to reconnect with the updated client. Client-only changes work immediately. A new server-side action stays unavailable until that server is updated and restarted; the client shows a notice instead of disconnecting. Servers from before endpoint generation 1 need one final stop during update.
  
 diff --git a/docs/next/website/src/content/docs/ja/install.mdx b/docs/next/website/src/content/docs/ja/install.mdx
-index c5c9527f61801bed14a2f9e5a229adc0aae56174..60e9605d892b178d5b8f49eec7e1fd86d4d1a9f8 100644
+index 497d09d9417f8339864e3b763048066b3ae4843c..fad7f8b3901b5d59008b022e6557b9ed2c517212 100644
 --- a/docs/next/website/src/content/docs/ja/install.mdx
 +++ b/docs/next/website/src/content/docs/ja/install.mdx
 @@ -13,7 +13,7 @@ Linux または macOS では次を実行します:
@@ -137,7 +137,7 @@ index c5c9527f61801bed14a2f9e5a229adc0aae56174..60e9605d892b178d5b8f49eec7e1fd86
  デフォルトでは、`herdr update` は新しいバイナリをインストールし、エンドポイント世代 1 のサーバーとペインプロセスを動かしたままにします。再度 Herdr を起動すると、更新済みクライアントで再接続します。クライアントだけの変更はすぐに使えます。新しいサーバー側アクションは、そのサーバーを更新して再起動するまで利用できず、クライアントは切断せずに通知を表示します。エンドポイント世代 1 より前のサーバーだけは、更新時に最後の 1 回の停止が必要です。
  
 diff --git a/docs/next/website/src/content/docs/ja/windows-beta.mdx b/docs/next/website/src/content/docs/ja/windows-beta.mdx
-index 167a92a53ab79dd4188750ab6bb6389715ea03c8..db21d06216bec68d602639ccc4b42a07a746627b 100644
+index 47bbae18a850fe6a93be9ccf9af28ef110027c10..1f1d7c8c31eb8455fbee766fe76e92bcdd6276df 100644
 --- a/docs/next/website/src/content/docs/ja/windows-beta.mdx
 +++ b/docs/next/website/src/content/docs/ja/windows-beta.mdx
 @@ -7,7 +7,7 @@ description: ネイティブ Windows 対応、サポートされるワークフ
@@ -150,20 +150,20 @@ index 167a92a53ab79dd4188750ab6bb6389715ea03c8..db21d06216bec68d602639ccc4b42a07
  インストール済みの Windows ディストリビューションはフォークの CalVer 更新フィードを所有し、設定で公式 Herdr や別のチャンネルへ切り替えることはできません。
  
 diff --git a/docs/next/website/src/content/docs/persistence-remote.mdx b/docs/next/website/src/content/docs/persistence-remote.mdx
-index 667164fe3d8050bcd17dc280b6574adfc892cdb3..fcd3c8073546dccfbf35d8d9746018bf7acf5c47 100644
+index 03a8ab92f136bb7f90b294fca503857008512d96..de91fcc0396485cd8ba088c2951513d430aa0d66 100644
 --- a/docs/next/website/src/content/docs/persistence-remote.mdx
 +++ b/docs/next/website/src/content/docs/persistence-remote.mdx
-@@ -88,7 +88,7 @@ herdr --remote workbox --handoff
+@@ -90,7 +90,7 @@ herdr --remote workbox --handoff
  
  If you SSH into the server first and run `herdr` there, Herdr runs entirely on the server and cannot access your local desktop clipboard beyond normal terminal text paste.
  
--When local and remote platforms match, direct installs can copy their current executable. Otherwise herdr-win uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
-+When local and remote platforms match, direct installs can copy their current executable. Otherwise Herdr Extended uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
+-When local and remote platforms match, direct installs can copy their current executable. Otherwise herdr-win uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install, stop, replace, restart, or start a missing server during reconnect.
++When local and remote platforms match, direct installs can copy their current executable. Otherwise Herdr Extended uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install, stop, replace, restart, or start a missing server during reconnect.
  
- For local builds or custom binaries, set `HERDR_REMOTE_BINARY` to a local file path before running remote attach.
+ For local builds or custom packages, set `HERDR_REMOTE_BINARY` to a local file path before running remote attach. Use a bare Herdr executable for Linux or macOS targets and a complete Windows portable ZIP for Windows targets.
  
 diff --git a/docs/next/website/src/content/docs/windows-beta.mdx b/docs/next/website/src/content/docs/windows-beta.mdx
-index 854624ab1f420b844f86a3014a773b65f919e4a8..239fd0a3092a4543a90fa8df5b620e640b4298c4 100644
+index 116e26f9a83d0e1b1378b992eefc1cc9dd81b0e5..3d9194de1296833da5e13ae95cfd79ece20f96c2 100644
 --- a/docs/next/website/src/content/docs/windows-beta.mdx
 +++ b/docs/next/website/src/content/docs/windows-beta.mdx
 @@ -7,7 +7,7 @@ Native Windows support is generally available.
@@ -176,7 +176,7 @@ index 854624ab1f420b844f86a3014a773b65f919e4a8..239fd0a3092a4543a90fa8df5b620e64
  The installed Windows distribution owns its fork CalVer update feed and cannot be redirected to official Herdr or another channel through config.
  
 diff --git a/docs/next/website/src/content/docs/zh-cn/install.mdx b/docs/next/website/src/content/docs/zh-cn/install.mdx
-index 23917b2c5cd4adb35f10e5fa1cd4c6e4984c81d3..9ed356c627e6e73b0ecb60f106f9fd265598d0b1 100644
+index 1cecf378c564157b35806d3b22570197cb2e77e0..7c6c04547166c03a6325774783639f8370e70af1 100644
 --- a/docs/next/website/src/content/docs/zh-cn/install.mdx
 +++ b/docs/next/website/src/content/docs/zh-cn/install.mdx
 @@ -13,7 +13,7 @@ Herdr 为 Linux、macOS 和 Windows 提供稳定通道二进制文件。Windows
@@ -198,7 +198,7 @@ index 23917b2c5cd4adb35f10e5fa1cd4c6e4984c81d3..9ed356c627e6e73b0ecb60f106f9fd26
  默认情况下,`herdr update` 会安装新二进制文件,并让端点第 1 代服务器及其窗格进程继续运行。再次启动 Herdr 即可用更新后的客户端重新连接。纯客户端改动会立即生效。新的服务器端操作会保持不可用,直到对应服务器更新并重启;客户端会显示通知,而不会断开连接。只有早于端点第 1 代的服务器需要在更新时再停止最后一次。
  
 diff --git a/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx b/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
-index 286dfec59ae893b15845bdb93f76edbb6acd0a9b..bccd57790188ba953e95160af18172ae2d62f52c 100644
+index cf2d2d6b204aba57dd033272f98f5a31ce6c74d4..a9aa7bc95cacdb5938855f0cc1c0c947d4597f49 100644
 --- a/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
 +++ b/docs/next/website/src/content/docs/zh-cn/windows-beta.mdx
 @@ -7,7 +7,7 @@ Windows 原生支持已正式发布。
@@ -280,10 +280,10 @@ index 25de34ebc8b870848da3eaea54b671cbb6bbe5a8..81a13f6ab9d4bd31de702c4f1e0fa162
  }
  
 diff --git a/scripts/test_preview.py b/scripts/test_preview.py
-index 7f90fd060c2237cb7652f61c46d8cb192c34b290..bf9b996b08797a209bb5834af8278da7afb65536 100644
+index 29d064cfc84a7f85d976c9ca9b7c8f623dc45c27..4cd96ca3d27d6dabca8a9ce29ff6969a10201b43 100644
 --- a/scripts/test_preview.py
 +++ b/scripts/test_preview.py
-@@ -159,7 +159,7 @@ class PreviewNotesTests(unittest.TestCase):
+@@ -152,7 +152,7 @@ class PreviewNotesTests(unittest.TestCase):
                  ):
                      preview.build_manifest(
                          output=Path(tmp) / "preview.json",
@@ -371,10 +371,10 @@ index b0eaaee535418503be2f0416d597eaa522512eed..0d767b7f0c2cb21a000903e0c2b4bcb8
 -    "https://github.com/hdosys/herdr-win/releases/download/";
 +    "https://github.com/hdosys/herdr-ext/releases/download/";
 diff --git a/src/main.rs b/src/main.rs
-index cd870f070e64f7c3b3a0a8593ddfc4a6b666c605..017912747b44dfb477cc54bf480d4d0616b13d35 100644
+index 1ef199a58938445365957ca78ad254d55ad04916..8078da89810662e0b890c026af9a4630df90c2a1 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -120,10 +120,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -121,10 +121,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # kitty_graphics = true
  
  [update]
@@ -535,10 +535,10 @@ index 9de898edd53c8627a49711b3ad59f7e557fc94df..0b889677f06849f174dd8cb9f573dd02
          ("Publisher", PUBLISHER.to_string()),
          ("InstallLocation", install_root.display().to_string()),
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index c7c754d62199c1b065992339b30990215caca2da..c5c743801e5fd8306b2b1ce7615e6e80ad197d8d 100644
+index edb8a3f6900c0abae5bfc899b0911fa6e9232ddf..ac26d725dd2b9fde418cff20a90a92ff8ccadfdc 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -3185,7 +3185,7 @@ fn preview_assets_for_build<'a>(
+@@ -3576,7 +3576,7 @@ fn preview_assets_for_build<'a>(
  
  fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
      let build_id = crate::build_info::build_id().ok_or_else(|| {
@@ -548,7 +548,7 @@ index c7c754d62199c1b065992339b30990215caca2da..c5c743801e5fd8306b2b1ce7615e6e80
      let manifest_bytes = fetch_remote_manifest(preview_update_manifest_url())?;
      let manifest: RemotePreviewManifest = serde_json::from_slice(&manifest_bytes)
 diff --git a/src/update.rs b/src/update.rs
-index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a38675289 100644
+index 32a79be192f20caf50a99e3428f54c36c670905f..dec3ec46a207d21c4c69db0f337afcfe7830c626 100644
 --- a/src/update.rs
 +++ b/src/update.rs
 @@ -118,7 +118,7 @@ impl std::fmt::Display for Version {
@@ -560,7 +560,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
  #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
  pub(crate) struct ReleaseVersion {
      year: u16,
-@@ -399,7 +399,7 @@ fn published_release_should_install(
+@@ -401,7 +401,7 @@ fn published_release_should_install(
          return Ok(true);
      };
      let current = ReleaseVersion::parse(current)
@@ -569,7 +569,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
      Ok(latest > current)
  }
  
-@@ -426,7 +426,7 @@ fn release_info_from_preview_manifest(
+@@ -428,7 +428,7 @@ fn release_info_from_preview_manifest(
      })?;
      let release_version = ReleaseVersion::parse(&manifest.release_version).ok_or_else(|| {
          format!(
@@ -578,7 +578,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
              manifest.release_version
          )
      })?;
-@@ -515,7 +515,7 @@ fn winget_catalog_command(release_version: &str) -> Command {
+@@ -518,7 +518,7 @@ fn winget_catalog_command(release_version: &str) -> Command {
  fn winget_catalog_has_release(release_version: &str) -> Result<bool, String> {
      if ReleaseVersion::parse(release_version).is_none() {
          return Err(format!(
@@ -596,7 +596,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
  
      let current = Version::current();
  
-@@ -2251,14 +2251,14 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2358,14 +2358,14 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
  
      if is_homebrew_managed_install() {
          crate::logging::update_check_failed(
@@ -613,7 +613,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
          );
          return;
      }
-@@ -2266,7 +2266,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2373,7 +2373,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
      let nix_managed_install = is_nix_managed_install();
      if nix_managed_install {
          crate::logging::update_check_failed(
@@ -622,7 +622,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
          );
          return;
      }
-@@ -2295,7 +2295,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2402,7 +2402,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
      if winget_managed_install {
          let Some(release_version) = release.release_version else {
              crate::logging::update_check_failed(
@@ -631,7 +631,7 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
              );
              return;
          };
-@@ -2323,7 +2323,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
+@@ -2430,7 +2430,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
      crate::logging::update_available(release.label());
      tracing::info!(
          release_version = ?release.release_version,
@@ -641,5 +641,5 @@ index b10d19a256d4bfed14010272016dfda2c8759b87..392567d5d3525aaede1a6678a821b54a
      );
  
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

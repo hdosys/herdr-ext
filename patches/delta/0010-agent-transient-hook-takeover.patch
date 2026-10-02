@@ -1,7 +1,7 @@
-From ca471ea9d0561abcd5857098bb30a10d963ec59e Mon Sep 17 00:00:00 2001
+From 079307ea06cc66f485370364f3257398a5038793 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 23 Aug 2026 00:13:32 +0200
-Subject: [PATCH 8/30] fix(agent): restore authority after transient takeover
+Subject: [PATCH 8/22] fix(agent): restore authority after transient takeover
 
 Refs herdrdev/herdr#1033
 ---
@@ -10,7 +10,7 @@ Refs herdrdev/herdr#1033
  2 files changed, 70 insertions(+), 2 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 8b9d2fdaed9e11e67b5b5fe21348d2765119fdc0..b2c65244cf3c107a4ac400b4c95f57079b7afef8 100644
+index c7acbeea1a07067f5e3ec68346c22d160f6b9e26..dfdf32bf973cda8ad4fea12c14a892e9d1f36fbd 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -11,6 +11,7 @@
@@ -20,12 +20,12 @@ index 8b9d2fdaed9e11e67b5b5fe21348d2765119fdc0..b2c65244cf3c107a4ac400b4c95f5707
 +- Full-lifecycle agent sessions now regain hook authority after a temporary foreground takeover ends instead of remaining permanently stale. (#1033)
  - Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
  - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
- ## [0.9.0] - 2026-09-07
+ 
 diff --git a/src/terminal/state.rs b/src/terminal/state.rs
-index dc28af10650258fd3abde28241f8ab9cce207375..5d333c0488d9baf42ec0fdb26fb983594f812f8c 100644
+index 81c5884bdec71f7b29253a9fd4b4e970aacbea97..40796bb3dff93d1042f1a6689b34819261f4cd2f 100644
 --- a/src/terminal/state.rs
 +++ b/src/terminal/state.rs
-@@ -42,6 +42,7 @@ struct PendingFullLifecycleHookReport {
+@@ -51,6 +51,7 @@ struct PendingFullLifecycleHookReport {
  
  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
  enum FullLifecycleHookSuppressionReason {
@@ -33,7 +33,7 @@ index dc28af10650258fd3abde28241f8ab9cce207375..5d333c0488d9baf42ec0fdb26fb98359
      HookClear,
      ProcessExit,
  }
-@@ -569,7 +570,7 @@ impl TerminalState {
+@@ -626,7 +627,7 @@ impl TerminalState {
                  })
              });
              self.suppress_current_full_lifecycle_hook_authority(
@@ -42,7 +42,7 @@ index dc28af10650258fd3abde28241f8ab9cce207375..5d333c0488d9baf42ec0fdb26fb98359
              );
              self.hook_authority = None;
              self.persisted_agent_session = durable_session;
-@@ -909,7 +910,11 @@ impl TerminalState {
+@@ -1004,7 +1005,11 @@ impl TerminalState {
              if suppressed.agent_label != agent_label {
                  return FullLifecycleHookReportRoute::Ignore;
              }
@@ -55,7 +55,7 @@ index dc28af10650258fd3abde28241f8ab9cce207375..5d333c0488d9baf42ec0fdb26fb98359
                  let reanchor_sequence = matches!(
                      (&suppressed.session_ref, session_ref),
                      (Some(previous), Some(incoming)) if previous != incoming
-@@ -1097,6 +1102,9 @@ impl TerminalState {
+@@ -1192,6 +1197,9 @@ impl TerminalState {
                  if !should_clear {
                      return true;
                  }
@@ -65,7 +65,7 @@ index dc28af10650258fd3abde28241f8ab9cce207375..5d333c0488d9baf42ec0fdb26fb98359
                  if suppressed.reason == FullLifecycleHookSuppressionReason::ProcessExit {
                      if let Some(session_ref) = suppressed.replacement_session_ref.take() {
                          if let Some(exited_session_ref) = suppressed
-@@ -3174,6 +3182,65 @@ mod tests {
+@@ -3568,6 +3576,65 @@ mod tests {
          assert_eq!(terminal.state, AgentState::Idle);
      }
  
@@ -132,5 +132,5 @@ index dc28af10650258fd3abde28241f8ab9cce207375..5d333c0488d9baf42ec0fdb26fb98359
      fn queued_fresh_process_evidence_uses_process_exit_observation_time() {
          let mut terminal = test_terminal();
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

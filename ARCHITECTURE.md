@@ -9,12 +9,12 @@ behavior; code and tests remain the detailed implementation truth.
 
 ## Source and Ownership Model
 
-- The current reviewed base is Herdr v0.9.0, commit
-  `b99002ac99b09e00b4ca692436cb15a6b0d676f1`.
+- The current reviewed base is Herdr v0.9.2, commit
+  `48292af8e33a08c8030b7f1512c8d0da739f5ab1`.
 - Release source is a fresh checkout of the exact commit behind the upstream stable
   release recorded in `BASE` plus the ordered `patches/delta/series` queue. At each
-  explicit manual refresh, that commit must be the latest non-draft,
-  non-prerelease stable release then published by `herdrdev/herdr`; the control
+  explicit manual refresh, select the user's named stable version or otherwise the
+  latest non-draft, non-prerelease stable release from `herdrdev/herdr`; the control
   branch is not an integration product branch.
 - Active control-plane checkouts, contributor and contact links, and fork-owned
   installer presentation use the current official repository, `herdrdev/herdr`.
@@ -39,7 +39,7 @@ behavior; code and tests remain the detailed implementation truth.
 - Temporary post-stable backports remain separate logical mailboxes after the
   reviewed foundation. Their mailbox metadata owns immutable upstream provenance
   and author credit; `patches/delta/README.md` owns the concise inventory. The
-  reviewed v0.9.0 base does not move when these corrections are appended. Stable
+  reviewed base does not move when these corrections are appended. Stable
   adoption must cover necessary fork adaptations before a mailbox is retired.
 - Day-to-day maintained source has one integration state:
   `candidate/development`, with the same local and `origin` branch name. Its history

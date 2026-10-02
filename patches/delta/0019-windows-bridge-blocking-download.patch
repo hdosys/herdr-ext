@@ -1,7 +1,7 @@
-From b33d4d7ccbb97dc2a3f77fed7ffdf2de27d47e01 Mon Sep 17 00:00:00 2001
+From 91a9d347ca52797a7e6456221a8614809b8d2d97 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 11:15:26 +0200
-Subject: [PATCH 14/30] fix(remote): preserve blocking Windows bridge writes
+Subject: [PATCH 12/22] fix(remote): preserve blocking Windows bridge writes
 
 Backport the transport correction from herdrdev/herdr commit b28e7709d963be5fb4472d3db69f349cf1468213. Keep the fork endpoint, session and provisioning contracts. Exercise large downloads through the polling reader and peer-disconnect cleanup on native Windows.
 
@@ -11,32 +11,22 @@ test(remote): prepare and clean the native bridge socket
 
 Refs herdrdev/herdr#3701
 ---
- src/remote/attach.rs | 112 ++++++++++++++++++++++++++++++++++++-------
- 1 file changed, 95 insertions(+), 17 deletions(-)
+ src/remote/attach.rs | 87 ++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 83 insertions(+), 4 deletions(-)
 
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index b6559238fca1def0d7e9f2eb525349ef85527cbf..aaae614e2c7f5ab021309114b62bc3cb384327f0 100644
+index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..edb8a3f6900c0abae5bfc899b0911fa6e9232ddf 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -7,14 +7,14 @@ use std::io::{self, IsTerminal, Write as _};
+@@ -7,6 +7,7 @@ use std::io::{self, IsTerminal, Read as _, Write as _};
  use std::path::{Path, PathBuf};
- use std::process::{Command, Output, Stdio};
+ use std::process::{Child, Command, Output, Stdio};
  
--use interprocess::local_socket::traits::{Listener as _, Stream as _};
--use interprocess::local_socket::ListenerNonblockingMode;
- use interprocess::TryClone as _;
-+use interprocess::local_socket::ListenerNonblockingMode;
-+use interprocess::local_socket::traits::Listener as _;
- use serde::{Deserialize, Serialize};
- use sha2::{Digest as _, Sha256};
- use std::sync::{
--    atomic::{AtomicBool, Ordering},
-     Arc,
-+    atomic::{AtomicBool, Ordering},
- };
- use std::thread::{self, JoinHandle};
- use std::time::{Duration, Instant};
-@@ -2352,7 +2352,9 @@ fn confirm_remote_install_with_server_status(
++#[cfg(unix)]
+ use interprocess::local_socket::traits::Listener as _;
+ #[cfg(all(test, unix))]
+ use interprocess::local_socket::traits::Stream as _;
+@@ -2696,7 +2697,9 @@ fn confirm_remote_install_with_server_status(
      eprintln!(
          "To complete the remote update, Herdr must stop the running remote server after installing."
      );
@@ -47,7 +37,7 @@ index b6559238fca1def0d7e9f2eb525349ef85527cbf..aaae614e2c7f5ab021309114b62bc3cb
      eprintln!();
      eprint!(
          "Install {} and stop the remote server now? [y/N] ",
-@@ -2950,7 +2952,9 @@ fn confirm_remote_server_stop(
+@@ -3351,7 +3354,9 @@ fn confirm_remote_server_stop(
          }
      }
  
@@ -58,28 +48,11 @@ index b6559238fca1def0d7e9f2eb525349ef85527cbf..aaae614e2c7f5ab021309114b62bc3cb
      let prompt = if required_upgrade {
          "stop and update the remote server, then continue attaching? [y/N] "
      } else {
-@@ -3583,7 +3587,7 @@ fn write_managed_ssh_config() -> io::Result<ManagedSshConfig> {
- }
- 
- fn bridge_connection(
--    stream: crate::ipc::LocalStream,
-+    mut stream: crate::ipc::LocalStream,
-     target: &str,
-     remote_command: &str,
-     ssh_options: Option<&ManagedSshOptions>,
-@@ -3626,7 +3630,7 @@ fn bridge_connection(
-             return Err(err);
-         }
-     };
--    if let Err(err) = stream.set_nonblocking(true) {
-+    if let Err(err) = crate::ipc::set_local_stream_polling(&mut stream, true) {
-         let _ = child.kill();
-         let _ = child.wait();
-         return Err(err);
-@@ -3885,6 +3889,77 @@ fn sanitize_path_component(input: &str) -> String {
+@@ -4582,13 +4587,87 @@ fn sanitize_path_component(input: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
++    #[cfg(windows)]
 +    use interprocess::local_socket::traits::Stream as _;
 +
 +    #[cfg(windows)]
@@ -141,63 +114,30 @@ index b6559238fca1def0d7e9f2eb525349ef85527cbf..aaae614e2c7f5ab021309114b62bc3cb
 +        .expect("second download must begin before disconnect");
 +        // A disappearing client must release a download even when it no longer reads.
 +        drop(client);
-+        assert!(
-+            phase_rx
-+                .recv_timeout(Duration::from_secs(3))
-+                .unwrap()
-+                .is_err()
-+        );
++        assert!(phase_rx
++            .recv_timeout(Duration::from_secs(3))
++            .unwrap()
++            .is_err());
 +        writer.join().unwrap();
 +        drop(listener);
 +        crate::ipc::remove_socket_file_if_owned(&socket, &socket_identity).unwrap();
 +    }
  
-     #[cfg(unix)]
-     #[test]
-@@ -4970,7 +5045,7 @@ mod tests {
-                 crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
-             ),
-             endpoint_capabilities: vec![
--                crate::protocol::endpoint::WINDOWS_REMOTE_HOST_CAPABILITY.into()
-+                crate::protocol::endpoint::WINDOWS_REMOTE_HOST_CAPABILITY.into(),
-             ],
-         });
-         assert!(can_reuse_detected_windows_herdr(
-@@ -4990,12 +5065,14 @@ mod tests {
-         assert!(!can_reuse_detected_windows_herdr(
-             &detected, None, false, true
-         ));
--        assert!(!detected
--            .remote_herdr
--            .client
--            .as_ref()
--            .unwrap()
--            .matches_deployment_identity());
-+        assert!(
-+            !detected
-+                .remote_herdr
-+                .client
-+                .as_ref()
-+                .unwrap()
-+                .matches_deployment_identity()
-+        );
-         detected
-             .remote_herdr
-             .client
-@@ -5132,9 +5209,10 @@ mod tests {
-     fn windows_local_forward_endpoint_uses_private_state_dir() {
-         let path = local_forward_socket_path("user@example.com", "work");
-         assert!(path.starts_with(crate::platform::remote_private_temp_base()));
--        assert!(path
--            .file_name()
--            .is_some_and(|name| name.to_string_lossy().starts_with("herdr-r-")));
-+        assert!(
-+            path.file_name()
-+                .is_some_and(|name| name.to_string_lossy().starts_with("herdr-r-"))
-+        );
-     }
+     fn decode_windows_command(command: &str) -> String {
+         use base64::Engine as _;
  
-     #[cfg(unix)]
+         let encoded = command
+-            .strip_prefix("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ")
+-            .expect("encoded PowerShell command");
++            .split_once("FromBase64String('")
++            .expect("encoded PowerShell command")
++            .1
++            .split_once('\'')
++            .unwrap()
++            .0;
+         let bytes = base64::engine::general_purpose::STANDARD
+             .decode(encoded)
+             .expect("base64");
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

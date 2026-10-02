@@ -1,15 +1,15 @@
-From 61b841de606c106ae41725eb95b5a9465cba34b5 Mon Sep 17 00:00:00 2001
+From 02bb58ef2703397f0bf973ff7598c2931a7a88a8 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 5 Aug 2026 09:38:50 +0200
-Subject: [PATCH 5/30] fix(security): harden curl transfers
+Subject: [PATCH 5/22] fix(security): harden curl transfers
 
 Ignore user curl configuration, require TLS 1.2+ HTTPS for initial and redirected runtime transfers, cap redirects, disable URL globbing, and pass each URL as data rather than a possible option.
 ---
  src/detect/manifest_update.rs | 12 +++++--
  src/noninteractive_process.rs | 65 +++++++++++++++++++++++++++++++++--
- src/remote/attach.rs          |  4 +--
- src/update.rs                 |  6 ++--
- 4 files changed, 77 insertions(+), 10 deletions(-)
+ src/remote/attach.rs          |  8 ++---
+ src/update.rs                 | 12 ++-----
+ 4 files changed, 77 insertions(+), 20 deletions(-)
 
 diff --git a/src/detect/manifest_update.rs b/src/detect/manifest_update.rs
 index 33493059ccb5f70a252a5a262fe2eb254d18bb44..79cdcf224dcbc645d326b2ec84095f851d7330c2 100644
@@ -117,58 +117,68 @@ index 98198dce5aba1bd7f158e6894c41033a773ebf85..c296d30ba90e0cd50f541e26707de7c0
 +    }
  }
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index aa5da6a703e695ac2555717b47c876dbd0d5028c..b6559238fca1def0d7e9f2eb525349ef85527cbf 100644
+index a059d33b69b576834ac39b7b1d2a87397ecba732..8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -3082,7 +3082,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
+@@ -3473,9 +3473,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
  
      let dir = private_download_dir(&asset_key)?;
      let path = dir.join("herdr.tmp");
--    let status = crate::noninteractive_process::curl_command().arg("-sfL").arg(&asset.url)
+-    let status = crate::noninteractive_process::curl_command()
+-        .arg("-sfL")
+-        .arg(&asset.url)
 +    let status = crate::noninteractive_process::curl_command(&asset.url)
          .args(["--max-time", "120", "-o"])
          .arg(&path)
          .status()
-@@ -3131,7 +3131,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
+@@ -3524,9 +3522,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
  }
  
  fn fetch_remote_manifest(url: &str) -> io::Result<Vec<u8>> {
--    let output = crate::noninteractive_process::curl_command().arg("-sfL").arg(url)
+-    let output = crate::noninteractive_process::curl_command()
+-        .arg("-sfL")
+-        .arg(url)
 +    let output = crate::noninteractive_process::curl_command(url)
          .args([
              "-H",
              "Cache-Control: no-cache",
 diff --git a/src/update.rs b/src/update.rs
-index d30018920043c1fdb4c1710d1801567321a0acf2..b10d19a256d4bfed14010272016dfda2c8759b87 100644
+index 633b89f516becdd97d82d53d66f6e5d8eafa0eec..32a79be192f20caf50a99e3428f54c36c670905f 100644
 --- a/src/update.rs
 +++ b/src/update.rs
-@@ -290,7 +290,7 @@ fn fetch_json_manifest<T>(url: &str) -> Result<T, String>
+@@ -292,9 +292,7 @@ fn fetch_json_manifest<T>(url: &str) -> Result<T, String>
  where
      T: serde::de::DeserializeOwned,
  {
--    let output = crate::noninteractive_process::curl_command().arg("-sfL").arg(url)
+-    let output = crate::noninteractive_process::curl_command()
+-        .arg("-sfL")
+-        .arg(url)
 +    let output = crate::noninteractive_process::curl_command(url)
          .args([
              "-H",
              "Cache-Control: no-cache",
-@@ -602,7 +602,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
+@@ -607,9 +605,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
      let tmp_path = parent.join(format!(".herdr-update-{}.tmp", std::process::id()));
  
      // Download the exact asset URL (pinned to the release we checked)
--    let status = crate::noninteractive_process::curl_command().arg("-sfL").arg(&release.download_url)
+-    let status = crate::noninteractive_process::curl_command()
+-        .arg("-sfL")
+-        .arg(&release.download_url)
 +    let status = crate::noninteractive_process::curl_command(&release.download_url)
          .args(["--max-time", "120", "-o"])
          .arg(&tmp_path)
          .status()
-@@ -713,7 +713,7 @@ fn download_windows_installer(release: &ReleaseInfo) -> Result<DownloadedWindows
+@@ -720,9 +716,7 @@ fn download_windows_installer(release: &ReleaseInfo) -> Result<DownloadedWindows
      let path = root.join(asset_name);
      let download = DownloadedWindowsInstaller { root, path };
  
--    let status = crate::noninteractive_process::curl_command().arg("-sfL").arg(&release.download_url)
+-    let status = crate::noninteractive_process::curl_command()
+-        .arg("-sfL")
+-        .arg(&release.download_url)
 +    let status = crate::noninteractive_process::curl_command(&release.download_url)
          .args(["--max-time", "120", "-o"])
          .arg(&download.path)
          .status()
 -- 
-2.55.0.windows.3
+2.55.0.windows.5
 

@@ -33,8 +33,8 @@ Detach from a Windows-hosted Herdr session, reconnect from another terminal, and
 
 ```mermaid
 flowchart TB
-    S["Reviewed stable source<br/>Upstream Herdr v0.9.0 / BASE b99002ac99b0"]
-    Q["Control branch: patches/delta/series<br/>0001 Terminal experience / 0003 Windows SSH / 0004 Managed distribution<br/>0005 OpenCode / 0006 Downloads / 0008 Worktree lifecycle<br/>0009 Agent start / 0010 Hook recovery / 0011 Metadata<br/>0012 Completion / 0013 History / 0015 Contrast / 0016 Integration hints"]
+    S["Reviewed stable source<br/>Upstream Herdr v0.9.2 / BASE 48292af8e33a"]
+    Q["Control branch: patches/delta/series<br/>0001 Terminal experience / 0003 Windows SSH / 0004 Managed distribution<br/>0005 OpenCode / 0006 Downloads / 0008 Worktree lifecycle<br/>0009 Agent start / 0010 Hook recovery / 0011 Metadata<br/>0012 Completion / 0016 Integration hints / Remaining fork corrections"]
     B["Corrections after the foundation<br/>0019-0027, 0030 Reviewed upstream backports<br/>0028-0029, 0031 Local fixes and discoverability"]
     D["Current maintained source<br/>Finalized queue reproduces the accepted source tree"]
     V["Validated distribution<br/>Fresh replay → native + cross-platform gates<br/>→ Windows setup + ZIP, Linux/macOS binaries + digests"]
@@ -61,9 +61,9 @@ The table is intentionally capability-level. ✅ marks complete capabilities now
 | Agent hook recovery | **Maintained here** · [#1033](https://github.com/herdrdev/herdr/issues/1033) · [`0010`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0010-agent-transient-hook-takeover.patch) | Lets a still-running full-lifecycle Agent regain hook authority after a temporary foreground takeover without reviving a session after a real exit. |
 | Metadata capacity | **Maintained here** · [`0011`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0011-metadata-token-capacity.patch) | Atomically updates and retains up to 64 pane or workspace metadata tokens while preserving existing validation bounds. |
 | Completion alerts | 🟡 **Partly upstream in Herdr v0.9.0; controls maintained here** · [`0012`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0012-agent-completion-controls.patch) | Adds a persistent completion-only popup and sound opt-out plus cancellation suppression without disabling questions, permission prompts, or errors. |
-| Terminal history | **Maintained here** · [#2893](https://github.com/herdrdev/herdr/issues/2893) · [`0013`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0013-terminal-history-scroll-aliasing.patch) | Retains repeated rows that scroll into alternate-screen history. |
+| Terminal history | ✅ **Provided by Herdr v0.9.2** · [#2893](https://github.com/herdrdev/herdr/issues/2893) | Upstream owns the current history implementation; the older fork mailbox is retired. |
 | Plugin command resolution | ✅ **Upstreamed in Herdr v0.9.0** · [#3024](https://github.com/herdrdev/herdr/issues/3024) | Upstream resolves explicit relative pane commands from the linked plugin root, including Windows plugin-local executables. |
-| Muted-label contrast | **Maintained here** · [#2692](https://github.com/herdrdev/herdr/issues/2692) · [`0015`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0015-muted-label-contrast.patch) | Keeps muted sidebar and inactive tab labels readable. |
+| Muted-label contrast | ✅ **Provided by Herdr v0.9.2** · [#2692](https://github.com/herdrdev/herdr/issues/2692) | Keeps muted sidebar and inactive tab labels readable without the older fork mailbox. |
 | Integration settings | **Maintained here** · [#2880](https://github.com/herdrdev/herdr/issues/2880) · [`0016`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0016-settings-integration-hints.patch) | Shows only controls that the selected integration supports. |
 | Devin configuration | ✅ **Upstreamed in Herdr v0.9.0** · [#2724](https://github.com/herdrdev/herdr/issues/2724) | Upstream finds Devin's native configuration in roaming AppData while respecting an explicit XDG override. |
 | Windows process environment | ✅ **Upstreamed in Herdr v0.9.0** · [#3430](https://github.com/herdrdev/herdr/issues/3430) | Upstream rejects malformed Windows environment entries and validates registry values before process creation. |
@@ -71,18 +71,18 @@ The table is intentionally capability-level. ✅ marks complete capabilities now
 | Multi-machine workspace views | **Included in v2026.09.10.2** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-v090-corrections) | Scopes collapsed groups to each machine, focuses new worktrees in the requesting client, supports guarded cross-machine navigation, and preserves public focus and focused geometry. |
 | Session safety and startup diagnostics | **Included in v2026.09.10.2** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-v090-corrections) | Requires exact recorded names for session deletion and keeps Local startup errors visible without freezing healthy remote views. |
 
-These corrections are included in Herdr Extended v2026.09.10.2. They keep the reviewed
-v0.9.0 base unchanged. An upstream PR reference is provenance, not a claim that the
-fix has shipped in upstream stable; temporary mailboxes remain until equivalent
-stable behavior includes the necessary adaptations.
+These corrections first shipped in Herdr Extended v2026.09.10.2 on the v0.9.0 base.
+The maintained queue now uses v0.9.2 and retires equivalent upstreamed patches while
+retaining necessary fork adaptations and boundary checks. An upstream PR reference
+records provenance, not a separate release claim.
 
 **Unpublished development candidate:** the development line now incorporates
 Herdr v0.9.2, including upstream [cursor/rendering](https://github.com/herdrdev/herdr/pull/4554),
 [scrollback](https://github.com/herdrdev/herdr/pull/4553), and
 [SSH recovery](https://github.com/herdrdev/herdr/pull/4490) improvements. It retains
 the fork's Windows SSH adapter, managed installer, client-local appearance, and
-OpenCode V1 integration. The maintained release queue still targets v0.9.0; this
-development integration is not a new public release.
+OpenCode V1 integration. The maintained release queue now targets the same v0.9.2
+base. Queue finalization and candidate builds do not publish a public release.
 
 The candidate's script-generated status labels can include
 multiple OSC 8 web links in one command output. Click an underlined text section
