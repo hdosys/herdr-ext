@@ -361,8 +361,7 @@ fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    use super::*;
+    use super::{App, Instant, Rect};
 
     #[cfg(unix)]
     fn test_app() -> App {
