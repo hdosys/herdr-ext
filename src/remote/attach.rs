@@ -5275,6 +5275,68 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn windows_ssh_auth_output_arrives_before_exit_and_remains_captured() {
+        use std::sync::mpsc;
+
+        struct NoticeWriter(mpsc::Sender<Vec<u8>>);
+        impl io::Write for NoticeWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.send(bytes.to_vec()).map_err(io::Error::other)?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let job = crate::platform::ChildProcessJob::new_kill_on_close().unwrap();
+        let mut command = Command::new("cmd.exe");
+        command
+            .args([
+                "/D",
+                "/C",
+                "(echo auth-notice 1>&2) & set /p approval= & echo reply & exit /b 23",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        crate::platform::configure_background_command(&mut command);
+        let mut child = command.spawn().unwrap();
+        if let Err(error) = job.assign(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("contain authentication fixture: {error}");
+        }
+        let mut approval = child.stdin.take().unwrap();
+        let (notice_tx, notice_rx) = mpsc::channel();
+        let (output_tx, output_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let _ = output_tx.send(output_with_forwarded_stderr(
+                child,
+                None,
+                NoticeWriter(notice_tx),
+            ));
+        });
+        // The child cannot exit until the test receives the relayed notice and
+        // releases its stdin. Capturing stderr only after exit fails this check.
+        let notice = notice_rx.recv_timeout(Duration::from_secs(5));
+        let approval_result = approval.write_all(b"approved\r\n");
+        drop(approval);
+        let output = output_rx.recv_timeout(Duration::from_secs(5));
+        if output.is_err() {
+            job.terminate().unwrap();
+        }
+        worker.join().unwrap();
+        let output = output.unwrap().unwrap();
+        approval_result.unwrap();
+        assert!(String::from_utf8_lossy(&notice.unwrap()).contains("auth-notice"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("auth-notice"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("reply"));
+        assert_eq!(output.status.code(), Some(23));
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_ssh_user_config_include_uses_home_shorthand() {
         // MSYS/Git Bash OpenSSH does not resolve `C:/...` in `Include`, so the
         // user config is referenced through `~` regardless of the profile path.

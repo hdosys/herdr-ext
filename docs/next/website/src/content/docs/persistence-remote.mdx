@@ -69,7 +69,7 @@ Then attach with:
 herdr --remote workbox
 ```
 
-Remote attach and saved SSH machines support Linux, macOS, and Windows local clients connecting to Linux or macOS hosts on x86_64 and aarch64, or Windows hosts on x86_64. Local and remote versions do not need to match once both support the stable endpoint generation. On Linux and macOS hosts, Herdr prefers a compatible `herdr` already on the remote `PATH`, then checks common direct, Homebrew, mise, and Nix profile install paths. On Windows hosts, Herdr checks `PATH` and the active managed release. If no compatible binary exists, interactive runs prompt to install or update one; non-interactive runs fail instead of modifying the host. Linux and macOS installs use `~/.local/bin/herdr`; Windows installs use the complete Windows package and its app-local ConPTY runtime. If `~/.local/bin` is not on the remote `PATH`, Herdr warns after install.
+Remote attach and saved SSH machines support Linux, macOS, and Windows local clients connecting to Linux or macOS hosts on x86_64 and aarch64, or Windows hosts on x86_64 and ARM64. Local and remote versions do not need to match once both support the stable endpoint generation. On Linux and macOS hosts, Herdr prefers a compatible `herdr` already on the remote `PATH`, then checks common direct, Homebrew, mise, and Nix profile install paths. On Windows hosts, Herdr checks the SSH user's `PATH`, then `%USERPROFILE%\.herdr\remote\herdr.exe`. If no compatible binary exists, interactive runs prompt to install or update one; non-interactive runs require explicit approval with `--yes` before modifying the host. Linux and macOS installs use `~/.local/bin/herdr`; Windows installs transfer the complete digest-verified portable payload, including its app-local ConPTY runtime, without running the managed installer or changing remote `PATH`. If `~/.local/bin` is not on the remote `PATH`, Herdr warns after install.
 
 By default, `herdr --remote` runs remote setup and the bridge through a temporary SSH config that includes your SSH config first, then adds fallback keepalive settings. Existing user keepalive settings win. Linux and macOS clients also use a private per-attach control socket for connection reuse; Windows OpenSSH does not. Set `[remote].manage_ssh_config = false` to use plain `ssh` without Herdr's generated config or control socket.
 
@@ -90,13 +90,49 @@ herdr --remote workbox --handoff
 
 If you SSH into the server first and run `herdr` there, Herdr runs entirely on the server and cannot access your local desktop clipboard beyond normal terminal text paste.
 
-When local and remote platforms match, direct installs can copy their current executable. Otherwise Herdr Extended uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install or restart a server during reconnect.
+When local and remote platforms match, direct installs can copy their current executable. Otherwise Herdr Extended uses its own checksum-verified matching release assets. Windows targets receive the complete portable ZIP, not a loose executable. Ordinary attachment reuses endpoint-compatible binaries; `--provision --yes` instead requires the selected deployment's exact runtime identity before server activation. Saved connections always use their configured session and never install, stop, replace, restart, or start a missing server during reconnect.
 
-For local builds or custom packages, set `HERDR_REMOTE_BINARY` to a local file path before running remote attach. Use a bare Herdr executable for Linux or macOS targets and a complete `herdr-windows-x86_64.zip` package for Windows targets.
+For local builds or custom packages, set `HERDR_REMOTE_BINARY` to a local file path before running remote attach. Use a bare Herdr executable for Linux or macOS targets and a complete Windows portable ZIP for Windows targets.
 
 ```bash
 HERDR_REMOTE_BINARY=target/release/herdr herdr --remote workbox
 ```
+
+## Provisioning with your client configuration
+
+```bash
+herdr --remote workbox --provision --yes
+```
+
+Explicit provisioning uses your existing local `config.toml` (or
+`HERDR_CONFIG_PATH`) as the configuration source. No separate per-host file is
+needed. It replaces the target's transferable settings with the client's settings,
+validates the result before writing it, and uses the existing server start or
+configuration-reload path. Settings omitted from the client return to their defaults
+on the target. If there is no local config file, the remote configuration is left
+unchanged. Ordinary attachment and saved-machine reconnect do not deploy config.
+
+Only these machine-local values are excluded from transfer and preserved on the
+target; when absent there, the target defaults apply:
+
+| Excluded setting | Reason |
+| --- | --- |
+| `onboarding` | Local setup state |
+| `terminal.default_shell`, `terminal.new_cwd` | Machine-specific executable and working directory |
+| `worktrees.directory` | Machine-specific checkout root |
+| `agent.args` | Free-form arguments can contain local paths or credentials |
+| `keys.command` | Commands are written for the originating machine |
+| `ui.tab_bar_right` | The entry list can contain machine-specific shell commands |
+| `ui.sound.path`, `ui.sound.done_path`, `ui.sound.request_path` | Local sound files are not copied |
+
+All other configuration settings are transferred. New settings therefore transfer
+unless explicitly added to this exclusion list. Configuration is serialized as TOML;
+comments and formatting are not preserved on the target. Invalid input fails without
+replacing the existing configuration. A transfer larger than 1 MiB is rejected.
+This copies configuration values only, not credentials, agent configuration files,
+SSH profiles, session state, or referenced files. Provisioning still requires the
+exact matching Herdr runtime; it does not make an older remote binary support new
+configuration settings.
 
 ## Remote named sessions
 

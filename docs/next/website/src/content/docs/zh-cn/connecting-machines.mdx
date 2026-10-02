@@ -25,7 +25,7 @@ ssh workbox
 
 `workbox` 可以是 SSH 配置中的主机名，也可以使用 `ssh://you@server:2222` 这样的目标。
 
-多机器连接支持 Linux、macOS 和 Windows 客户端，连接目标可以是 x86_64 或 aarch64 的 Linux/macOS 服务器，也可以是 x86_64 的 Windows 服务器。交互式设置可在确认后安装或更新完整的远程软件包；后台重连只查找已安装的软件包。有关 SSH 配置、认证和自定义二进制文件，请参阅[通过 SSH 远程连接](/zh-cn/docs/persistence-remote/)。
+多机器连接支持 Linux、macOS 和 Windows 客户端，连接目标可以是 x86_64 或 aarch64 的 Linux/macOS 服务器，也可以是 x86_64 或 ARM64 的 Windows 服务器。交互式设置可在确认后安装或更新完整的远程软件包；后台重连只查找已安装的软件包。有关 SSH 配置、认证和自定义二进制文件，请参阅[通过 SSH 远程连接](/zh-cn/docs/persistence-remote/)。
 
 ## 添加机器
 
@@ -47,7 +47,7 @@ herdr machine add workbox --remote-session agents
 
 未提供 `--label` 时，这台机器显示为 `workbox/agents`。如果默认名称已被占用，`machine add` 会要求你传入 `--label`。
 
-在 Windows 服务器上，设置还会检查 SSH 用户拥有的 Herdr 进程所使用的可执行文件。它会先验证其能力再复用，因此即使 SSH 的 `PATH` 指向较旧的安装，也能使用兼容的运行中构建。
+在 Windows 服务器上，设置先检查 SSH 用户 `PATH` 中端点兼容的 `herdr.exe`，然后检查 `%USERPROFILE%\.herdr\remote\herdr.exe`。整个设置过程复用最初的候选程序和服务器检查结果。
 
 Herdr 分别检查已安装的二进制文件和运行中的服务器，并在保存配置之前启动目标后台服务器。客户端和服务器版本只要兼容，就不必一致。未安装或不兼容时会进入需要批准的设置流程。如果必须替换运行中的服务器，会先询问是否停止它及其窗格进程，再启动兼容的服务器。默认回答为 No；同时需要安装和替换时，一次确认涵盖两项操作。`machine add` 不使用实验性的实时交接。取消或设置失败时，不会保存配置。
 
