@@ -3292,6 +3292,7 @@ mod tests {
     fn update_requires_server_restart_only_without_the_endpoint_baseline() {
         let release = fake_release("0.5.6", Some(4));
         let compatible = crate::api::RuntimeStatus {
+            binary: None,
             version: Some("0.5.5".to_string()),
             protocol: Some(2),
             capabilities: Some(crate::api::schema::ServerCapabilities {
@@ -3630,6 +3631,7 @@ mod tests {
             },
             requires_server_restart: false,
             server: crate::api::RuntimeStatus {
+                binary: None,
                 version: Some("9.8.6".to_string()),
                 protocol: Some(76),
                 capabilities: Some(crate::api::schema::ServerCapabilities {

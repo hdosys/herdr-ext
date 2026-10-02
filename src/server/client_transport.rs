@@ -137,6 +137,7 @@ impl ClientWriter {
     pub(crate) fn test_paused() -> Self {
         let queue = ClientWriterQueue::new();
         Self {
+            surface_cursor_color: false,
             control: ClientControlWriter::queue(queue.clone()),
             render: ClientRenderWriter::queue(queue),
         }
