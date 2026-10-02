@@ -393,7 +393,7 @@ pub(crate) fn hostname() -> Option<String> {
 }
 
 pub(crate) fn local_datetime() -> Option<time::PrimitiveDateTime> {
-    let mut timestamp: libc::time_t = 0;
+    let mut timestamp = 0;
     if unsafe { libc::time(&mut timestamp) } == -1 {
         return None;
     }

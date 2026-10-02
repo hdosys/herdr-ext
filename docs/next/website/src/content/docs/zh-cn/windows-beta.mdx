@@ -117,7 +117,9 @@ herdr --remote workbox
 herdr --remote workbox --provision --yes --json
 ```
 
-所有受支持的客户端都可以连接 x86_64 和 ARM64 Windows 主机。普通连接和已保存的机器会复用 `PATH` 或 `%USERPROFILE%\.herdr\remote\herdr.exe` 中端点兼容的二进制,不会仅因版本不同而替换。显式配置则要求所选运行时身份完全匹配,并在任何已批准的服务器停止之前验证完整的便携 ZIP。它不会运行受管理安装程序或更改远程 `PATH`。已保存连接的重连不会安装或重启服务器,并保持明确选择的会话。Windows OpenSSH 的默认 shell 必须是 `cmd.exe` 或 PowerShell 7。服务器在 SSH 用户现有的活动桌面会话中启动,因此 SSH 断开后仍可继续运行。Windows PowerShell 5.1、未知 shell 或不明确的桌面会话都会被拒绝。Windows 目标主机不支持实时交接。
+所有受支持的客户端都可以连接 x86_64 和 ARM64 Windows 主机。普通连接和已保存的机器会复用 `PATH` 或 `%USERPROFILE%\.herdr\remote\herdr.exe` 中端点兼容的二进制,不会仅因版本不同而替换。显式配置则要求所选运行时身份完全匹配,并在任何已批准的服务器停止之前验证完整的便携 ZIP。它不会运行受管理安装程序或更改远程 `PATH`。已保存连接的重连不会安装、停止、替换、重启或启动未运行的服务器,并保持明确选择的会话。为逐字节保持二进制流，Windows OpenSSH 的默认 shell 必须是 `cmd.exe` 或 PowerShell 7（`pwsh.exe`）。服务器在 SSH 用户现有的活动桌面会话中启动,因此 SSH 断开后仍可继续运行。Windows PowerShell 5.1、未知 shell、缺少活动桌面会话或桌面会话不明确都会被拒绝。Windows 目标主机不支持实时交接。
+
+Herdr 使用已安装的 Windows OpenSSH 客户端和你的 SSH 配置。Windows OpenSSH 不使用 Herdr 的 Unix control socket 连接复用，因此建议通过 Windows `ssh-agent` 使用密钥认证，避免远程设置期间重复提示。
 
 Windows 目标还必须声明 `windows_remote_host` 支持。仅提供客户端功能的 Windows 二进制不足以托管 SSH 桥接。
 
