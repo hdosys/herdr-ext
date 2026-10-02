@@ -1,4 +1,4 @@
-From 91a9d347ca52797a7e6456221a8614809b8d2d97 Mon Sep 17 00:00:00 2001
+From bf31856fff659447b34b9e2b984f0adb875dad07 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 11:15:26 +0200
 Subject: [PATCH 12/23] fix(remote): preserve blocking Windows bridge writes
@@ -11,22 +11,14 @@ test(remote): prepare and clean the native bridge socket
 
 Refs herdrdev/herdr#3701
 ---
- src/remote/attach.rs | 87 ++++++++++++++++++++++++++++++++++++++++++--
- 1 file changed, 83 insertions(+), 4 deletions(-)
+ src/remote/attach.rs | 86 +++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 82 insertions(+), 4 deletions(-)
 
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..edb8a3f6900c0abae5bfc899b0911fa6e9232ddf 100644
+index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..a8aa3321b071b514f901f54710d18b4bc8544a85 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -7,6 +7,7 @@ use std::io::{self, IsTerminal, Read as _, Write as _};
- use std::path::{Path, PathBuf};
- use std::process::{Child, Command, Output, Stdio};
- 
-+#[cfg(unix)]
- use interprocess::local_socket::traits::Listener as _;
- #[cfg(all(test, unix))]
- use interprocess::local_socket::traits::Stream as _;
-@@ -2696,7 +2697,9 @@ fn confirm_remote_install_with_server_status(
+@@ -2696,7 +2696,9 @@ fn confirm_remote_install_with_server_status(
      eprintln!(
          "To complete the remote update, Herdr must stop the running remote server after installing."
      );
@@ -37,7 +29,7 @@ index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..edb8a3f6900c0abae5bfc899b0911fa6
      eprintln!();
      eprint!(
          "Install {} and stop the remote server now? [y/N] ",
-@@ -3351,7 +3354,9 @@ fn confirm_remote_server_stop(
+@@ -3351,7 +3353,9 @@ fn confirm_remote_server_stop(
          }
      }
  
@@ -48,7 +40,7 @@ index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..edb8a3f6900c0abae5bfc899b0911fa6
      let prompt = if required_upgrade {
          "stop and update the remote server, then continue attaching? [y/N] "
      } else {
-@@ -4582,13 +4587,87 @@ fn sanitize_path_component(input: &str) -> String {
+@@ -4582,13 +4586,87 @@ fn sanitize_path_component(input: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;

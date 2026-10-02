@@ -1,4 +1,4 @@
-From 98fd19172a3b136a8402aec15ef94dd7e6893e8d Mon Sep 17 00:00:00 2001
+From d001db7650ecf30c69999c9a351f6d78b8190e72 Mon Sep 17 00:00:00 2001
 From: Jonathan Liebig <jonathan.liebig@gmail.com>
 Date: Wed, 9 Sep 2026 12:27:15 +0200
 Subject: [PATCH 13/23] fix(endpoint): keep Windows polling-peer writes
@@ -13,12 +13,13 @@ Refs herdrdev/herdr#3721, herdrdev/herdr#3651.
  src/api/server/subscription_socket_tests.rs |  1 +
  src/client/endpoint/writer.rs               | 37 +++++----
  src/ipc.rs                                  | 83 ++++++++++++++++-----
+ src/remote/attach.rs                        |  1 +
  src/server/autodetect.rs                    |  1 +
  src/server/client_accept.rs                 |  4 +-
  src/server/client_transport.rs              |  1 +
  src/server/headless.rs                      |  1 +
  src/session.rs                              |  1 +
- 10 files changed, 99 insertions(+), 37 deletions(-)
+ 11 files changed, 100 insertions(+), 37 deletions(-)
 
 diff --git a/src/api/client.rs b/src/api/client.rs
 index b4ecfc4ebe2bf3be7cc6ca4ed92a80f967f22d57..94b18b08d8b51483a747b76b327c6788a11403f7 100644
@@ -287,6 +288,18 @@ index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5
      use std::path::PathBuf;
  
      #[test]
+diff --git a/src/remote/attach.rs b/src/remote/attach.rs
+index a8aa3321b071b514f901f54710d18b4bc8544a85..edb8a3f6900c0abae5bfc899b0911fa6e9232ddf 100644
+--- a/src/remote/attach.rs
++++ b/src/remote/attach.rs
+@@ -7,6 +7,7 @@ use std::io::{self, IsTerminal, Read as _, Write as _};
+ use std::path::{Path, PathBuf};
+ use std::process::{Child, Command, Output, Stdio};
+ 
++#[cfg(unix)]
+ use interprocess::local_socket::traits::Listener as _;
+ #[cfg(all(test, unix))]
+ use interprocess::local_socket::traits::Stream as _;
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
 index cd3eec3ad337f2378599fa04f6e5f849f3cd93ee..9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60 100644
 --- a/src/server/autodetect.rs
