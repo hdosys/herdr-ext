@@ -2885,7 +2885,10 @@ fn deploy_remote_config(
         .map_err(|_| io::Error::other("configuration transfer failed"))?;
     let output = output?;
     if !output.status.success() {
-        return Err(command_failed("remote configuration transfer failed", &output));
+        return Err(command_failed(
+            "remote configuration transfer failed",
+            &output,
+        ));
     }
     write_result
 }
@@ -4587,6 +4590,7 @@ fn sanitize_path_component(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use interprocess::local_socket::traits::Stream as _;
 
     #[cfg(windows)]
