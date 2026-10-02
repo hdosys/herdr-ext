@@ -3214,6 +3214,7 @@ mod tests {
                 pane_id,
                 source: "custom:worker".into(),
                 agent_label: label.into(),
+                suppress_completion: false,
                 state,
                 message: None,
                 seq: Some(seq),
@@ -3577,6 +3578,7 @@ mod tests {
 
     fn report_custom_agent_with_resume(state: &mut AppState, pane_id: PaneId, argv: &[&str]) {
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "prime-agent".into(),
             agent_label: "prime-agent".into(),
@@ -3648,6 +3650,7 @@ mod tests {
             pane_id,
             source: "custom:other".into(),
             agent_label: "other".into(),
+            suppress_completion: false,
             state: AgentState::Working,
             message: None,
             seq: None,
@@ -3748,6 +3751,7 @@ mod tests {
             observed_at: std::time::Instant::now(),
         });
         state.handle_app_event(AppEvent::HookStateReported {
+            suppress_completion: false,
             pane_id,
             source: "herdr:pi".into(),
             agent_label: "pi".into(),
