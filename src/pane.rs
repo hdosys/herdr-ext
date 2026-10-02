@@ -3678,12 +3678,6 @@ impl PaneRuntime {
         crate::platform::process_cwd(pid)
     }
 
-    pub(crate) fn has_reported_cwd(&self) -> bool {
-        self.reported_cwd
-            .lock()
-            .is_ok_and(|reported_cwd| reported_cwd.is_some())
-    }
-
     pub fn cwd_for_persistence(&self) -> Option<std::path::PathBuf> {
         let pid = self.child_pid.load(Ordering::Acquire);
         let exited = self.cwd_process_exited.load(Ordering::Acquire);
@@ -3703,6 +3697,12 @@ impl PaneRuntime {
             .ok()
             .and_then(|cwd| cwd.clone())
             .or_else(|| self.reported_cwd.lock().ok().and_then(|cwd| cwd.clone()))
+    }
+
+    pub(crate) fn has_reported_cwd(&self) -> bool {
+        self.reported_cwd
+            .lock()
+            .is_ok_and(|reported_cwd| reported_cwd.is_some())
     }
 
     pub fn child_pid(&self) -> Option<u32> {

@@ -497,19 +497,6 @@ where
         .collect()
 }
 
-#[cfg(windows)]
-fn installer_stop_sessions_requested(args: &[String]) -> Result<bool, String> {
-    if args.get(1).map(String::as_str)
-        != Some(crate::managed_install::INSTALLER_STOP_SESSIONS_COMMAND)
-    {
-        return Ok(false);
-    }
-    if args.len() != 2 {
-        return Err("the installer-only session shutdown command accepts no arguments".to_string());
-    }
-    Ok(true)
-}
-
 fn finish_cli(outcome: io::Result<cli::CommandOutcome>) -> io::Result<()> {
     match outcome {
         Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
@@ -525,6 +512,19 @@ fn finish_cli(outcome: io::Result<cli::CommandOutcome>) -> io::Result<()> {
         }
         Err(err) => Err(err),
     }
+}
+
+#[cfg(windows)]
+fn installer_stop_sessions_requested(args: &[String]) -> Result<bool, String> {
+    if args.get(1).map(String::as_str)
+        != Some(crate::managed_install::INSTALLER_STOP_SESSIONS_COMMAND)
+    {
+        return Ok(false);
+    }
+    if args.len() != 2 {
+        return Err("the installer-only session shutdown command accepts no arguments".to_string());
+    }
+    Ok(true)
 }
 
 fn main() -> io::Result<()> {
@@ -655,9 +655,9 @@ fn main() -> io::Result<()> {
         println!();
         println!("Usage: herdr [options]");
         println!("       herdr --session <name> [options]");
+        println!("       herdr --machine <label-or-id> <command>");
         println!("       herdr --remote <ssh-target> [--session <name>] [--yes]");
         println!("       herdr --remote <ssh-target> --provision [--yes] [--json]");
-        println!("       herdr --machine <label-or-id> <command>");
         println!("       herdr session attach <name>");
         println!("       herdr completion zsh");
         println!("       herdr update [--handoff]");

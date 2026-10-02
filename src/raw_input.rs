@@ -3247,11 +3247,7 @@ mod tests {
         let mut framer = RawInputByteFramer::default();
         framer.host_color_query_sent();
         framer.host_color_query_sent();
-        let first_batch = concat!(
-            "\x1b]10;rgb:6565/7b7b/8383\x1b\\",
-            "\x1b]11;rgb:2424/2727/3a3a\x1b\\",
-            "\x1b]12;rgb:aaaa/bbbb/cccc\x1b\\",
-        );
+        let first_batch = "\x1b]10;rgb:6565/7b7b/8383\x1b\\\x1b]11;rgb:2424/2727/3a3a\x1b\\\x1b]12;rgb:aaaa/bbbb/cccc\x1b\\";
         assert_eq!(framer.push(first_batch.as_bytes()).len(), 3);
 
         // The second batch is still outstanding, so its first reply split at ESC

@@ -98,39 +98,6 @@ impl Drop for ClientState {
 }
 
 impl ClientState {
-    pub(super) fn record_surface_cursor_color(
-        &mut self,
-        endpoint_id: endpoint::ClientEndpointId,
-        metadata: crate::protocol::endpoint::SurfaceCursorColor,
-    ) {
-        let retained = self
-            .surface_cursor_colors
-            .entry(endpoint_id.clone())
-            .or_default();
-        // Preserve the displayed revision while the next frame is queued or rejected.
-        retained.retain(|current| {
-            self.shell.as_ref().is_some_and(|shell| {
-                shell.active_endpoint_id() == &endpoint_id
-                    && shell.matches_surface_cursor_color(current)
-            })
-        });
-        retained.truncate(1);
-        retained.push(metadata);
-    }
-
-    fn sync_cursor_color(&mut self) {
-        let child = self.shell.as_ref().and_then(|shell| {
-            let metadata = self
-                .surface_cursor_colors
-                .get(shell.active_endpoint_id())?
-                .iter()
-                .rev()
-                .find(|metadata| shell.matches_surface_cursor_color(metadata))?;
-            shell.surface_cursor_color(metadata)
-        });
-        self.blit_encoder
-            .set_cursor_color(child.or(super::terminal_setup::latest_host_cursor_color()));
-    }
     #[cfg(test)]
     pub(super) fn test_new() -> Self {
         Self {
@@ -177,6 +144,39 @@ impl ClientState {
         }
     }
 
+    pub(super) fn record_surface_cursor_color(
+        &mut self,
+        endpoint_id: endpoint::ClientEndpointId,
+        metadata: crate::protocol::endpoint::SurfaceCursorColor,
+    ) {
+        let retained = self
+            .surface_cursor_colors
+            .entry(endpoint_id.clone())
+            .or_default();
+        // Preserve the displayed revision while the next frame is queued or rejected.
+        retained.retain(|current| {
+            self.shell.as_ref().is_some_and(|shell| {
+                shell.active_endpoint_id() == &endpoint_id
+                    && shell.matches_surface_cursor_color(current)
+            })
+        });
+        retained.truncate(1);
+        retained.push(metadata);
+    }
+
+    fn sync_cursor_color(&mut self) {
+        let child = self.shell.as_ref().and_then(|shell| {
+            let metadata = self
+                .surface_cursor_colors
+                .get(shell.active_endpoint_id())?
+                .iter()
+                .rev()
+                .find(|metadata| shell.matches_surface_cursor_color(metadata))?;
+            shell.surface_cursor_color(metadata)
+        });
+        self.blit_encoder
+            .set_cursor_color(child.or(super::terminal_setup::latest_host_cursor_color()));
+    }
     pub(super) fn request_repaint(&mut self) {
         self.repaint_pending = true;
     }
@@ -587,11 +587,11 @@ impl ClientState {
         if self.presentation_frozen {
             return false;
         }
-        self.sync_cursor_color();
         let frame_output::ComposedFrame {
             frame: frame_data,
             graphics,
         } = frame_data.into();
+        self.sync_cursor_color();
         let encoded = if self.draw_host_cursor {
             self.blit_encoder
                 .encode_with_suppressed_visible_cursor(&frame_data, self.repaint_pending)

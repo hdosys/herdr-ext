@@ -3211,10 +3211,10 @@ mod tests {
             (3, "new", AgentState::Idle),
         ] {
             app.handle_app_event(AppEvent::HookStateReported {
-                suppress_completion: false,
                 pane_id,
                 source: "custom:worker".into(),
                 agent_label: label.into(),
+                suppress_completion: false,
                 state,
                 message: None,
                 seq: Some(seq),
@@ -3647,10 +3647,10 @@ mod tests {
         state.session_dirty = false;
 
         state.handle_app_event(AppEvent::HookStateReported {
-            suppress_completion: false,
             pane_id,
             source: "custom:other".into(),
             agent_label: "other".into(),
+            suppress_completion: false,
             state: AgentState::Working,
             message: None,
             seq: None,

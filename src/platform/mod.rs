@@ -92,7 +92,7 @@ pub(crate) fn classify_child_exit(_status: &portable_pty::ExitStatus) -> ChildEx
 
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn launch_executable() -> std::io::Result<std::path::PathBuf> {
-    managed_install_command_executable(std::env::current_exe()?)
+    std::env::current_exe()
 }
 
 pub(crate) fn detached_custom_command_process(command: &str) -> std::process::Command {

@@ -17,11 +17,11 @@ pub(crate) enum ClientRenderState {
     Semantic {
         last_surface: Option<Box<PaneSurfaceFrame>>,
         surface_revision: u64,
-        cursor_color: Option<crate::terminal_theme::RgbColor>,
         surface_reuse: bool,
         surface_delta: bool,
         surface_scroll: bool,
         recompute_pending: bool,
+        cursor_color: Option<crate::terminal_theme::RgbColor>,
     },
     /// Terminal-ANSI clients keep a terminal diff encoder and sequence number.
     TerminalAnsi {
@@ -37,11 +37,11 @@ impl ClientRenderState {
             RenderEncoding::SemanticFrame => Self::Semantic {
                 last_surface: None,
                 surface_revision: 0,
-                cursor_color: None,
                 surface_reuse: false,
                 surface_delta: false,
                 surface_scroll: false,
                 recompute_pending: false,
+                cursor_color: None,
             },
             RenderEncoding::TerminalAnsi => Self::TerminalAnsi {
                 blit_encoder: BlitEncoder::new(),
@@ -184,10 +184,10 @@ impl ClientRenderState {
         let Self::Semantic {
             last_surface,
             surface_revision,
-            cursor_color,
             surface_reuse,
             surface_delta,
             recompute_pending,
+            cursor_color,
             ..
         } = self
         else {
@@ -247,8 +247,8 @@ impl ClientRenderState {
         Some(PreparedRender::Semantic {
             message: delta.or(reused).unwrap_or(message),
             committed_surface: Box::new(committed_surface),
-            cursor_color: next_cursor_color,
             queued_graphics_assets,
+            cursor_color: next_cursor_color,
         })
     }
 
@@ -301,8 +301,8 @@ impl ClientRenderState {
                 Self::Semantic {
                     last_surface,
                     surface_revision,
-                    cursor_color,
                     recompute_pending,
+                    cursor_color,
                     ..
                 },
                 PreparedRender::Semantic {
@@ -408,8 +408,8 @@ pub(crate) enum PreparedRender {
     Semantic {
         message: ServerMessage,
         committed_surface: Box<PaneSurfaceFrame>,
-        cursor_color: Option<crate::terminal_theme::RgbColor>,
         queued_graphics_assets: Vec<SurfaceGraphicsAssetKey>,
+        cursor_color: Option<crate::terminal_theme::RgbColor>,
     },
     SemanticPatch {
         message: ServerMessage,

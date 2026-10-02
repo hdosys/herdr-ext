@@ -30,7 +30,7 @@ pub(crate) fn bridge_allows_start(args: &[String]) -> std::io::Result<bool> {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     "invalid remote bridge arguments",
-                ));
+                ))
             }
         }
     }
@@ -63,6 +63,16 @@ pub(crate) fn run_remote_api_bridge(args: &[String]) -> std::io::Result<()> {
     }
 }
 
+pub(crate) fn print_saved_ssh_error_hint(err: &std::io::Error, target: &str) {
+    if is_remote_host_key_error(err) {
+        eprintln!(
+            "hint: saved machines use strict host-key checking; add the host key to the configured known_hosts file, then retry."
+        );
+    } else {
+        print_remote_error_hint(err, target);
+    }
+}
+
 #[cfg(windows)]
 pub(crate) fn run_remote_client_bridge(args: &[String]) -> std::io::Result<()> {
     windows::run_remote_client_bridge(bridge_allows_start(args)?)
@@ -87,16 +97,6 @@ fn update_command_requested(args: &[String]) -> bool {
         || args
             .get(1..3)
             .is_some_and(|commands| commands == ["channel", "set"])
-}
-
-pub(crate) fn print_saved_ssh_error_hint(err: &std::io::Error, target: &str) {
-    if is_remote_host_key_error(err) {
-        eprintln!(
-            "hint: saved machines use strict host-key checking; add the host key to the configured known_hosts file, then retry."
-        );
-    } else {
-        print_remote_error_hint(err, target);
-    }
 }
 
 pub(crate) fn print_remote_error_hint(err: &std::io::Error, target: &str) {

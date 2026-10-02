@@ -353,12 +353,12 @@ def validate_stage(metadata_path: Path, architecture: str, stage_dir: Path) -> N
         )
     if (stage_dir / MARKER_PATH).read_bytes() != marker_data(metadata, architecture):
         raise ValueError("bundle marker does not match pinned ConPTY metadata")
-    if (stage_dir / PRODUCT_LICENSE_PATH).read_bytes() != read_product_license():
-        raise ValueError("staged LICENSE.txt does not match the product license")
     # The executable is not hash-pinned (it changes every build), so re-check
     # it here to cover a direct archive of an existing stage or a swap after
     # staging.
     validate_static_msvc_runtime((stage_dir / "herdr.exe").read_bytes(), "herdr.exe")
+    if (stage_dir / PRODUCT_LICENSE_PATH).read_bytes() != read_product_license():
+        raise ValueError("staged LICENSE.txt does not match the product license")
     for item in metadata["bundles"][architecture]["files"]:
         path = stage_dir / PurePosixPath(item["destination"])
         actual_hash = sha256_file(path)

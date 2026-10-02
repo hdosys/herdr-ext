@@ -159,7 +159,7 @@ mod tests {
                     executable: path.into(),
                     windows: (os == "windows").then_some(WindowsSshMetadata {
                         shell: crate::remote::WindowsSshShell::Cmd,
-                        sidecar: false,
+                        sidecar: false
                     }),
                 }
                 .is_valid(),

@@ -301,6 +301,19 @@ pub(super) fn do_handshake(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_graphics_requires_local_transport_even_on_supported_host_terminal() {
+        let supported = direct_graphics_profile_values("ghostty", "", false, false, true);
+        assert!(supported);
+        assert!(direct_graphics_capability(true, true, (8, 16), supported));
+        assert!(!direct_graphics_capability(false, true, (8, 16), supported));
+        assert!(!direct_graphics_capability(true, false, (8, 16), supported));
+        assert!(!direct_graphics_capability(true, true, (0, 16), supported));
+        assert!(!direct_graphics_capability(true, true, (8, 0), supported));
+        assert!(!direct_graphics_capability(true, true, (8, 16), false));
+    }
+
     #[cfg(windows)]
     use std::io::Write as _;
 
@@ -345,17 +358,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn direct_graphics_requires_local_transport_even_on_supported_host_terminal() {
-        let supported = direct_graphics_profile_values("ghostty", "", false, false, true);
-        assert!(supported);
-        assert!(direct_graphics_capability(true, true, (8, 16), supported));
-        assert!(!direct_graphics_capability(false, true, (8, 16), supported));
-        assert!(!direct_graphics_capability(true, false, (8, 16), supported));
-        assert!(!direct_graphics_capability(true, true, (0, 16), supported));
-        assert!(!direct_graphics_capability(true, true, (8, 0), supported));
-        assert!(!direct_graphics_capability(true, true, (8, 16), false));
     }
 }

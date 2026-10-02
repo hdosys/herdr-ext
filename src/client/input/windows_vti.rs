@@ -369,8 +369,8 @@ impl Default for WindowsInputPump {
     fn default() -> Self {
         Self {
             framer: crate::raw_input::RawInputFramer::for_host_input(),
-            host_observations: Vec::new(),
             pending_escape_origin: None,
+            host_observations: Vec::new(),
             paste_from_win32_key_records: false,
             pending_physical_escape: None,
             default_mouse_candidate: DefaultMouseCandidate::default(),
@@ -1506,7 +1506,7 @@ mod tests {
                         r: 0xaa,
                         g: 0xbb,
                         b: 0xcc
-                    },
+                    }
                 },
                 RawInputEvent::HostDefaultColor {
                     kind: DefaultColorKind::Background,
@@ -1514,7 +1514,7 @@ mod tests {
                         r: 0x11,
                         g: 0x22,
                         b: 0x33
-                    },
+                    }
                 },
                 RawInputEvent::HostDefaultColor {
                     kind: DefaultColorKind::Cursor,
@@ -1522,7 +1522,7 @@ mod tests {
                         r: 0x44,
                         g: 0x55,
                         b: 0x66
-                    },
+                    }
                 },
             ]
         ));

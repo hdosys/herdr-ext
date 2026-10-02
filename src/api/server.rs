@@ -750,8 +750,6 @@ fn read_initial_request_line_with_limits(
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
-    #[cfg(unix)]
-    use interprocess::local_socket::traits::Listener as _;
     use std::io::{BufRead, BufReader};
     use std::sync::mpsc::{self, Receiver};
 

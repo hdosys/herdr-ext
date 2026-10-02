@@ -20,6 +20,10 @@ include = [
     "Cargo.toml",
 ]
 
+[workspace]
+members = ["crates/ghostty-vt"]
+default-members = [".", "crates/ghostty-vt"]
+
 [[bin]]
 name = "herdr-launcher"
 path = "src/bin/herdr-launcher.rs"
@@ -27,10 +31,6 @@ path = "src/bin/herdr-launcher.rs"
 [[bin]]
 name = "herdr-installer-helper"
 path = "src/bin/herdr-installer-helper.rs"
-
-[workspace]
-members = ["crates/ghostty-vt"]
-default-members = [".", "crates/ghostty-vt"]
 
 [dependencies]
 ghostty-vt = { path = "crates/ghostty-vt" }

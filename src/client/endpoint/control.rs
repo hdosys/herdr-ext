@@ -8,9 +8,9 @@ pub(crate) struct DecodedAgentViewProjection {
 
 pub(crate) enum EndpointControlMessage {
     HealthPong,
-    Snapshot(Box<crate::protocol::endpoint::ShellSnapshot>),
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
+    Snapshot(Box<crate::protocol::endpoint::ShellSnapshot>),
     Ignored,
 }
 

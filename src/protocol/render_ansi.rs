@@ -2322,7 +2322,6 @@ mod tests {
         let initial = encoder.encode(&frame, false);
         encoder.commit(frame, initial);
         let color = crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 };
-
         for (color, expected) in [(Some(color), "\x1b]12;"), (None, "\x1b]112")] {
             encoder.set_cursor_color(color);
             let encoded = encoder.encode_patch(&[], None, false).unwrap();

@@ -2826,7 +2826,7 @@ mod cross_platform_tests {
     fn update_install_instruction_distinguishes_install_from_restart() {
         assert_eq!(
             update_install_instruction(HERDR_UPDATE_COMMAND),
-            "detach, run `herdr update`, then follow its restart guidance"
+            "detach, run `herdr update`, then run Herdr again to reconnect"
         );
         assert_eq!(
             update_install_instruction(WINGET_UPDATE_COMMAND),
@@ -2834,11 +2834,11 @@ mod cross_platform_tests {
         );
         assert_eq!(
             update_install_instruction(HOMEBREW_UPDATE_COMMAND),
-            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready"
+            "detach, run `brew update && brew upgrade herdr`, then run Herdr again to reconnect"
         );
         assert_eq!(
             update_install_instruction(MISE_UPDATE_COMMAND),
-            "detach, run `mise upgrade herdr`, then restart this Herdr session when ready"
+            "detach, run `mise upgrade herdr`, then run Herdr again to reconnect"
         );
     }
 }
@@ -2881,7 +2881,7 @@ mod tests {
                 "your SSH machines run their own herdr and may be older:",
                 "  rohan",
                 "  workbox",
-                "run `herdr update` on each one. it will tell you what to restart there.",
+                "For provisioned Windows runtimes, use `herdr --remote <target> --session <session> --provision` from your client. For other installations, run `herdr update` on that machine.",
             ]
         );
     }

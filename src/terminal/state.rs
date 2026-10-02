@@ -2560,6 +2560,52 @@ mod tests {
     }
 
     #[test]
+    fn codex_managed_readiness_requires_current_prompt_without_idle() {
+        let now = Instant::now();
+        let mut terminal = test_terminal();
+        terminal.begin_managed_agent(
+            "reviewer".into(),
+            Agent::Codex,
+            now,
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+        );
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Unknown);
+        terminal.observe_codex_prompt_ready(true);
+        terminal.reconcile_managed_agent_at(now, false);
+        assert!(!terminal.managed_agent_interactive_ready());
+        terminal.observe_codex_prompt_ready(false);
+        assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(100), false));
+        assert!(!terminal.managed_agent_interactive_ready());
+
+        terminal.observe_codex_prompt_ready(true);
+        assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false));
+        assert!(terminal.managed_agent_interactive_ready());
+        assert_eq!(terminal.state, AgentState::Unknown);
+        terminal.observe_codex_prompt_ready(false);
+        assert!(terminal.managed_agent_interactive_ready());
+
+        terminal.begin_managed_agent(
+            "next".into(),
+            Agent::Codex,
+            now,
+            Duration::ZERO,
+            Duration::from_secs(1),
+        );
+        terminal.reconcile_managed_agent_at(now, false);
+        assert!(!terminal.managed_agent_interactive_ready());
+
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Blocked);
+        assert!(terminal.reconcile_managed_agent_at(now, false));
+        terminal.observe_codex_prompt_ready(false);
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Unknown);
+        assert!(!terminal.reconcile_managed_agent_at(now, false));
+        terminal.observe_codex_prompt_ready(true);
+        assert!(terminal.reconcile_managed_agent_at(now, false));
+        assert!(terminal.managed_agent_interactive_ready());
+    }
+
+    #[test]
     fn managed_opencode_requires_prompt_ready_without_claiming_lifecycle() {
         let mut terminal = test_terminal();
         let now = Instant::now();
@@ -2623,52 +2669,6 @@ mod tests {
             )
             .is_some());
         assert_eq!(terminal.state, AgentState::Working);
-    }
-
-    #[test]
-    fn codex_managed_readiness_requires_current_prompt_without_idle() {
-        let now = Instant::now();
-        let mut terminal = test_terminal();
-        terminal.begin_managed_agent(
-            "reviewer".into(),
-            Agent::Codex,
-            now,
-            Duration::from_millis(100),
-            Duration::from_secs(1),
-        );
-        terminal.set_detected_state(Some(Agent::Codex), AgentState::Unknown);
-        terminal.observe_codex_prompt_ready(true);
-        terminal.reconcile_managed_agent_at(now, false);
-        assert!(!terminal.managed_agent_interactive_ready());
-        terminal.observe_codex_prompt_ready(false);
-        assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(100), false));
-        assert!(!terminal.managed_agent_interactive_ready());
-
-        terminal.observe_codex_prompt_ready(true);
-        assert!(terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false));
-        assert!(terminal.managed_agent_interactive_ready());
-        assert_eq!(terminal.state, AgentState::Unknown);
-        terminal.observe_codex_prompt_ready(false);
-        assert!(terminal.managed_agent_interactive_ready());
-
-        terminal.begin_managed_agent(
-            "next".into(),
-            Agent::Codex,
-            now,
-            Duration::ZERO,
-            Duration::from_secs(1),
-        );
-        terminal.reconcile_managed_agent_at(now, false);
-        assert!(!terminal.managed_agent_interactive_ready());
-
-        terminal.set_detected_state(Some(Agent::Codex), AgentState::Blocked);
-        assert!(terminal.reconcile_managed_agent_at(now, false));
-        terminal.observe_codex_prompt_ready(false);
-        terminal.set_detected_state(Some(Agent::Codex), AgentState::Unknown);
-        assert!(!terminal.reconcile_managed_agent_at(now, false));
-        terminal.observe_codex_prompt_ready(true);
-        assert!(terminal.reconcile_managed_agent_at(now, false));
-        assert!(terminal.managed_agent_interactive_ready());
     }
 
     #[test]

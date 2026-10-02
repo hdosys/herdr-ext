@@ -574,12 +574,12 @@ impl TerminalRuntime {
         self.0.cwd()
     }
 
-    pub(crate) fn has_reported_cwd(&self) -> bool {
-        self.0.has_reported_cwd()
-    }
-
     pub fn cwd_for_persistence(&self) -> Option<std::path::PathBuf> {
         self.0.cwd_for_persistence()
+    }
+
+    pub(crate) fn has_reported_cwd(&self) -> bool {
+        self.0.has_reported_cwd()
     }
 
     pub fn follow_cwd(&self) -> Option<std::path::PathBuf> {

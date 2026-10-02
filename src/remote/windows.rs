@@ -299,9 +299,7 @@ pub(super) fn streaming_herdr_command(
     match shell {
         WindowsSshShell::Pwsh => {
             let command = powershell_herdr_script(Some(executable), arguments, sidecar);
-            Ok(format!(
-                "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{marker}'); [Console]::Out.Flush(); {command}"
-            ))
+            Ok(format!("[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{marker}'); [Console]::Out.Flush(); {command}"))
         }
         WindowsSshShell::Cmd => cmd_herdr_command(executable, arguments, sidecar)
             .map(|command| format!("echo.&echo {marker}&{command}")),
