@@ -46,20 +46,15 @@ active memory owner.
   `BASE` records the exact commit behind the latest non-draft, non-prerelease
   upstream stable release selected during the last explicit manual refresh. It
   never tracks upstream `master` or a preview tag.
-- Patch generation and patch-queue writes require explicit current-user
-  authorization in the current task. Unless the user explicitly requests an
-  update, regeneration, or finalization of the maintained patches, or explicitly
-  requests creation or publication of a release, never invoke a patch-generation
-  or mailbox-finalization command and never create, modify, reorder, rename,
-  stage, commit, or push anything under `patches/`, including `patches/delta/BASE`
-  and `patches/delta/series`. A source fix, completed topic, development-branch
-  integration, matching replay tree, installer build or acceptance, clean-slate
-  request, improvement task, or repository invariant does not imply this
-  authorization. Work remains on the topic branch or `candidate/development`.
-  When the current request does not already name the patch update or release,
-  stop immediately before the first patch-generation or patch-writing action and
-  ask the user explicitly. Authorization from an earlier task never carries
-  forward.
+- An explicit upstream update/rebase includes adapting and finalizing the maintained
+  patch queue, updating `BASE`, proving fresh replay, and delivering the requested
+  build artifacts. Do not ask again for those necessary steps. Use the patch-first
+  procedure in `CONTRIBUTING.md`, not a preliminary upstream merge into development.
+  An explicit patch finalization or release also authorizes its required queue work.
+  Ordinary feature/fix development and local installer acceptance do not: keep those
+  changes on `candidate/development` until a current task selects finalization.
+  Never modify `patches/upstream/`. Public release promotion still requires a release
+  request; an update or candidate-build request alone does not authorize it.
 - Never fetch, clone, query, download, check out, replay, test, or otherwise obtain
   anything from official upstream `herdrdev/herdr` unless the user explicitly
   requests that exact upstream operation in the current task. This prohibition also
@@ -100,6 +95,12 @@ active memory owner.
   cumulative cross-session development state. Sessions serialize and coordinate
   there. Create a topic worktree only for a concrete parallel collision or risky
   isolation boundary.
+- `candidate/development` is the fast local feature/fix lane between queue updates,
+  not the starting point for an upstream refresh. A refresh uses one temporary
+  sequential queue-adaptation checkout rooted at the selected upstream commit.
+  Preserve pending development changes and fold selected ones into their logical
+  owners; reconcile the development line only after the queue's fresh replay passes.
+  This internal replay checkout is not a second product line or a concurrent writer.
 - The agent that creates a topic worktree owns its complete internal lifecycle:
   focused verification, integration into `candidate/development`, remote
   durability, and removal of its task worktree, local branch, and temporary remote

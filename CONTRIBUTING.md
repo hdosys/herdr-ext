@@ -46,7 +46,22 @@ When offering Herdr Extended builds in an upstream discussion, link to the
 [current releases page](https://github.com/hdosys/herdr-ext/releases) rather than
 to a version-specific release so the guidance remains current.
 
-## Developing the maintained delta
+## Two development paths, one release source
+
+Use `candidate/development` for ordinary local features and fixes: edit source,
+commit, build the installer, run focused checks and push. Do not regenerate patches
+after every local iteration. An explicit finalization folds the selected cumulative
+changes into their logical owners without changing upstream `BASE`.
+
+For an upstream update, begin at the selected new upstream commit and apply/adapt
+the existing mailboxes in order. Do not first merge upstream into development and
+then reconstruct the queue from that merged snapshot. Include selected pending
+development changes in their existing logical owners while adapting the queue.
+The update is complete only when the checked-in queue freshly reproduces the
+accepted source and the requested artifacts are available. A successful source
+merge or local compile alone is not completion.
+
+### Local feature and fix development
 
 The patch queue is the release representation, not the day-to-day editing surface.
 Do not make a product-source edit only in this repository's control checkout. The
@@ -54,17 +69,13 @@ development build starts from recorded `BASE`, so every finished product
 change selected for a release must eventually be represented by the canonical
 queue.
 
-Patch promotion is a hard user-authorization boundary. Ordinary development,
-candidate building, installer acceptance, clean-slate work, and completion of a
-topic or development commit never authorize patch generation or a write under
-`patches/`. Before invoking `delta_workflow.py finalize`, `git format-patch`, or
-any equivalent patch-generation path, the current user must have explicitly
-requested an update, regeneration, or finalization of the maintained patches, or
-creation or publication of a release. If the current request does not already
-name that outcome, stop and ask the user explicitly before the first such action.
-Do not carry authorization from an earlier task. Until authorized, commit and push
-only the topic branch or `candidate/development`; leave `patches/delta/`, its
-`series`, and `BASE` byte-identical.
+An explicit upstream update/rebase authorizes its necessary patch adaptation,
+queue finalization, `BASE` change, fresh replay and requested candidate builds.
+Do not split that accepted outcome into additional approval gates. An explicit
+patch-finalization or release request also authorizes its required queue work.
+Ordinary feature development and installer acceptance do not authorize queue
+rewrites or a new upstream base. Public release promotion remains separate unless
+the current request explicitly asks for publication.
 
 Maintained product-source work uses one long-lived shared worktree on
 `candidate/development`. Its local branch and remote
@@ -131,11 +142,9 @@ topic worktrees. A committed topic head that is not an ancestor of the developme
 head blocks the operation. Dirty uncommitted topic state remains in progress and is
 not part of the reported completed superset.
 
-Only an explicit current-user request to update, regenerate, or finalize the
-maintained patches, or to create or publish a release, authorizes promotion of the
-complete reported development tree. A statement that the fixed installer works
-does not authorize patch generation. Authorization never promotes an individual
-topic. One session owns the complete path:
+For an explicit queue finalization without an upstream update, promote the complete
+selected development tree, not an individual topic. A statement that the fixed
+installer works does not itself select finalization. One session owns the path:
 
 1. Reinspect shared ownership, collect completed handoffs, and stop overlapping
    writes. Reuse the focused evidence while its source, inputs, and environment
@@ -444,17 +453,25 @@ Do not fetch, merge, rebase, or advance the queue to newer
 maintenance task. Refresh official upstream only when the user explicitly requests
 that separate operation. For every approved refresh:
 
-1. Query the official latest GitHub release and require it to be neither draft nor
-   prerelease.
-2. Fetch its exact `v<version>` tag, peel the release commit, and verify the tag
-   version matches replayed Cargo package version.
-3. Replay and review the complete queue on that commit, dropping upstreamed hunks
-   and anything no longer required by current fork behavior from its logical owner.
-4. Reconstruct one linear responsibility commit per retained mailbox on that exact
-   stable commit. Preserve author/date/message and qualified upstream references.
-   The cumulative development history may contain merges; never rewrite it merely
-   to satisfy the queue representation. Use Git's temporary index and `commit-tree`
-   for the internal logical stack when necessary.
+1. Select the stable version explicitly requested by the user, or otherwise resolve
+   the latest official non-draft, non-prerelease release. Reuse verified local tag
+   objects when resuming a fixed-version update; do not silently select a newer
+   version. Verify the peeled commit and Cargo version.
+2. Record the current queue and development tip. Identify selected development
+   changes not yet represented by the queue and their logical owners. Preserve
+   unselected or unfinished work. Keep GitHub workflow/control changes in the
+   control checkout, outside the product source delta.
+3. Create one temporary adaptation checkout directly at the selected upstream
+   commit. Apply each existing mailbox in `series` order. Resolve its demonstrated
+   conflicts in the owning source, incorporate the selected pending changes, and
+   commit that responsibility before advancing. Retain author/date/message and
+   qualified upstream references. Remove a mailbox only when its complete required
+   behavior is now upstream or its retirement was explicitly selected.
+4. Keep one linear responsibility commit per retained mailbox. Do not merge upstream
+   into `candidate/development` as a prerequisite, paste a whole development tree
+   over the new base, or append a catch-all reconciliation patch. Existing development
+   is a preservation reference, not the adaptation source of truth. Review the
+   resulting product delta and record its expected tree.
 5. Run the stable-refresh owner with the full logical head and accepted tree:
 
    ```powershell
@@ -486,8 +503,16 @@ that separate operation. For every approved refresh:
    `--work-dir`. After the refresh, inspect the workspace and explicitly remove
    only that caller-owned directory, using extended-path-aware cleanup on Windows.
    No automatic expiry or cache index is maintained.
-   Evidence from the exact same privately staged prefix trees
-   remains valid; queue finalization or cleanup alone does not require recompilation.
+    Evidence from the exact same privately staged prefix trees
+    remains valid; queue finalization or cleanup alone does not require recompilation.
+7. Reconcile the published development line with the verified replay without
+   rewriting its history. Its resulting product tree must equal the accepted queue
+   tree; preserve unselected development work separately. Build the canonical local
+   installer as applicable, then run the requested GitHub candidate build from the
+   committed control revision. Hand over actual artifact links and the correct
+   platform filenames, not merely a successful compilation or a source branch.
+   Retain the successful workflow run and its provenance. Do not delete the only
+   usable requested binary before a verified downloadable replacement exists.
 
 Between explicit refreshes, `BASE` remains pinned to that reviewed stable release;
 there is no scheduled upstream query, replay, build, or release. Manual candidate

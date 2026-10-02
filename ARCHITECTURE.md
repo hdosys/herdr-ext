@@ -46,11 +46,18 @@ behavior; code and tests remain the detailed implementation truth.
   starts from the current complete replay and accumulates every completed
   development change. Topic worktrees are optional internal parallel lanes, never
   alternative user-testable states.
+- Upstream refreshes are patch-first: the selected upstream commit plus the ordered
+  logical mailboxes is the adaptation surface. Development provides the inventory
+  of selected not-yet-finalized changes and a preservation reference, not a
+  preliminary merge target or a snapshot from which to rediscover the fork delta.
+  The final fresh queue replay is the new development baseline; existing published
+  development history remains reachable without force-pushing.
 - Only the exact development branch may write the fixed local installer. User
-  acceptance identifies its exact source tree and authorizes folding every included
-  change into the owning mailboxes. Promotion must reproduce that tree before the
-  development baseline advances. Release publication remains a separate explicit
-  operation.
+  acceptance identifies its exact source tree. An upstream update, explicit queue
+  finalization or release selects folding the relevant changes into their owning
+  mailboxes. The queue must reproduce the accepted product tree before the development
+  baseline advances. Control-plane files never become product delta. Release
+  publication remains a separate explicit operation.
 - The development publication and installer gates inspect registered linked topic
   worktrees. Every committed topic head must be an ancestor of the development
   head. Uncommitted topic state remains explicitly in progress and outside the
