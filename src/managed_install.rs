@@ -4,11 +4,14 @@
 use std::fs;
 use std::{io, path::PathBuf};
 
+#[cfg(windows)]
 pub(crate) const RUNTIME_RECORD_HEADER: &str = "herdr-runtime-v1";
 // Used by the dedicated launcher crate; the product crate only adopts leases.
 #[allow(dead_code)]
 pub(crate) const POINTER_RECORD_HEADER: &str = "herdr-pointer-v1";
+#[cfg(windows)]
 pub(crate) const MANAGED_BIN_MARKER: &[u8] = b"herdr-managed-bin-v1\n";
+#[cfg(windows)]
 pub(crate) const NATIVE_HELPER_NAME: &str = "installer-helper.exe";
 // These names are consumed by the dedicated launcher and installer-helper binaries.
 #[allow(dead_code)]
@@ -29,9 +32,11 @@ pub(crate) const WINGET_PACKAGE_MANAGER_RECORD: &[u8] =
 #[allow(dead_code)]
 pub(crate) const INSTALLER_STOP_SESSIONS_COMMAND: &str = "__installer-stop-sessions";
 
+#[cfg(windows)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BuildId(String);
 
+#[cfg(windows)]
 impl BuildId {
     pub(crate) fn parse(value: &str) -> io::Result<Self> {
         let bytes = value.as_bytes();
@@ -55,10 +60,12 @@ impl BuildId {
     }
 }
 
+#[cfg(windows)]
 fn is_lower_hex(byte: u8) -> bool {
     byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
 }
 
+#[cfg(windows)]
 pub(crate) fn parse_record(
     bytes: &[u8],
     expected_header: &str,
@@ -97,11 +104,13 @@ pub(crate) fn parse_record(
     })
 }
 
+#[cfg(windows)]
 #[derive(Clone, Debug)]
 pub(crate) struct ManagedInstall {
     root: PathBuf,
 }
 
+#[cfg(windows)]
 impl ManagedInstall {
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }

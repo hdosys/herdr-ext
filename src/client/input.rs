@@ -465,7 +465,7 @@ fn windows_crossterm_input_event(
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn windows_host_input_framer(host_color_query_sent: bool) -> crate::raw_input::RawInputFramer {
     let mut framer = crate::raw_input::RawInputFramer::for_host_input();
     if host_color_query_sent {

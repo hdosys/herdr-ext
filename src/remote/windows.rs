@@ -16,6 +16,7 @@ const WINDOWS_REMOTE_SIDECAR_ENV: &str = "HERDR_REMOTE_SIDECAR_V1";
 const WINDOWS_ATTACH_PROBE_SCRIPT: &str = include_str!("windows_attach_probe.ps1");
 const WINDOWS_BOOTSTRAP_SCRIPT: &str = include_str!("windows_bootstrap.ps1");
 const WINDOWS_PAYLOAD_LAYOUT_SCRIPT: &str = include_str!("windows_payload_layout.ps1");
+#[cfg(windows)]
 const WINDOWS_PACKAGE_LOCAL_PAYLOAD_SCRIPT: &str =
     include_str!("windows_package_local_payload.ps1");
 pub(crate) const REMOTE_SIDECAR_VALIDATE_ARG: &str = "--herdr-private-validate-remote-sidecar-v1";

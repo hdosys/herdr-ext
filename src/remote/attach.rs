@@ -1434,6 +1434,7 @@ impl InstallSource {
         }
     }
 
+    #[cfg(windows)]
     fn local_windows_zip(
         path: PathBuf,
         temporary_dir: PathBuf,

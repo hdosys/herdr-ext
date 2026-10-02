@@ -23,6 +23,7 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Maximum time one Windows readiness connection may wait for Welcome.
+#[cfg(windows)]
 const CLIENT_PROTOCOL_READINESS_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Timeout for checking the stable JSON API before attaching to the binary protocol socket.

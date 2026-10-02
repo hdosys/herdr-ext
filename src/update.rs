@@ -268,6 +268,7 @@ struct ReleaseInfo {
     target_endpoint_generation: Option<u32>,
     download_url: String,
     sha256: Option<String>,
+    #[cfg(windows)]
     asset_format: Option<String>,
     notes_body: String,
 }
@@ -487,6 +488,7 @@ fn release_info_from_preview_manifest(
         target_endpoint_generation: manifest.endpoint_generation,
         download_url,
         sha256: asset.sha256.clone(),
+        #[cfg(windows)]
         asset_format: asset.format.clone(),
         notes_body,
     }))
@@ -3021,7 +3023,6 @@ mod tests {
             ),
             download_url: "https://example.com/herdr".to_string(),
             sha256: None,
-            asset_format: None,
             notes_body: "### Changed\n- One".to_string(),
         }
     }
@@ -3580,7 +3581,6 @@ mod tests {
             ),
             download_url: "https://example.com/herdr".to_string(),
             sha256: None,
-            asset_format: None,
             notes_body: "### Changed\n- One".to_string(),
         };
         let plan = RunningServerUpdatePlan {
@@ -3768,7 +3768,6 @@ mod tests {
             ),
             download_url: "https://example.com/herdr".to_string(),
             sha256: None,
-            asset_format: None,
             notes_body: "### Changed\n- One".to_string(),
         };
 

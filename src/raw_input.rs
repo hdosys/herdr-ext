@@ -75,13 +75,9 @@ pub(crate) struct RawInputFramer {
 }
 
 impl RawInputFramer {
+    #[cfg(windows)]
     pub(crate) fn host_color_query_sent(&mut self) {
         self.byte_framer.host_color_query_sent();
-    }
-
-    #[cfg(not(windows))]
-    pub(crate) fn enable_host_color_scheme_change_tracking(&mut self) {
-        self.byte_framer.enable_host_color_scheme_change_tracking();
     }
 
     #[cfg(any(windows, test))]
