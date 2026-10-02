@@ -1,7 +1,7 @@
 From bfd71a95f4af02e6239ffaa1dd1394a7528a6df1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 22:35:19 +0200
-Subject: [PATCH 22/22] feat(distribution): publish Herdr Extended asset names
+Subject: [PATCH 22/23] feat(distribution): publish Herdr Extended asset names
 
 ---
  scripts/preview.py                            | 20 +++++++-------

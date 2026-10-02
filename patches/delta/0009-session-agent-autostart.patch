@@ -1,7 +1,7 @@
 From 9d06adc733ba6c0627264dadd0ab449c99dc5e97 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 22 Aug 2026 18:22:00 +0200
-Subject: [PATCH 7/22] feat(session): auto-start configured agent
+Subject: [PATCH 7/23] feat(session): auto-start configured agent
 
 Refs herdrdev/herdr#321
 ---

@@ -1,7 +1,7 @@
 From 8f9605cff053eebfca2c341152bcc77defe7b3b0 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 01:46:36 +0200
-Subject: [PATCH 10/22] feat(agent): add completion alert controls
+Subject: [PATCH 10/23] feat(agent): add completion alert controls
 
 ---
  docs/next/CHANGELOG.md                        |  2 ++

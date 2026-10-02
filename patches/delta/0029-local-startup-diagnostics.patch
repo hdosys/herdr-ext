@@ -1,7 +1,7 @@
 From 514ff770f8901772123ad2da5f21bf06e31ee4de Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:50:01 +0200
-Subject: [PATCH 17/22] fix(client): preserve Local startup errors during saved
+Subject: [PATCH 17/23] fix(client): preserve Local startup errors during saved
  federation
 
 Validate running Local endpoints even with saved machines enabled. Retain startup/connect/handshake diagnostics in transient startup data and the existing notice owner, keep Local notices visible across projection changes, and never freeze healthy remote presentation for a Local attention event. Preserve normal restored selection and standalone failure.

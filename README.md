@@ -88,7 +88,7 @@ The candidate's script-generated status labels can include
 multiple OSC 8 web links in one command output. Click an underlined text section
 to open it in the client's browser, even when the producer runs remotely. Existing
 plain-text commands still work. See the [producer contract](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx)
-before adapting scripts. This capability is not yet in the maintained release queue.
+before adapting scripts. This capability is included in the maintained release queue.
 The candidate also starts your preferred agent in the current available shell with
 **prefix+o**, including selected remote panes. Configure `[agent]` on the client;
 OpenCode is the default. **prefix+Shift+O** opens the notification target.

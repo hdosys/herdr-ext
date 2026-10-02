@@ -1,0 +1,1277 @@
+From 4fa9254b7e7939dc53910363da8329a41707a80c Mon Sep 17 00:00:00 2001
+From: User-3090 <71881005+User-3090@users.noreply.github.com>
+Date: Fri, 18 Sep 2026 23:39:09 +0200
+Subject: [PATCH 23/23] feat(status): open script status links on the client
+
+---
+ .../src/content/docs/configuration.mdx        |  30 ++
+ src/app/mod.rs                                |   5 +-
+ src/app/state.rs                              |  10 +
+ src/app/tab_bar_status.rs                     | 353 +++++++++++++++---
+ src/client/endpoint/activation_tests.rs       |   3 +-
+ src/client/endpoint/control.rs                |   2 +-
+ src/client/shell.rs                           |   7 +-
+ src/client/shell/endpoint_agent_state.rs      |   2 +-
+ src/client/shell/global_menu.rs               |   8 +-
+ src/client/shell/input.rs                     |   3 +
+ src/client/shell/mouse.rs                     |  13 +
+ src/client/shell/overlays.rs                  |   7 +-
+ src/client/shell/state.rs                     |   1 +
+ src/client/shell/tabs.rs                      |  22 +-
+ src/client/shell/tests/chrome_context.rs      |  90 +++++
+ src/client/shell/tests/endpoints.rs           |   3 +-
+ src/client/shell/tests/mod.rs                 |   3 +-
+ src/client/shell_runtime.rs                   |   2 +-
+ src/events.rs                                 |   2 +-
+ src/platform/windows.rs                       |   3 +
+ src/protocol/endpoint.rs                      |  83 +++-
+ src/server/client_shell.rs                    |  90 +++--
+ src/server/clients.rs                         |   2 +-
+ src/server/headless/tests/mod.rs              |   9 +-
+ src/server/headless/tests/surface_interest.rs |   3 +-
+ 25 files changed, 636 insertions(+), 120 deletions(-)
+
+diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
+index 07fc370436cd2ef9550c99346f4e9dfdd0c9b612..0758993dab80d8d840f455c2008e5ab812452d6f 100644
+--- a/docs/next/website/src/content/docs/configuration.mdx
++++ b/docs/next/website/src/content/docs/configuration.mdx
+@@ -375,6 +375,36 @@ Command entries run immediately and then at `interval_seconds` without blocking
+ 
+ Separators appear only between visible entries. Set `tab_bar_right_separator = ""` for direct concatenation. On a narrow tab row, the complete status area yields to the tabs and their controls.
+ 
++Any script language can emit OSC 8 hyperlinks around individual text sections in
++its last output line. One command can return several independently clickable
++labels, mixed with ordinary text and separators. No per-link command or special
++JSON format is needed. For example, this Python producer emits two links:
++
++```python
++print(
++    "\x1b]8;;https://example.com/one\x07One\x1b]8;;\x07"
++    " | "
++    "\x1b]8;;https://example.com/two\x07Two\x1b]8;;\x07"
++)
++```
++
++Emit actual ESC (`0x1b`) bytes. Both BEL (`0x07`) and ST (`ESC` followed by `\`)
++are accepted terminators. Close each link with OSC 8 and an empty destination.
++Plain text continues to work. Invalid, unclosed, non-HTTP(S), or credential-bearing
++authority URLs display as plain text without activation. Other terminal controls
++are stripped. There is no separate link-count or 80-character label limit: the
++complete output line, including URLs and escapes, must fit in 4096 bytes.
++Never include API keys, access tokens, passwords, or other secrets in URLs.
++
++Click an underlined status text section to open its link. Status values and links
++do not appear in the main menu. Refreshing or viewing status never opens a link.
++
++Opening uses the attached client's browser, including when a command runs on a
++remote Sandbox server. Both server and client need the multi-span status support
++for activation. Compatible older endpoints still display plain labels, but do not
++activate the new span metadata. Updating the host alone does not update a running
++remote server.
++
+ ### Outer terminal window title
+ 
+ Herdr emulates the terminals in its panes, so an `OSC 0`/`OSC 2` title written inside a pane stops at Herdr. Herdr writes its own title to the terminal it runs in, which is what window managers and terminal tab bars read:
+diff --git a/src/app/mod.rs b/src/app/mod.rs
+index 9e4051cedd3756262b2b40a862313a5632ebbc49..34ddf5e271be9ccaee0cb131549d3acc76b83cb1 100644
+--- a/src/app/mod.rs
++++ b/src/app/mod.rs
+@@ -1121,7 +1121,10 @@ mod tests {
+         let event = |generation, output: Option<&str>| AppEvent::TabBarCommandFinished {
+             generation,
+             segment_index: 0,
+-            result: Ok(output.map(str::to_string)),
++            result: Ok(output.map(|text| state::StatusCommandOutput {
++                text: text.into(),
++                spans: Vec::new(),
++            })),
+         };
+ 
+         assert!(!app.handle_internal_event_with_render_impact(event(generation, None)));
+diff --git a/src/app/state.rs b/src/app/state.rs
+index 65c06a6c32ef7ef8d0afc64402c8af017cffc2b7..134e6487ce09a01c5e1fc93ea863a9cb2f7baf97 100644
+--- a/src/app/state.rs
++++ b/src/app/state.rs
+@@ -784,6 +784,16 @@ pub(crate) struct PaneFocusTarget {
+ pub enum TabBarStatusSegment {
+     Zoom,
+     Text(Option<String>),
++    Link {
++        text: String,
++        spans: Vec<crate::protocol::endpoint::StatusSpan>,
++    },
++}
++
++#[derive(Debug)]
++pub struct StatusCommandOutput {
++    pub text: String,
++    pub spans: Vec<crate::protocol::endpoint::StatusSpan>,
+ }
+ 
+ pub struct AppState {
+diff --git a/src/app/tab_bar_status.rs b/src/app/tab_bar_status.rs
+index 596c21172e9e833b2d295a844c4cfbc16c5a6f42..0f8584ce60d0b32699b9a57b173f9c4ca77c8dc6 100644
+--- a/src/app/tab_bar_status.rs
++++ b/src/app/tab_bar_status.rs
+@@ -9,8 +9,12 @@ use std::{
+ 
+ use tokio::io::AsyncReadExt;
+ 
+-use super::{state::TabBarStatusSegment, App};
++use super::{
++    state::{StatusCommandOutput, TabBarStatusSegment},
++    App,
++};
+ use crate::config::TabBarRightEntryConfig;
++use crate::protocol::endpoint::StatusSpan;
+ 
+ const DATETIME_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+ const MAX_COMMAND_LINE_BYTES: usize = 4096;
+@@ -183,7 +187,7 @@ impl App {
+         &mut self,
+         generation: u64,
+         segment_index: usize,
+-        result: Result<Option<String>, String>,
++        result: Result<Option<StatusCommandOutput>, String>,
+     ) -> bool {
+         if generation != self.tab_bar_status_generation {
+             return false;
+@@ -204,13 +208,19 @@ impl App {
+                 None
+             }
+         };
+-        let Some(TabBarStatusSegment::Text(current)) =
+-            self.state.tab_bar_right.get_mut(segment_index)
+-        else {
++        let Some(current) = self.state.tab_bar_right.get_mut(segment_index) else {
+             return false;
+         };
+-        let changed = *current != output;
+-        *current = output;
++        let segment = match output {
++            Some(StatusCommandOutput { text, spans })
++                if spans.iter().any(|span| span.url.is_some()) =>
++            {
++                TabBarStatusSegment::Link { text, spans }
++            }
++            output => TabBarStatusSegment::Text(output.map(|output| output.text)),
++        };
++        let changed = *current != segment;
++        *current = segment;
+         changed
+     }
+ }
+@@ -275,75 +285,172 @@ fn is_unicode_format_control(character: char) -> bool {
+     )
+ }
+ 
++#[cfg(test)]
+ fn command_output_text(output: &[u8]) -> Option<String> {
+-    let output = String::from_utf8_lossy(output);
+-    let output = strip_terminal_control_sequences(output.as_bytes());
+-    let output = String::from_utf8_lossy(&output);
+-    output.lines().next_back().and_then(sanitize_status_text)
++    command_output(output).map(|output| output.text)
+ }
+ 
+-#[derive(Clone, Copy)]
++#[derive(Clone, Copy, PartialEq)]
+ enum ControlSequenceState {
+     Text,
+     Escape,
+     EscapeIntermediate,
+     Csi,
+     Osc,
++    OscEscape,
+     StString,
+ }
+ 
+-fn strip_terminal_control_sequences(value: &[u8]) -> Vec<u8> {
++fn command_output(value: &[u8]) -> Option<StatusCommandOutput> {
+     use ControlSequenceState::*;
+ 
+-    let mut output = Vec::with_capacity(value.len());
++    let mut spans = vec![StatusSpan {
++        text: String::new(),
++        url: None,
++    }];
++    let mut open_span = None;
++    let mut line_break = false;
++    let mut osc = String::new();
+     let mut state = Text;
+-    for &byte in value {
+-        state = match (state, byte) {
+-            (Text, b'\x1b') => Escape,
++    for character in String::from_utf8_lossy(value).chars() {
++        if state == OscEscape && character != '\\' {
++            osc.clear();
++            state = Escape;
++        }
++        state = match (state, character) {
++            (Text, '\x1b') => Escape,
+             (Text, _) => {
+-                output.push(byte);
++                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
+                 Text
+             }
+-            (Escape, b'[') => Csi,
+-            (Escape, b']') => Osc,
+-            (Escape, b'P' | b'X' | b'^' | b'_') => StString,
+-            (Escape, 0x20..=0x2f) => EscapeIntermediate,
+-            (Escape, 0x30..=0x7e) => Text,
+-            (Escape, b'\x1b') => Escape,
+-            (Escape, b'\x18' | b'\x1a') => Text,
+-            (Escape, byte) if byte.is_ascii_control() => Escape,
++            (Escape, '[') => Csi,
++            (Escape, ']') => {
++                osc.clear();
++                Osc
++            }
++            (Escape, 'P' | 'X' | '^' | '_') => StString,
++            (Escape, '\u{20}'..='\u{2f}') => EscapeIntermediate,
++            (Escape, '\u{30}'..='\u{7e}') => Text,
++            (Escape, '\x1b') => Escape,
++            (Escape, '\x18' | '\x1a') => Text,
++            (Escape, character) if character.is_ascii_control() => Escape,
+             (Escape, _) => {
+-                output.push(byte);
++                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
+                 Text
+             }
+-            (EscapeIntermediate, 0x20..=0x2f) => EscapeIntermediate,
+-            (EscapeIntermediate, 0x30..=0x7e) => Text,
+-            (EscapeIntermediate, b'\x1b') => Escape,
+-            (EscapeIntermediate, b'\x18' | b'\x1a') => Text,
+-            (EscapeIntermediate, byte) if byte.is_ascii_control() => EscapeIntermediate,
++            (EscapeIntermediate, '\u{20}'..='\u{2f}') => EscapeIntermediate,
++            (EscapeIntermediate, '\u{30}'..='\u{7e}') => Text,
++            (EscapeIntermediate, '\x1b') => Escape,
++            (EscapeIntermediate, '\x18' | '\x1a') => Text,
++            (EscapeIntermediate, character) if character.is_ascii_control() => EscapeIntermediate,
+             (EscapeIntermediate, _) => {
+-                output.push(byte);
++                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
+                 Text
+             }
+-            (Csi, 0x20..=0x3f) => Csi,
+-            (Csi, 0x40..=0x7e) => Text,
+-            (Csi, b'\x1b') => Escape,
+-            (Csi, b'\x18' | b'\x1a') => Text,
+-            (Csi, byte) if byte.is_ascii_control() => Csi,
++            (Csi, '\u{20}'..='\u{3f}') => Csi,
++            (Csi, '\u{40}'..='\u{7e}') => Text,
++            (Csi, '\x1b') => Escape,
++            (Csi, '\x18' | '\x1a') => Text,
++            (Csi, character) if character.is_ascii_control() => Csi,
+             (Csi, _) => {
+-                output.push(byte);
++                append_status_character(&mut spans, &mut open_span, &mut line_break, character);
++                Text
++            }
++            (Osc, '\x07') | (OscEscape, '\\') => {
++                if let Some(body) = osc.strip_prefix("8;") {
++                    let url = body.split_once(';').and_then(|(params, url)| {
++                        if params.chars().any(char::is_control) {
++                            return None;
++                        }
++                        crate::protocol::endpoint::status_web_url(url).map(str::to_owned)
++                    });
++                    open_span = url.as_ref().map(|_| spans.len());
++                    spans.push(StatusSpan {
++                        text: String::new(),
++                        url,
++                    });
++                }
++                osc.clear();
+                 Text
+             }
+-            (Osc, b'\x07') => Text,
+-            (Osc, b'\x1b') => Escape,
+-            (Osc, b'\x18' | b'\x1a') => Text,
+-            (Osc, _) => Osc,
+-            (StString, b'\x1b') => Escape,
+-            (StString, b'\x18' | b'\x1a') => Text,
++            (Osc, '\x1b') => OscEscape,
++            (Osc, '\x18' | '\x1a') => {
++                osc.clear();
++                Text
++            }
++            (Osc, _) => {
++                osc.push(character);
++                Osc
++            }
++            (OscEscape, _) => Text,
++            (StString, '\x1b') => Escape,
++            (StString, '\x18' | '\x1a') => Text,
+             (StString, _) => StString,
+         };
+     }
+-    output
++    // A truncated/unclosed link must not claim the remaining text.
++    if let Some(start) = open_span {
++        for span in spans.iter_mut().skip(start) {
++            span.url = None;
++        }
++    }
++    let start = spans.iter().position(|span| !span.text.trim().is_empty())?;
++    let end = spans
++        .iter()
++        .rposition(|span| !span.text.trim().is_empty())?;
++    let mut spans: Vec<_> = spans.drain(start..=end).collect();
++    if let Some(first) = spans.first_mut() {
++        first.text = first.text.trim_start().to_owned();
++    }
++    if let Some(last) = spans.last_mut() {
++        last.text = last.text.trim_end().to_owned();
++    }
++    // Command input already has a strict byte bound. Do not truncate a combined
++    // result at the old single-label limit, dropping later labels or links.
++    spans.retain(|span| !span.text.is_empty());
++    let text = spans.iter().map(|span| span.text.as_str()).collect();
++    Some(StatusCommandOutput { text, spans })
++}
++
++fn append_status_character(
++    spans: &mut Vec<StatusSpan>,
++    open_span: &mut Option<usize>,
++    line_break: &mut bool,
++    character: char,
++) {
++    if character == '\n' {
++        if *line_break {
++            let url = spans.last().and_then(|span| span.url.clone());
++            spans.clear();
++            spans.push(StatusSpan {
++                text: String::new(),
++                url,
++            });
++            if open_span.is_some() {
++                *open_span = Some(0);
++            }
++        }
++        *line_break = true;
++        return;
++    }
++    if character.is_control() || is_unicode_format_control(character) {
++        return;
++    }
++    if *line_break {
++        let url = spans.last().and_then(|span| span.url.clone());
++        spans.clear();
++        spans.push(StatusSpan {
++            text: String::new(),
++            url,
++        });
++        if open_span.is_some() {
++            *open_span = Some(0);
++        }
++        *line_break = false;
++    }
++    if let Some(span) = spans.last_mut() {
++        span.text.push(character);
++    }
+ }
+ 
+ async fn read_last_output_line(
+@@ -466,7 +573,7 @@ async fn run_status_command(
+     deadline: tokio::time::Instant,
+     environment: Vec<(String, String)>,
+     cwd: Option<std::path::PathBuf>,
+-) -> Result<Option<String>, String> {
++) -> Result<Option<StatusCommandOutput>, String> {
+     if control.is_terminated() || tokio::time::Instant::now() >= deadline {
+         return Err(format!("timed out after {}s", timeout.as_secs()));
+     }
+@@ -504,7 +611,7 @@ async fn run_status_command(
+         let status = status.map_err(|error| error.to_string())?;
+         let output = output.map_err(|error| error.to_string())?;
+         if status.success() {
+-            Ok(command_output_text(&output))
++            Ok(command_output(&output))
+         } else {
+             Err(format!("exited with {status}"))
+         }
+@@ -574,7 +681,7 @@ mod tests {
+                 generation: 7,
+                 segment_index: 3,
+                 result: Ok(Some(ref output)),
+-            } if output == "final"
++            } if output.text == "final" && output.spans.iter().all(|span| span.url.is_none())
+         ));
+     }
+ 
+@@ -634,7 +741,7 @@ mod tests {
+             AppEvent::TabBarCommandFinished {
+                 result: Ok(Some(ref output)),
+                 ..
+-            } if output == "READY"
++            } if output.text == "READY" && output.spans.iter().all(|span| span.url.is_none())
+         ));
+     }
+ 
+@@ -657,7 +764,7 @@ mod tests {
+             " ",
+         );
+ 
+-        app.handle_tab_bar_command_finished(stale_generation, 0, Ok(Some("stale".into())));
++        app.handle_tab_bar_command_finished(stale_generation, 0, Ok(command_output(b"stale")));
+ 
+         assert_eq!(
+             app.state.tab_bar_right,
+@@ -761,6 +868,150 @@ mod tests {
+         assert!(!app.handle_tab_bar_status_tasks(deadline));
+     }
+ 
++    #[test]
++    fn clickable_status_accepts_one_web_link_and_preserves_plain_labels() {
++        for end in ["\x07", "\x1b\\"] {
++            let raw = format!("\x1b]8;;https://chatgpt.com/codex/cloud/settings/analytics{end}Codex 42%\x1b]8;;{end}");
++            let output = command_output(raw.as_bytes()).unwrap();
++            assert_eq!(output.text, "Codex 42%");
++            assert_eq!(
++                output.spans[0].url.as_deref(),
++                Some("https://chatgpt.com/codex/cloud/settings/analytics")
++            );
++        }
++        for url in [
++            "file:///C:/secret",
++            "javascript:alert(1)",
++            "https://user:secret@example.test",
++            "https://",
++            "https://example.test/\0x",
++            "https://example.test/a b",
++        ] {
++            let raw = format!("\x1b]8;;{url}\x07Usage 42%\x1b]8;;\x07");
++            let output = command_output(raw.as_bytes()).unwrap();
++            assert_eq!(output.text, "Usage 42%");
++            assert!(
++                output.spans.iter().all(|span| span.url.is_none()),
++                "{url:?}"
++            );
++        }
++        assert!(command_output(b"Usage 42%")
++            .unwrap()
++            .spans
++            .iter()
++            .all(|span| span.url.is_none()));
++        assert!(command_output(b"\x1b]8;;https://example.test\x07Usage 42%")
++            .unwrap()
++            .spans
++            .iter()
++            .all(|span| span.url.is_none()));
++    }
++
++    #[test]
++    fn clickable_status_preserves_multiple_links_and_complete_combined_labels() {
++        let entries = [
++            ("Codex week: auth unavailable", "https://example.test/codex"),
++            (
++                "OpenRouter: auth unavailable",
++                "https://example.test/router",
++            ),
++            ("Apify: token unavailable", "https://example.test/apify"),
++        ];
++        let raw = entries
++            .iter()
++            .enumerate()
++            .map(|(index, (label, url))| {
++                let end = if index == 1 { "\x07" } else { "\x1b\\" };
++                format!("\x1b]8;;{url}{end}\x1b[32m{label}\x1b[0m\x1b]8;;{end}")
++            })
++            .collect::<Vec<_>>()
++            .join(" | ");
++        let parsed = command_output(format!("discard\n  {raw}  \r\n").as_bytes()).unwrap();
++        assert_eq!(
++            parsed.text,
++            entries
++                .iter()
++                .map(|(label, _)| *label)
++                .collect::<Vec<_>>()
++                .join(" | ")
++        );
++        assert_eq!(parsed.text.chars().count(), 86);
++        assert_eq!(
++            parsed
++                .spans
++                .iter()
++                .filter_map(|span| span.web_url())
++                .collect::<Vec<_>>(),
++            entries.iter().map(|(_, url)| *url).collect::<Vec<_>>()
++        );
++        assert_eq!(parsed.spans[1].text, " | ");
++        assert!(parsed.spans[1].url.is_none());
++        let mixed =
++            command_output(b"plain \x1b]8;;https://example.test\x07linked\x1b]8;;\x07 tail")
++                .unwrap();
++        assert_eq!(mixed.spans.len(), 3);
++        assert_eq!(mixed.spans[1].web_url(), Some("https://example.test"));
++        let partial = command_output(
++            format!("{raw} \x1b]8;;https://example.test/incomplete\x07tail").as_bytes(),
++        )
++        .unwrap();
++        assert_eq!(
++            partial
++                .spans
++                .iter()
++                .filter_map(|span| span.web_url())
++                .count(),
++            3
++        );
++    }
++
++    #[cfg(windows)]
++    #[tokio::test]
++    async fn clickable_status_command_preserves_link_from_windows_process() {
++        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(1);
++        spawn_status_command(
++            event_tx,
++            1,
++            0,
++            "echo \x1b]8;;https://example.test/usage\x07Usage\x1b]8;;\x07 ^| \x1b]8;;https://example.test/more\x07More\x1b]8;;\x07".into(),
++            Duration::from_secs(2),
++            Vec::new(),
++            None,
++        );
++        let event = tokio::time::timeout(Duration::from_secs(3), event_rx.recv())
++            .await
++            .unwrap()
++            .unwrap();
++        assert!(
++            matches!(event, AppEvent::TabBarCommandFinished { result: Ok(Some(ref output)), .. }
++            if output.text == "Usage | More" && output.spans.iter().filter_map(|span| span.web_url()).collect::<Vec<_>>() == ["https://example.test/usage", "https://example.test/more"])
++        );
++    }
++
++    #[test]
++    fn clickable_status_refresh_replaces_and_clears_link_without_activation() {
++        let mut app = test_app();
++        app.configure_tab_bar_status(
++            &[TabBarRightEntryConfig::Command {
++                command: MULTILINE_COMMAND.into(),
++                interval_seconds: 5,
++                timeout_seconds: 2,
++            }],
++            " ",
++        );
++        let generation = app.tab_bar_status_generation;
++        let linked = command_output(b"\x1b]8;;https://example.test\x07Usage\x1b]8;;\x07");
++        assert!(app.handle_tab_bar_command_finished(generation, 0, Ok(linked)));
++        assert!(
++            matches!(&app.state.tab_bar_right[0], TabBarStatusSegment::Link { text, .. } if text == "Usage")
++        );
++        assert!(app.handle_tab_bar_command_finished(generation, 0, Ok(command_output(b"Usage"))));
++        assert_eq!(
++            app.state.tab_bar_right[0],
++            TabBarStatusSegment::Text(Some("Usage".into()))
++        );
++    }
++
+     #[test]
+     fn command_output_uses_sanitized_last_line() {
+         assert_eq!(
+diff --git a/src/client/endpoint/activation_tests.rs b/src/client/endpoint/activation_tests.rs
+index 7201940afa40680b1b23d6eba45864744c0cdc1e..82500a6e9522482e0627dfd0f5820149ae7b47ce 100644
+--- a/src/client/endpoint/activation_tests.rs
++++ b/src/client/endpoint/activation_tests.rs
+@@ -42,7 +42,7 @@ fn negotiation() -> super::super::EndpointNegotiation {
+     )
+ }
+ 
+-fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::ClientShellSnapshot {
++fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::endpoint::ShellSnapshot {
+     crate::protocol::ClientShellSnapshot {
+         boot_id: boot_id.into(),
+         revision,
+@@ -68,6 +68,7 @@ fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::ClientShellSn
+         agents: Vec::new(),
+         commands: Vec::new(),
+     }
++    .into()
+ }
+ 
+ type SentMessages = std::sync::Arc<std::sync::Mutex<Vec<crate::protocol::ClientMessage>>>;
+diff --git a/src/client/endpoint/control.rs b/src/client/endpoint/control.rs
+index f2fe1b76d50b1da709b96652b6a96aec1d2c5734..01092e67a68da1b6a127536836a0650f9757b89a 100644
+--- a/src/client/endpoint/control.rs
++++ b/src/client/endpoint/control.rs
+@@ -10,7 +10,7 @@ pub(crate) enum EndpointControlMessage {
+     HealthPong,
+     AgentViewProjection(DecodedAgentViewProjection),
+     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
+-    Snapshot(Box<crate::protocol::ClientShellSnapshot>),
++    Snapshot(Box<crate::protocol::endpoint::ShellSnapshot>),
+     Ignored,
+ }
+ 
+diff --git a/src/client/shell.rs b/src/client/shell.rs
+index 2d180443b43390cbdcd75a696159453282fa4938..119f51562c9ef93f00ef0837a1813b11b6e84d03 100644
+--- a/src/client/shell.rs
++++ b/src/client/shell.rs
+@@ -59,10 +59,11 @@ use crate::config::{
+     Config, LiveKeybindConfig, SidebarCollapsedModeConfig, SpacesSidebarConfig,
+     TabBarPositionConfig,
+ };
++use crate::protocol::endpoint::ShellSnapshot as ClientShellSnapshot;
+ use crate::protocol::{
+-    ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellSnapshot, ClientShellTab,
+-    ClientShellWorkspace, ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification,
+-    SemanticNotificationKind, SemanticNotificationSound,
++    ClientMessage, ClientMousePosition, ClientPaneInputEvent, ClientShellTab, ClientShellWorkspace,
++    ClientSurfaceSize, FrameData, PaneSurfaceFrame, SemanticNotification, SemanticNotificationKind,
++    SemanticNotificationSound,
+ };
+ #[cfg(test)]
+ use crate::raw_input::RawInputEvent;
+diff --git a/src/client/shell/endpoint_agent_state.rs b/src/client/shell/endpoint_agent_state.rs
+index 1ebcd35df2606420724beb22d1f6b9126eda903d..2a3479fd0daf4396d469e8a6dad3c947b00a1749 100644
+--- a/src/client/shell/endpoint_agent_state.rs
++++ b/src/client/shell/endpoint_agent_state.rs
+@@ -231,7 +231,7 @@ mod tests {
+         snapshot.boot_id = "endpoint-boot".into();
+         snapshot.revision = revision;
+         snapshot.agents = vec![agent(status, sequence)];
+-        snapshot
++        snapshot.core
+     }
+ 
+     fn surface(revision: u64) -> PaneSurfaceFrame {
+diff --git a/src/client/shell/global_menu.rs b/src/client/shell/global_menu.rs
+index e27df8419c18b5facf74c8557cad102986321bf8..9f088a0055b50780c665abf9e1323c5edcc8dbd0 100644
+--- a/src/client/shell/global_menu.rs
++++ b/src/client/shell/global_menu.rs
+@@ -105,11 +105,11 @@ impl ClientShellState {
+             ClientGlobalMenuAction::Binding(binding) => {
+                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
+             }
+-            ClientGlobalMenuAction::AddMachine => outcome.actions.push(
+-                ClientShellAction::OpenSafeWebUrl(
++            ClientGlobalMenuAction::AddMachine => {
++                outcome.actions.push(ClientShellAction::OpenSafeWebUrl(
+                     "https://herdr.dev/docs/connecting-machines/".to_owned(),
+-                ),
+-            ),
++                ))
++            }
+             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
+         }
+         outcome.repaint = true;
+diff --git a/src/client/shell/input.rs b/src/client/shell/input.rs
+index 525b2d443eae252b4506108e2d7de4263109569e..8258c15de9162432905f56f06517f7597014410e 100644
+--- a/src/client/shell/input.rs
++++ b/src/client/shell/input.rs
+@@ -589,6 +589,9 @@ impl ClientShellState {
+                 }
+                 self.mode = return_mode;
+                 outcome.repaint = true;
++                if key.code == KeyCode::F(10) && key.modifiers.is_empty() {
++                    self.toggle_global_menu();
++                }
+                 None
+             }
+             ClientShellMode::Navigate => {
+diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
+index f2df294103dcb6d61abcee024325c9c4d1333a62..68cb68eb66ec57a46887fe228a5522e87de508a2 100644
+--- a/src/client/shell/mouse.rs
++++ b/src/client/shell/mouse.rs
+@@ -2024,6 +2024,19 @@ impl ClientShellState {
+                     );
+                     return;
+                 }
++                if let Some((_, url)) = self
++                    .hits
++                    .status_links
++                    .iter()
++                    .find(|(rect, _)| super::contains(*rect, point))
++                {
++                    if let Some(url) = crate::protocol::endpoint::status_web_url(url) {
++                        outcome
++                            .actions
++                            .push(ClientShellAction::OpenSafeWebUrl(url.to_owned()));
++                    }
++                    return;
++                }
+                 if super::contains(self.hits.tab_scroll_left, point) {
+                     self.tab_scroll = self.tab_scroll.saturating_sub(1);
+                     outcome.repaint = true;
+diff --git a/src/client/shell/overlays.rs b/src/client/shell/overlays.rs
+index 7116713b6f1bd8046bbfa595702ce55324e68156..696de1c60bc99acb73ba7162da6efeabaac03c1c 100644
+--- a/src/client/shell/overlays.rs
++++ b/src/client/shell/overlays.rs
+@@ -115,8 +115,11 @@ pub(crate) fn render_global_menu(
+     let rect = Rect::new(x, y, width, height);
+     let inner = panel(buffer, rect, palette.accent, palette.panel_bg)?;
+     let mut rows = Vec::new();
+-    for (index, (label, action)) in items.iter().enumerate() {
+-        let row_y = inner.y.saturating_add(index as u16);
++    let start = menu
++        .highlighted
++        .saturating_sub(inner.height.saturating_sub(1) as usize);
++    for (index, (label, action)) in items.iter().enumerate().skip(start) {
++        let row_y = inner.y.saturating_add((index - start) as u16);
+         if row_y >= inner.bottom() {
+             break;
+         }
+diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
+index fafb38bcdf0e5a5ced1794be4d58e9cbc1ddf8ff..c68aa4d76ef92db7c5f8794c47018bdc0af98ffb 100644
+--- a/src/client/shell/state.rs
++++ b/src/client/shell/state.rs
+@@ -92,6 +92,7 @@ pub(super) struct ShellHitMap {
+     pub(super) workspace_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+     pub(super) workspace_max_scroll: usize,
+     pub(super) tabs: Vec<(Rect, String)>,
++    pub(super) status_links: Vec<(Rect, String)>,
+     pub(super) panes: Vec<PaneHit>,
+     pub(super) popup: Option<PaneHit>,
+     pub(super) pane_splits: Vec<PaneSplitHit>,
+diff --git a/src/client/shell/tabs.rs b/src/client/shell/tabs.rs
+index 3fdcf7dcf8951b2831e7cddd7a1208249fad644b..636031bd5f3c1ce6e5e31995c7e43b5f30b69c5a 100644
+--- a/src/client/shell/tabs.rs
++++ b/src/client/shell/tabs.rs
+@@ -220,7 +220,7 @@ pub(crate) fn render_tab_bar(
+             );
+         }
+     }
+-    render_tab_bar_status(buffer, area, snapshot, palette);
++    render_tab_bar_status(buffer, area, snapshot, palette, hits);
+ }
+ 
+ pub(crate) fn tab_bar_status_width(snapshot: &ClientShellSnapshot) -> u16 {
+@@ -259,6 +259,7 @@ fn render_tab_bar_status(
+     area: Rect,
+     snapshot: &ClientShellSnapshot,
+     palette: &Palette,
++    hits: &mut ShellHitMap,
+ ) {
+     let Some(status) = tab_bar_status_area(snapshot, area) else {
+         return;
+@@ -286,8 +287,23 @@ fn render_tab_bar_status(
+         } else {
+             Style::default().fg(palette.overlay1).bg(palette.panel_bg)
+         };
+-        put_text(buffer, x, area.y, width, &segment.text, style);
+-        x = x.saturating_add(width);
++        if let Some(spans) = snapshot.status_spans(index) {
++            for span in spans {
++                let width = display_width(&span.text);
++                let style = if let Some(url) = span.web_url() {
++                    hits.status_links
++                        .push((Rect::new(x, area.y, width, 1), url.to_owned()));
++                    style.add_modifier(Modifier::UNDERLINED)
++                } else {
++                    style
++                };
++                put_text(buffer, x, area.y, width, &span.text, style);
++                x = x.saturating_add(width);
++            }
++        } else {
++            put_text(buffer, x, area.y, width, &segment.text, style);
++            x = x.saturating_add(width);
++        }
+     }
+ }
+ 
+diff --git a/src/client/shell/tests/chrome_context.rs b/src/client/shell/tests/chrome_context.rs
+index 9772cd3d0c4a057925bd833db58102b9c84e7142..99600ce5a20a4fc20a3ddb14ba1dbeb7b7c00c42 100644
+--- a/src/client/shell/tests/chrome_context.rs
++++ b/src/client/shell/tests/chrome_context.rs
+@@ -377,6 +377,96 @@ fn context_menus_capture_stable_targets_and_route_actions() {
+     ));
+ }
+ 
++#[test]
++fn clickable_status_mouse_actions_stay_out_of_the_main_menu() {
++    let url = "https://chatgpt.com/codex/cloud/settings/analytics";
++    let urls = [
++        url,
++        "https://example.test/router",
++        "https://example.test/apify",
++    ];
++    let mut projected = snapshot();
++    projected.tab_bar_right = vec![crate::protocol::ClientShellTabStatusSegment {
++        text: "Codex 界 | Router | Apify".into(),
++        accent: false,
++    }];
++    projected.tab_bar_right_spans = vec![vec![
++        crate::protocol::endpoint::StatusSpan {
++            text: "Codex 界".into(),
++            url: Some(url.into()),
++        },
++        crate::protocol::endpoint::StatusSpan {
++            text: " | ".into(),
++            url: None,
++        },
++        crate::protocol::endpoint::StatusSpan {
++            text: "Router".into(),
++            url: Some(urls[1].into()),
++        },
++        crate::protocol::endpoint::StatusSpan {
++            text: " | ".into(),
++            url: None,
++        },
++        crate::protocol::endpoint::StatusSpan {
++            text: "Apify".into(),
++            url: Some(urls[2].into()),
++        },
++    ]];
++    let message = crate::protocol::endpoint::snapshot_message(&projected).unwrap();
++    let crate::protocol::ServerMessage::EndpointControl { data, .. } = message else {
++        panic!("JSON snapshot");
++    };
++    // Old clients still see only the clean label; new clients retain the URL.
++    let old: crate::protocol::ClientShellSnapshot = serde_json::from_str(&data).unwrap();
++    assert_eq!(old.tab_bar_right[0].text, "Codex 界 | Router | Apify");
++    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
++    state.set_snapshot(Box::new(serde_json::from_str(&data).unwrap()));
++    state.set_pane_surface(surface());
++    state.compose(106, 30).unwrap();
++    assert_eq!(state.hits.status_links.len(), 3);
++    let rect = state.hits.status_links[0].0;
++    assert_eq!(state.hits.status_links[1].0.x, rect.right() + 3);
++    for (index, expected_url) in urls.iter().enumerate() {
++        let rect = state.hits.status_links[index].0;
++        let clicked = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
++            kind: MouseEventKind::Down(MouseButton::Left),
++            column: rect.x,
++            row: rect.y,
++            modifiers: KeyModifiers::empty(),
++        })]);
++        assert!(clicked.requests.is_empty());
++        assert!(
++            matches!(&clicked.actions[..], [ClientShellAction::OpenSafeWebUrl(value)] if value.as_str() == *expected_url)
++        );
++    }
++
++    let menu_before =
++        super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap());
++    let menu_without_status = super::super::global_menu::global_menu_items(&snapshot());
++    assert_eq!(menu_before, menu_without_status);
++    state.toggle_global_menu();
++
++    projected.revision = 2;
++    for span in &mut projected.tab_bar_right_spans[0] {
++        if span.url.is_some() {
++            span.url = Some("file:///C:/secret".into());
++        }
++    }
++    let mut mismatched = projected.clone();
++    mismatched.tab_bar_right_spans[0][0].text = "forged label".into();
++    assert!(mismatched.status_spans(0).is_none());
++    state.set_snapshot(Box::new(projected));
++    let mut replacement_surface = surface();
++    replacement_surface.projection_revision = 2;
++    state.set_pane_surface(replacement_surface);
++    state.compose(106, 30).unwrap();
++    assert!(state.hits.status_links.is_empty());
++    assert!(matches!(
++        state.overlay,
++        Some(ClientShellOverlay::GlobalMenu(_))
++    ));
++}
++
+ #[test]
+ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
+     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+diff --git a/src/client/shell/tests/endpoints.rs b/src/client/shell/tests/endpoints.rs
+index e287540ca2d2f2cc314ea7181d730ad92710b837..80a153156c00665e287b9a3006411d0d219a6044 100644
+--- a/src/client/shell/tests/endpoints.rs
++++ b/src/client/shell/tests/endpoints.rs
+@@ -1226,10 +1226,11 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
+             ..agent("remote blocked", AgentStatus::Blocked, 2)
+         },
+     ];
++    let template = remote.panes[0].clone();
+     remote.panes.push(ClientShellPane {
+         pane_id: "pane_2".into(),
+         focused: false,
+-        ..remote.panes[0].clone()
++        ..template
+     });
+     state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+ 
+diff --git a/src/client/shell/tests/mod.rs b/src/client/shell/tests/mod.rs
+index 9d9601439aabd1f8004814f43df086a743894c4f..85e15d8db005b076116d0419b04ea4dc3c42e2b9 100644
+--- a/src/client/shell/tests/mod.rs
++++ b/src/client/shell/tests/mod.rs
+@@ -8,7 +8,7 @@ use crossterm::event::MouseEvent;
+ mod text_editing;
+ 
+ pub(super) fn snapshot() -> ClientShellSnapshot {
+-    ClientShellSnapshot {
++    crate::protocol::ClientShellSnapshot {
+         boot_id: "boot-1".into(),
+         revision: 1,
+         config_diagnostic: None,
+@@ -64,6 +64,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
+         agents: Vec::new(),
+         commands: Vec::new(),
+     }
++    .into()
+ }
+ 
+ fn worktree_list_result(open_workspace_id: Option<&str>) -> crate::api::schema::ResponseResult {
+diff --git a/src/client/shell_runtime.rs b/src/client/shell_runtime.rs
+index 52bfc9cf483b96a0f645fde98026d1305e30772c..54f7c55d982a77a23724598d597a45a30f08762f 100644
+--- a/src/client/shell_runtime.rs
++++ b/src/client/shell_runtime.rs
+@@ -608,7 +608,7 @@ pub(super) fn handle_endpoint_attention(
+ pub(super) fn install_client_shell_snapshot(
+     state: &mut ClientState,
+     endpoint_id: &endpoint::ClientEndpointId,
+-    snapshot: Box<crate::protocol::ClientShellSnapshot>,
++    snapshot: Box<crate::protocol::endpoint::ShellSnapshot>,
+     projection_pending: bool,
+     endpoints: &mut endpoint::EndpointRegistry,
+     prefix_input_source: &mut impl crate::platform::PrefixInputSource,
+diff --git a/src/events.rs b/src/events.rs
+index 1d67c00b26cffd8cbcd4a7415375381981c20f9f..9da47a4fa83561a31bb438739d343f5cc3bc0441 100644
+--- a/src/events.rs
++++ b/src/events.rs
+@@ -195,7 +195,7 @@ pub enum AppEvent {
+     TabBarCommandFinished {
+         generation: u64,
+         segment_index: usize,
+-        result: Result<Option<String>, String>,
++        result: Result<Option<crate::app::state::StatusCommandOutput>, String>,
+     },
+     /// A plugin action or event command finished.
+     PluginCommandFinished {
+diff --git a/src/platform/windows.rs b/src/platform/windows.rs
+index 4caf06b27d5be7072a9761c966613c07ea64553d..2aced950d9a5f42e521705e7341307f30c53e76e 100644
+--- a/src/platform/windows.rs
++++ b/src/platform/windows.rs
+@@ -4287,6 +4287,9 @@ mod tests {
+ 
+     #[test]
+     fn windows_daemon_readiness_checks_job_limits_and_console() {
++        use windows_sys::Win32::System::JobObjects::{
++            AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
++        };
+         const CHILD_ENV: &str = "HERDR_TEST_DAEMON_READINESS_CHILD";
+         if std::env::var_os(CHILD_ENV).is_some() {
+             use super::*;
+diff --git a/src/protocol/endpoint.rs b/src/protocol/endpoint.rs
+index 086c7ac6e67f850360c16a2a019afadfd643ef33..e55ebb777db6ba5f0463fb171eb5876adbf153c1 100644
+--- a/src/protocol/endpoint.rs
++++ b/src/protocol/endpoint.rs
+@@ -121,7 +121,82 @@ pub struct EndpointServerWelcome {
+     pub error: Option<EndpointHandshakeError>,
+ }
+ 
+-pub fn snapshot_message(snapshot: &ClientShellSnapshot) -> serde_json::Result<ServerMessage> {
++/// JSON-only additions travel atomically with the baseline snapshot. Never add
++/// these fields to the frozen binary ClientShellSnapshot codec.
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++pub struct ShellSnapshot {
++    #[serde(flatten)]
++    pub core: ClientShellSnapshot,
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub tab_bar_right_spans: Vec<Vec<StatusSpan>>,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++pub struct StatusSpan {
++    pub text: String,
++    pub url: Option<String>,
++}
++
++impl StatusSpan {
++    pub fn web_url(&self) -> Option<&str> {
++        if self.text.trim().is_empty() {
++            return None;
++        }
++        status_web_url(self.url.as_deref()?)
++    }
++}
++
++impl From<ClientShellSnapshot> for ShellSnapshot {
++    fn from(core: ClientShellSnapshot) -> Self {
++        Self {
++            core,
++            tab_bar_right_spans: Vec::new(),
++        }
++    }
++}
++
++impl std::ops::Deref for ShellSnapshot {
++    type Target = ClientShellSnapshot;
++    fn deref(&self) -> &Self::Target {
++        &self.core
++    }
++}
++
++impl std::ops::DerefMut for ShellSnapshot {
++    fn deref_mut(&mut self) -> &mut Self::Target {
++        &mut self.core
++    }
++}
++
++impl ShellSnapshot {
++    pub fn status_spans(&self, index: usize) -> Option<&[StatusSpan]> {
++        let mut text = self.tab_bar_right.get(index)?.text.as_str();
++        let spans = self.tab_bar_right_spans.get(index)?;
++        for span in spans {
++            if span.text.is_empty() {
++                return None;
++            }
++            text = text.strip_prefix(&span.text)?;
++        }
++        (text.is_empty() && !spans.is_empty()).then_some(spans.as_slice())
++    }
++}
++
++/// Status producers supply web destinations, never commands or credentials.
++pub(crate) fn status_web_url(url: &str) -> Option<&str> {
++    let rest = url
++        .strip_prefix("https://")
++        .or_else(|| url.strip_prefix("http://"))?;
++    let authority = rest.split(['/', '?', '#']).next()?;
++    (!authority.is_empty()
++        && !authority.contains('@')
++        && !url.chars().any(|ch| {
++            ch.is_control() || ch.is_whitespace() || matches!(ch, '\\' | '"' | '<' | '>')
++        }))
++    .then_some(url)
++}
++
++pub fn snapshot_message(snapshot: &ShellSnapshot) -> serde_json::Result<ServerMessage> {
+     Ok(ServerMessage::EndpointControl {
+         kind: ENDPOINT_SNAPSHOT_KIND.into(),
+         data: serde_json::to_string(snapshot)?,
+@@ -323,7 +398,8 @@ mod tests {
+     #[test]
+     fn snapshot_message_uses_named_json_control() {
+         let snapshot = snapshot();
+-        let ServerMessage::EndpointControl { kind, data } = snapshot_message(&snapshot).unwrap()
++        let ServerMessage::EndpointControl { kind, data } =
++            snapshot_message(&snapshot.clone().into()).unwrap()
+         else {
+             panic!("snapshot should use endpoint control");
+         };
+@@ -361,7 +437,7 @@ mod tests {
+ 
+     #[test]
+     fn snapshot_json_tolerates_future_fields_and_command_actions() {
+-        let mut snapshot = match snapshot_message(&snapshot()).unwrap() {
++        let mut snapshot = match snapshot_message(&snapshot().into()).unwrap() {
+             ServerMessage::EndpointControl { data, .. } => {
+                 serde_json::from_str::<serde_json::Value>(&data).unwrap()
+             }
+@@ -409,6 +485,7 @@ mod tests {
+                 SURFACE_INTEREST_CAPABILITY.to_string(),
+                 PRESENTATION_EFFECTS_FENCE_CAPABILITY.to_string(),
+                 HEALTH_CHECK_CAPABILITY.to_string(),
++                SURFACE_CURSOR_COLOR_CAPABILITY.to_string(),
+                 AGENT_VIEW_PROJECTION_CAPABILITY.to_string(),
+                 AGENT_COMPLETIONS_CAPABILITY.to_string(),
+             ]
+diff --git a/src/server/client_shell.rs b/src/server/client_shell.rs
+index f6729c919fdeb386fc173687b30f0ad66e424550..967066e5ca22925d93bacb912d54a7fe1d5895ab 100644
+--- a/src/server/client_shell.rs
++++ b/src/server/client_shell.rs
+@@ -10,7 +10,7 @@ pub(super) fn snapshot(
+     revision: u64,
+     config_diagnostic: Option<&str>,
+     location: Option<&crate::server::clients::ClientShellLocation>,
+-) -> protocol::ClientShellSnapshot {
++) -> protocol::endpoint::ShellSnapshot {
+     snapshot_with_completions(app, boot_id, revision, config_diagnostic, location).0
+ }
+ 
+@@ -21,7 +21,7 @@ pub(super) fn snapshot_with_completions(
+     config_diagnostic: Option<&str>,
+     location: Option<&crate::server::clients::ClientShellLocation>,
+ ) -> (
+-    protocol::ClientShellSnapshot,
++    protocol::endpoint::ShellSnapshot,
+     protocol::endpoint::EndpointAgentCompletions,
+ ) {
+     let snapshot = app.session_snapshot();
+@@ -198,25 +198,30 @@ pub(super) fn snapshot_with_completions(
+                 .get(tab_index)
+         })
+         .is_some_and(|tab| tab.zoomed);
++    let mut tab_bar_right_spans = Vec::new();
+     let tab_bar_right = app
+         .state
+         .tab_bar_right
+         .iter()
+-        .filter_map(|segment| match segment {
+-            crate::app::state::TabBarStatusSegment::Zoom if zoomed => {
+-                Some(protocol::ClientShellTabStatusSegment {
+-                    text: "ZOOM".to_owned(),
+-                    accent: true,
+-                })
+-            }
+-            crate::app::state::TabBarStatusSegment::Text(Some(text)) if !text.is_empty() => {
+-                Some(protocol::ClientShellTabStatusSegment {
+-                    text: text.clone(),
+-                    accent: false,
+-                })
+-            }
+-            crate::app::state::TabBarStatusSegment::Zoom
+-            | crate::app::state::TabBarStatusSegment::Text(_) => None,
++        .filter_map(|segment| {
++            let (text, accent, spans) = match segment {
++                crate::app::state::TabBarStatusSegment::Zoom if zoomed => {
++                    ("ZOOM", true, Vec::new())
++                }
++                crate::app::state::TabBarStatusSegment::Text(Some(text)) if !text.is_empty() => {
++                    (text.as_str(), false, Vec::new())
++                }
++                crate::app::state::TabBarStatusSegment::Link { text, spans } => {
++                    (text.as_str(), false, spans.clone())
++                }
++                crate::app::state::TabBarStatusSegment::Zoom
++                | crate::app::state::TabBarStatusSegment::Text(_) => return None,
++            };
++            tab_bar_right_spans.push(spans);
++            Some(protocol::ClientShellTabStatusSegment {
++                text: text.to_owned(),
++                accent,
++            })
+         })
+         .collect();
+ 
+@@ -239,30 +244,33 @@ pub(super) fn snapshot_with_completions(
+                 preview: notes.preview,
+             });
+ 
+-    let shell = protocol::ClientShellSnapshot {
+-        boot_id: boot_id.to_owned(),
+-        revision,
+-        config_diagnostic: config_diagnostic.map(str::to_owned),
+-        product_announcement,
+-        update_available: app.state.update_available.clone(),
+-        update_install_command: app.state.update_install_command.clone(),
+-        server_keybindings_toml: app.client_shell_keybindings_profile().map(str::to_owned),
+-        latest_release_notes_available: app.state.latest_release_notes_available,
+-        integration_updates_available: app.state.integration_updates_available(),
+-        worktree_directory: app.state.worktree_directory.to_string_lossy().into_owned(),
+-        release_notes,
+-        focused_workspace_id,
+-        focused_tab_id,
+-        focused_pane_id,
+-        tab_bar_right,
+-        tab_bar_right_separator: app.state.tab_bar_right_separator.clone(),
+-        agent_view_label,
+-        agent_order,
+-        workspaces,
+-        tabs,
+-        panes,
+-        agents,
+-        commands: app.client_shell_command_manifest(),
++    let shell = protocol::endpoint::ShellSnapshot {
++        tab_bar_right_spans,
++        core: protocol::ClientShellSnapshot {
++            boot_id: boot_id.to_owned(),
++            revision,
++            config_diagnostic: config_diagnostic.map(str::to_owned),
++            product_announcement,
++            update_available: app.state.update_available.clone(),
++            update_install_command: app.state.update_install_command.clone(),
++            server_keybindings_toml: app.client_shell_keybindings_profile().map(str::to_owned),
++            latest_release_notes_available: app.state.latest_release_notes_available,
++            integration_updates_available: app.state.integration_updates_available(),
++            worktree_directory: app.state.worktree_directory.to_string_lossy().into_owned(),
++            release_notes,
++            focused_workspace_id,
++            focused_tab_id,
++            focused_pane_id,
++            tab_bar_right,
++            tab_bar_right_separator: app.state.tab_bar_right_separator.clone(),
++            agent_view_label,
++            agent_order,
++            workspaces,
++            tabs,
++            panes,
++            agents,
++            commands: app.client_shell_command_manifest(),
++        },
+     };
+     (shell, completions)
+ }
+diff --git a/src/server/clients.rs b/src/server/clients.rs
+index 40055ad1ed00816e703c237add3eb2e86e5ca185..a3bc527b50c0b86c5ad7d836bbe946bc737f836a 100644
+--- a/src/server/clients.rs
++++ b/src/server/clients.rs
+@@ -176,7 +176,7 @@ pub(crate) struct ClientConnection {
+     /// Connection-local workspace and tab projection for a client-owned shell.
+     pub(crate) shell_location: Option<ClientShellLocation>,
+     /// Last coherent shell replacement sent to this client.
+-    pub(crate) shell_snapshot: Option<crate::protocol::ClientShellSnapshot>,
++    pub(crate) shell_snapshot: Option<crate::protocol::endpoint::ShellSnapshot>,
+     pub(crate) shell_agent_completions: Option<crate::protocol::endpoint::EndpointAgentCompletions>,
+     /// View policy paired with the last coherent shell replacement.
+     pub(crate) shell_agent_view: Option<crate::api::schema::AgentViewSetParams>,
+diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
+index 0e3a6c5e6227ec2998f16ae2a698f4d92d532a71..56ac4a8b0c6286e3e85a093fa530821a4f41b9ec 100644
+--- a/src/server/headless/tests/mod.rs
++++ b/src/server/headless/tests/mod.rs
+@@ -16,7 +16,7 @@ mod surface_scroll_tests;
+ fn client_shell_projection(
+     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
+ ) -> (
+-    Box<protocol::ClientShellSnapshot>,
++    Box<protocol::endpoint::ShellSnapshot>,
+     protocol::endpoint::EndpointAgentCompletions,
+ ) {
+     let read_control = |expected| {
+@@ -32,7 +32,7 @@ fn client_shell_projection(
+     };
+     let completions: protocol::endpoint::EndpointAgentCompletions =
+         serde_json::from_str(&read_control(protocol::endpoint::AGENT_COMPLETIONS_KIND)).unwrap();
+-    let snapshot: Box<protocol::ClientShellSnapshot> =
++    let snapshot: Box<protocol::endpoint::ShellSnapshot> =
+         serde_json::from_str(&read_control(protocol::endpoint::ENDPOINT_SNAPSHOT_KIND)).unwrap();
+     assert_eq!(completions.boot_id, snapshot.boot_id);
+     assert_eq!(completions.revision, snapshot.revision);
+@@ -41,7 +41,7 @@ fn client_shell_projection(
+ 
+ fn client_shell_snapshot(
+     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
+-) -> Box<protocol::ClientShellSnapshot> {
++) -> Box<protocol::endpoint::ShellSnapshot> {
+     client_shell_projection(receiver).0
+ }
+ 
+@@ -7476,6 +7476,7 @@ fn api_report_agent_stores_valid_resume_argv_and_rejects_invalid() {
+         .clone();
+     let report = |resume_argv: Vec<&str>| {
+         api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
++            suppress_completion: false,
+             pane_id: public_pane_id.clone(),
+             source: "prime-agent".into(),
+             agent: "prime-agent".into(),
+@@ -7654,6 +7655,7 @@ fn completion_guard_api_startup_blocker_respects_suppression() {
+             api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
+                 pane_id: public_pane_id.clone(),
+                 source: "custom:pi".into(),
++                suppress_completion: false,
+                 agent: "pi".into(),
+                 state,
+                 message: None,
+@@ -7729,6 +7731,7 @@ fn completion_guard_api_session_replacement_does_not_notify_finished() {
+                 }),
+             );
+             let mut report = PaneReportAgentParams {
++                suppress_completion: false,
+                 pane_id: public_pane_id,
+                 source: "herdr:pi".into(),
+                 agent: "pi".into(),
+diff --git a/src/server/headless/tests/surface_interest.rs b/src/server/headless/tests/surface_interest.rs
+index a7da046ea1897ef576042f2feb6643356c01c4ad..601bab9e9e6718fbd66dc2caa8ee9efe5493ff88 100644
+--- a/src/server/headless/tests/surface_interest.rs
++++ b/src/server/headless/tests/surface_interest.rs
+@@ -751,7 +751,8 @@ async fn two_headless_servers_drive_atomic_endpoint_handoff() {
+             read_server_message(target_control.recv().expect("presentation sync snapshot"));
+         if let ServerMessage::EndpointControl { kind, data } = message {
+             if kind == crate::protocol::endpoint::ENDPOINT_SNAPSHOT_KIND {
+-                break serde_json::from_str::<crate::protocol::ClientShellSnapshot>(&data).unwrap();
++                break serde_json::from_str::<crate::protocol::endpoint::ShellSnapshot>(&data)
++                    .unwrap();
+             }
+         }
+     };
+-- 
+2.55.0.windows.5
+

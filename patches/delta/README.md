@@ -24,6 +24,7 @@ The current queue targets Herdr v0.9.2 and retains these logical slots:
 - 0033: current installer artwork.
 - 0034: validated asset-transition handling.
 - 0035: current release asset names.
+- 0036: bounded multi-link script status and optional client-local hyperlink projection.
 
 Slots 0007, 0014, 0017, and 0018 are absent because v0.9.0 already owns the
 equivalent native-path docs assertion, plugin-root resolution, Devin configuration,
