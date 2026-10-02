@@ -25,7 +25,7 @@ test-windows-input *args:
 [script("powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")]
 [windows]
 test-one filter:
-    cargo nextest run --locked --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
+    cargo nextest run --locked --lib --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
     exit $LASTEXITCODE
 
 [unix]
