@@ -383,6 +383,12 @@ impl From<ffi::GhosttyColorRgb> for RgbColor {
     }
 }
 
+pub fn default_palette() -> [RgbColor; 256] {
+    let mut palette = [ffi::GhosttyColorRgb::default(); 256];
+    unsafe { ffi::ghostty_color_palette_default(palette.as_mut_ptr()) };
+    palette.map(Into::into)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellColor {
     Palette(u8),

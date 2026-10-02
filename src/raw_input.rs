@@ -75,13 +75,9 @@ pub(crate) struct RawInputFramer {
 }
 
 impl RawInputFramer {
+    #[cfg(windows)]
     pub(crate) fn host_color_query_sent(&mut self) {
         self.byte_framer.host_color_query_sent();
-    }
-
-    #[cfg(not(windows))]
-    pub(crate) fn enable_host_color_scheme_change_tracking(&mut self) {
-        self.byte_framer.enable_host_color_scheme_change_tracking();
     }
 
     #[cfg(any(windows, test))]
@@ -825,6 +821,7 @@ pub(crate) fn events_require_host_terminal_appearance_query(events: &[RawInputEv
         .any(|event| matches!(event, RawInputEvent::OuterFocusGained))
 }
 
+#[cfg(any(not(windows), test))]
 pub(crate) fn events_require_host_terminal_theme_query(events: &[RawInputEvent]) -> bool {
     events
         .iter()

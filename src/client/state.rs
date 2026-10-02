@@ -393,7 +393,9 @@ impl ClientState {
             stdout.flush()?;
         }
         crate::render_prof::duration_since("client_surface_patch.write", write_started);
-        let committed = self.blit_encoder.commit_patch(&rows, patch.cursor, encoded);
+        let committed = self
+            .blit_encoder
+            .commit_patch(&patch.rows, patch.cursor, encoded);
         crate::render_prof::event(if committed {
             "client_surface_patch.success"
         } else {
