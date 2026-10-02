@@ -64,10 +64,11 @@ merge or local compile alone is not completion.
 ### Local feature and fix development
 
 The patch queue is the release representation, not the day-to-day editing surface.
-Do not make a product-source edit only in this repository's control checkout. The
-development build starts from recorded `BASE`, so every finished product
-change selected for a release must eventually be represented by the canonical
-queue.
+Do not make a product-source edit only in this repository's control checkout.
+Local development builds the current source commit directly, without replaying or
+regenerating the queue. Release builds start from recorded `BASE` and the queue,
+so every finished product change selected for that build must first be represented
+by its canonical logical mailbox.
 
 An explicit upstream update/rebase authorizes its necessary patch adaptation,
 queue finalization, `BASE` change, fresh replay and requested candidate builds.
