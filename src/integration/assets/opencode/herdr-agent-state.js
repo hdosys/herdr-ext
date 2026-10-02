@@ -16,6 +16,7 @@ const ERROR_RETRY_GRACE_MS = 1_000;
 const ERROR_MAX_FALLBACK_MS = 2_147_483_647;
 const SUBAGENT_SESSION_ENV = "HERDR_OPENCODE_SUBAGENT_SESSION_ID";
 const SUBAGENT_START_TIMEOUT_MS = 30_000;
+const SHELL_READY_RECHECK_MS = 100;
 const MAX_RESPONSE_CHARACTERS = 64 * 1024;
 const PANE_WIDTH_TO_HEIGHT_RATIO = 2;
 const SERVER_PROBE_TIMEOUT_MS = 500;
@@ -446,6 +447,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
 
       let directory;
       let paneID;
+      let terminalID;
       try {
         if (
           disposed ||
@@ -482,7 +484,9 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
           focus: false,
           env: { [SUBAGENT_SESSION_ENV]: sessionID },
         });
-        paneID = responseResult(splitResponse, "pane_info")?.pane?.pane_id;
+        const pane = responseResult(splitResponse, "pane_info")?.pane;
+        paneID = pane?.pane_id;
+        terminalID = pane?.terminal_id;
         if ((typeof paneID === "string" && paneID) || responseErrorCode(splitResponse)) {
           child.splitUnconfirmed = false;
         }
@@ -500,7 +504,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
       }
 
       const name = subagentName(sessionID);
-      const startResponse = await request("agent.start", {
+      const startParams = {
         name,
         kind: AGENT,
         pane_id: paneID,
@@ -512,7 +516,27 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
           ...(directory ? ["--dir", directory] : []),
         ],
         timeout_ms: SUBAGENT_START_TIMEOUT_MS,
-      });
+      };
+      const startDeadline = Date.now() + SUBAGENT_START_TIMEOUT_MS;
+      let startResponse = await request("agent.start", startParams);
+      // A new pane can still be running shell startup helpers. The server owns
+      // readiness; retry only its explicit rejection, never an uncertain start.
+      while (responseErrorCode(startResponse) === "agent_pane_busy" && terminalID) {
+        if (Date.now() >= startDeadline) break;
+        await new Promise((resolve) => setTimeout(resolve, SHELL_READY_RECHECK_MS));
+        const paneResponse = await request("pane.get", { pane_id: paneID }, disposing);
+        const pane = responseResult(paneResponse, "pane_info")?.pane;
+        if (pane?.terminal_id !== terminalID || pane?.agent) {
+          // The pane was replaced, taken over, or cannot be confirmed. Never
+          // launch into or close a terminal whose ownership is no longer ours.
+          if (child.paneID === paneID) child.paneID = undefined;
+          return;
+        }
+        if (disposed || disposing || !child.working || deletedSessions.has(sessionID) ||
+            info.parentID !== currentRootSessionID || child.paneID !== paneID ||
+            Date.now() >= startDeadline) break;
+        startResponse = await request("agent.start", startParams);
+      }
       if (!(await agentStartSucceeded(name, paneID, startResponse))) {
         await closeChildPane(sessionID, disposing);
       }

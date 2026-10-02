@@ -24,7 +24,7 @@ mock.module("node:net", () => ({
         destroyed: false,
         write(input: string) {
           const request = JSON.parse(input.trim());
-          if (request.method === "pane.get") {
+          if (request.method === "pane.get" && request.params.pane_id === "test:p1") {
             const result = selectionAvailable ? {
               type: "pane_info",
               pane: {
@@ -918,6 +918,47 @@ test("late child work wakes an idle root and finishes without clearing a prompt"
   expect(requests.every((request) => requestSessionID(request) === "root-session")).toBe(true);
   await plugin.dispose();
 });
+
+for (const outcome of ["ready", "replaced", "cancelled"] as const) {
+  test(`busy child shell retains its split until ${outcome}`, async () => {
+    const plugin = await loadPlugin({ serverUrl: new URL("http://127.0.0.1:4096") });
+    await plugin["chat.message"]({ sessionID: "root-session" });
+    requests.length = 0;
+    clients.length = 0;
+    autoAcknowledge = false;
+    const layout = waitForNextRequest();
+    const created = plugin.event({ event: { type: "session.created", properties: {
+      sessionID: "child-session", info: { id: "child-session", parentID: "root-session" },
+    } } });
+    await layout;
+    const split = waitForNextRequest();
+    acknowledgeRequest(0, 0, { result: { type: "pane_layout", layout: {
+      panes: [{ pane_id: "test:p1", rect: { width: 200, height: 50 } }],
+    } } });
+    await split;
+    const start = waitForNextRequest();
+    acknowledgeRequest(1, 1, { result: { type: "pane_info", pane: {
+      pane_id: "test:p2", terminal_id: "owned-terminal",
+    } } });
+    await start;
+    const identity = waitForNextRequest();
+    acknowledgeRequest(2, 2, { error: { code: "agent_pane_busy" } });
+    const disposing = outcome === "cancelled" ? plugin.dispose() : undefined;
+    await identity;
+    autoAcknowledge = true;
+    enqueueResult("agent.start", { type: "agent_started", agent: { pane_id: "test:p2" } });
+    acknowledgeRequest(3, 3, { result: { type: "pane_info", pane: {
+      pane_id: "test:p2", terminal_id: outcome === "replaced" ? "foreign-terminal" : "owned-terminal",
+    } } });
+    await created;
+    await disposing;
+    const methods = requests.map(requestMethod);
+    expect(methods.filter((method) => method === "pane.split")).toHaveLength(1);
+    expect(methods.filter((method) => method === "agent.start")).toHaveLength(outcome === "ready" ? 2 : 1);
+    expect(methods.filter((method) => method === "pane.close")).toHaveLength(outcome === "cancelled" ? 1 : 0);
+    await plugin.dispose();
+  });
+}
 
 test("reconciles child status changes while attach is starting", async () => {
   const plugin = await loadPlugin({
