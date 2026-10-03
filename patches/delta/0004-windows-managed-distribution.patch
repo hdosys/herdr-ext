@@ -1,4 +1,4 @@
-From 23d87d557ce3021b16ecc5c8527c679e1fb96152 Mon Sep 17 00:00:00 2001
+From 42471b234952df5de900858eafe3f3749cf2fd25 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH 3/23] feat(windows): manage fork distribution
@@ -34,11 +34,13 @@ Subject: [PATCH 3/23] feat(windows): manage fork distribution
  packaging/windows/installer/project.nsi       |  601 ++++
  .../windows/installer/validate-build.ps1      |  223 ++
  packaging/windows/managed-skill-hashes.txt    |    6 +
- scripts/package_windows_installer.ps1         |  704 +++++
+ scripts/package_windows_installer.ps1         |  706 +++++
  scripts/preview.py                            |  202 +-
  scripts/test_preview.py                       |  298 +-
+ scripts/windows_check.ps1                     |   21 +-
  .../windows_install_conpty_package_test.ps1   |  631 +---
- scripts/windows_installer_fault_test.ps1      | 1325 ++++++++
+ scripts/windows_installer_fault_test.ps1      | 1326 ++++++++
+ src/app/custom_commands.rs                    |    2 +-
  src/app/mod.rs                                |   57 -
  src/bin/herdr-installer-helper.rs             |   44 +
  src/bin/herdr-launcher.rs                     |   36 +
@@ -49,17 +51,16 @@ Subject: [PATCH 3/23] feat(windows): manage fork distribution
  src/cli/status.rs                             |   22 +-
  src/config.rs                                 |    2 +-
  src/config/model.rs                           |   65 -
- src/integration/tests.rs                      |   26 +
  src/main.rs                                   |   73 +-
  src/managed_install.rs                        |  341 +++
- src/platform/mod.rs                           |   32 +-
+ src/platform/mod.rs                           |   35 +-
  src/platform/unix_common.rs                   |    6 +-
  src/platform/windows.rs                       |    9 +
- src/platform/windows/installer_helper.rs      |  271 ++
+ src/platform/windows/installer_helper.rs      |  273 ++
  .../windows/installer_helper_files.rs         | 1083 +++++++
- .../windows/installer_helper_lifecycle.rs     | 2662 +++++++++++++++++
+ .../windows/installer_helper_lifecycle.rs     | 2663 +++++++++++++++++
  .../windows/installer_helper_registry.rs      |  937 ++++++
- .../windows/installer_helper_skills.rs        |  408 +++
+ .../windows/installer_helper_skills.rs        |  440 +++
  src/platform/windows/launcher.rs              | 1083 +++++++
  src/platform/windows/managed_install.rs       |  689 +++++
  src/product_announcements.rs                  |  113 +-
@@ -73,7 +74,7 @@ Subject: [PATCH 3/23] feat(windows): manage fork distribution
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 69 files changed, 12352 insertions(+), 3337 deletions(-)
+ 70 files changed, 12371 insertions(+), 3356 deletions(-)
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
  create mode 100644 packaging/windows/installer/artwork/README.md
@@ -53172,7 +53173,7 @@ HcmV?d00001
 
 diff --git a/packaging/windows/installer/project.nsi b/packaging/windows/installer/project.nsi
 new file mode 100644
-index 0000000000000000000000000000000000000000..0e39ca6305f82d5e06266df5d068bdfa1765e37c
+index 0000000000000000000000000000000000000000..7fd7f04564f97dcb04e27d978adb12a0d3b89bf0
 --- /dev/null
 +++ b/packaging/windows/installer/project.nsi
 @@ -0,0 +1,601 @@
@@ -53747,7 +53748,7 @@ index 0000000000000000000000000000000000000000..0e39ca6305f82d5e06266df5d068bdfa
 +  DetailPrint "Stopping running ${INFO_DISTRIBUTIONNAME} sessions before uninstall..."
 +  StrCpy $InstallMutationActive "1"
 +  Call un.DisableUninstallCancellation
-+  nsExec::ExecToStack /TIMEOUT=180000 '"$PLUGINSDIR\installer-helper.exe" uninstall --install-root "$INSTDIR" --user-profile-root "${APP_USER_PROFILE_ROOT}" --settings-disposition "$SettingsDisposition" --skill-hash-manifest "$PLUGINSDIR\managed-skill-hashes.txt" --skill-disposition "$SkillDisposition" ${APP_UNINSTALL_FAULT_ARGS} $QuietHelperArgs'
++  nsExec::ExecToStack /TIMEOUT=180000 '"$PLUGINSDIR\installer-helper.exe" uninstall --install-root "$INSTDIR" --user-profile-root "${APP_USER_PROFILE_ROOT}" --roaming-app-data-root "$APPDATA" --settings-disposition "$SettingsDisposition" --skill-hash-manifest "$PLUGINSDIR\managed-skill-hashes.txt" --skill-disposition "$SkillDisposition" ${APP_UNINSTALL_FAULT_ARGS} $QuietHelperArgs'
 +  Pop $HelperExitCode
 +  Pop $HelperOutput
 +  StrCmp $HelperExitCode "error" un_helper_start_failed
@@ -54020,10 +54021,10 @@ index 0000000000000000000000000000000000000000..29472821e836358fda3ccc1efd93963c
 +b16ba0d9a22adbaf259d2022cd323801f8e51d530c94cb0cd23a69069292506b
 diff --git a/scripts/package_windows_installer.ps1 b/scripts/package_windows_installer.ps1
 new file mode 100644
-index 0000000000000000000000000000000000000000..25de34ebc8b870848da3eaea54b671cbb6bbe5a8
+index 0000000000000000000000000000000000000000..4386caedd20c987a42126a044a950c5adeaf2d01
 --- /dev/null
 +++ b/scripts/package_windows_installer.ps1
-@@ -0,0 +1,704 @@
+@@ -0,0 +1,706 @@
 +[CmdletBinding()]
 +param(
 +    [Parameter(Mandatory = $true)]
@@ -54050,6 +54051,8 @@ index 0000000000000000000000000000000000000000..25de34ebc8b870848da3eaea54b671cb
 +    [string]$OutputPath,
 +
 +    [string]$ProductName = "Herdr",
++
++    [string]$PythonExe = "python",
 +
 +    [string]$NsisArchive,
 +    [string]$NsisCacheDir,
@@ -54568,7 +54571,7 @@ index 0000000000000000000000000000000000000000..25de34ebc8b870848da3eaea54b671cb
 +
 +# The ConPTY packager remains the sole owner of package provenance, hashes,
 +# exact marker content, and the allowed stage layout.
-+Invoke-NativeChecked python @(
++Invoke-NativeChecked $PythonExe @(
 +    $packager,
 +    "validate",
 +    "--stage-dir", $StageDir
@@ -55416,6 +55419,47 @@ index 36dae3b4adc510ed1211331c90b784f77b10c7b3..29d064cfc84a7f85d976c9ca9b7c8f62
      def test_preview_range_base_advances_to_stable_tag(self):
          with (
              mock.patch.object(preview, "latest_stable_tag", return_value="v0.7.0"),
+diff --git a/scripts/windows_check.ps1 b/scripts/windows_check.ps1
+index 7b289efb36f7258be8710a5260a5c53c48250e75..4435450e1120d8511ea35689adfb7a919028fdb4 100644
+--- a/scripts/windows_check.ps1
++++ b/scripts/windows_check.ps1
+@@ -14,26 +14,12 @@ function Invoke-Checked {
+     }
+ }
+ 
+-function Invoke-CargoWithZigCacheRecovery {
+-    param([string[]]$Arguments)
+-
+-    & cargo @Arguments
+-    if ($LASTEXITCODE -eq 0) {
+-        return
+-    }
+-
+-    Write-Warning "cargo compile failed; clearing Zig build caches and retrying once"
+-    Remove-Item -Recurse -Force .zig-cache -ErrorAction SilentlyContinue
+-    Remove-Item -Recurse -Force vendor/libghostty-vt/.zig-cache -ErrorAction SilentlyContinue
+-    Remove-Item -Recurse -Force vendor/libghostty-vt/zig-out -ErrorAction SilentlyContinue
+-    Invoke-Checked cargo $Arguments
+-}
+-
+ Invoke-Checked cargo @("fmt", "--check")
+-Invoke-CargoWithZigCacheRecovery @(
++Invoke-Checked cargo @(
+     "clippy",
+     "--all-targets",
+     "--locked",
++    "--jobs", [string][Environment]::ProcessorCount,
+     "--",
+     "-D",
+     "warnings"
+@@ -43,5 +29,6 @@ if ($Mode -eq "lint") {
+     return
+ }
+ 
++$env:CARGO_BUILD_JOBS = [string][Environment]::ProcessorCount
+ Invoke-Checked just @("test")
+-Invoke-Checked cargo @("build", "--locked")
++Invoke-Checked cargo @("build", "--locked", "--jobs", [string][Environment]::ProcessorCount)
 diff --git a/scripts/windows_install_conpty_package_test.ps1 b/scripts/windows_install_conpty_package_test.ps1
 index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c2729de67 100644
 --- a/scripts/windows_install_conpty_package_test.ps1
@@ -56066,10 +56110,10 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
  }
 diff --git a/scripts/windows_installer_fault_test.ps1 b/scripts/windows_installer_fault_test.ps1
 new file mode 100644
-index 0000000000000000000000000000000000000000..5d9c2cf3c838d58f3f8a446ffb1c618bd237c338
+index 0000000000000000000000000000000000000000..f5297fdd851f339338423c696629618f0e9bd854
 --- /dev/null
 +++ b/scripts/windows_installer_fault_test.ps1
-@@ -0,0 +1,1325 @@
+@@ -0,0 +1,1326 @@
 +[CmdletBinding()]
 +param(
 +    [Parameter(Mandatory = $true)][string]$StageDir,
@@ -56308,7 +56352,7 @@ index 0000000000000000000000000000000000000000..5d9c2cf3c838d58f3f8a446ffb1c618b
 +$skillPath = Join-Path $skillRoot "SKILL.md"
 +$claudeSkillRoot = Join-Path $env:CLAUDE_CONFIG_DIR "skills\herdr"
 +$claudeSkillPath = Join-Path $claudeSkillRoot "SKILL.md"
-+$settingsRoot = Join-Path $env:USERPROFILE ".herdr"
++$settingsRoot = Join-Path $env:APPDATA "herdr"
 +$inheritedUserProfileDecoy = Join-Path $AgentUserProfileRoot "inherited-userprofile-decoy"
 +New-Item -ItemType Directory -Path $inheritedUserProfileDecoy | Out-Null
 +$env:USERPROFILE = $inheritedUserProfileDecoy
@@ -57075,7 +57119,7 @@ index 0000000000000000000000000000000000000000..5d9c2cf3c838d58f3f8a446ffb1c618b
 +    Write-Host "Sibling-preserving skill uninstall passed."
 +
 +    # Explicit settings cleanup is best effort after application/integration
-+    # removal. A real running image under .herdr keeps only that residual while
++    # removal. A real running image under roaming herdr keeps that residual while
 +    # setup files, ARP registration, and the installer-owned PATH entry disappear.
 +    $lockedStateInstallExit = Start-TestProcess -FilePath $modifiedInstaller -Arguments @("/S")
 +    if ($lockedStateInstallExit -ne 0) {
@@ -57282,6 +57326,7 @@ index 0000000000000000000000000000000000000000..5d9c2cf3c838d58f3f8a446ffb1c618b
 +        "uninstall",
 +        "--install-root", $installRoot,
 +        "--user-profile-root", $AgentUserProfileRoot,
++        "--roaming-app-data-root", $env:APPDATA,
 +        "--skill-hash-manifest", (Join-Path $newPackage "skill\managed-skill-hashes.txt"),
 +        "--settings-disposition", "Keep",
 +        "--skill-disposition", "Auto"
@@ -57395,6 +57440,19 @@ index 0000000000000000000000000000000000000000..5d9c2cf3c838d58f3f8a446ffb1c618b
 +        Remove-TestOwnedUserProfile
 +    }
 +}
+diff --git a/src/app/custom_commands.rs b/src/app/custom_commands.rs
+index a2245884c57eeeb6343448089c98d3e5372ccffd..3f20fb294882022201e118369813a201e436389f 100644
+--- a/src/app/custom_commands.rs
++++ b/src/app/custom_commands.rs
+@@ -246,7 +246,7 @@ impl App {
+             crate::api::SOCKET_PATH_ENV_VAR.to_string(),
+             crate::api::socket_path().display().to_string(),
+         )];
+-        if let Ok(current_exe) = std::env::current_exe() {
++        if let Ok(current_exe) = crate::platform::launch_executable() {
+             env.push((
+                 "HERDR_BIN_PATH".to_string(),
+                 current_exe.display().to_string(),
 diff --git a/src/app/mod.rs b/src/app/mod.rs
 index da26479da1941ee49cf8a387652973a31eded648..9bde5ff993ca71f160fa449c8d05d5007eff375e 100644
 --- a/src/app/mod.rs
@@ -58167,43 +58225,6 @@ index 0e2e57ced9fef30b32ab50a36549b1276ab47da4..cbff934a96c9b86f8e203d73ec5aeb46
      #[test]
      fn terminal_default_shell_defaults_empty_and_parses() {
          let default_config = Config::default();
-diff --git a/src/integration/tests.rs b/src/integration/tests.rs
-index bffe2f4511334a955c26b71a48d7159dc687e28e..7743fbf2021c2a919cb99ca69b8eb8a014441dba 100644
---- a/src/integration/tests.rs
-+++ b/src/integration/tests.rs
-@@ -432,6 +432,32 @@ fn hermes_layout_makes_target_available() {
-     let _ = fs::remove_dir_all(base);
- }
- 
-+#[test]
-+#[cfg(windows)]
-+fn windows_devin_dir_uses_roaming_app_data() {
-+    let _lock = integration_env_lock();
-+    let base = unique_base();
-+    let roaming_app_data = base.join("roaming-app-data");
-+    let original_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
-+    let original_app_data = std::env::var_os("APPDATA");
-+    std::env::remove_var("XDG_CONFIG_HOME");
-+    std::env::set_var("APPDATA", &roaming_app_data);
-+
-+    assert_eq!(devin_dir().unwrap(), roaming_app_data.join("devin"));
-+
-+    if let Some(xdg_config_home) = original_xdg_config_home {
-+        std::env::set_var("XDG_CONFIG_HOME", xdg_config_home);
-+    } else {
-+        std::env::remove_var("XDG_CONFIG_HOME");
-+    }
-+    if let Some(app_data) = original_app_data {
-+        std::env::set_var("APPDATA", app_data);
-+    } else {
-+        std::env::remove_var("APPDATA");
-+    }
-+    let _ = fs::remove_dir_all(base);
-+}
-+
- #[test]
- fn codex_availability_finds_standalone_binary_under_codex_home() {
-     let _lock = integration_env_lock();
 diff --git a/src/main.rs b/src/main.rs
 index 54d72518e6cefaff572b365ac23e0bee5b2f7763..9d9b8ef16a0d87a086b8d4ae132847f61738cc41 100644
 --- a/src/main.rs
@@ -58705,10 +58726,20 @@ index 0000000000000000000000000000000000000000..c7474c2554573bbe88a06696385c5175
 +    }
 +}
 diff --git a/src/platform/mod.rs b/src/platform/mod.rs
-index a88275908c290b8260a683451df0c4870fbef537..fc6dc642010472f2b65dbe613740926ceb89e57d 100644
+index a88275908c290b8260a683451df0c4870fbef537..acf493af50aaa493c7c760f16426c7bb41612bc6 100644
 --- a/src/platform/mod.rs
 +++ b/src/platform/mod.rs
-@@ -148,6 +148,31 @@ pub(crate) fn configure_background_command(command: &mut std::process::Command)
+@@ -92,7 +92,8 @@ pub(crate) fn classify_child_exit(_status: &portable_pty::ExitStatus) -> ChildEx
+ 
+ #[cfg(not(target_os = "linux"))]
+ pub(crate) fn launch_executable() -> std::io::Result<std::path::PathBuf> {
+-    std::env::current_exe()
++    // Managed Windows payloads cannot be invoked without a launcher-owned lease.
++    crate::managed_install::command_executable()
+ }
+ 
+ pub(crate) fn detached_custom_command_process(command: &str) -> std::process::Command {
+@@ -148,6 +149,31 @@ pub(crate) fn configure_background_command(command: &mut std::process::Command)
      configure_background_command_platform(command);
  }
  
@@ -58740,7 +58771,7 @@ index a88275908c290b8260a683451df0c4870fbef537..fc6dc642010472f2b65dbe613740926c
  #[cfg(not(windows))]
  pub(crate) fn prepare_interactive_server_bootstrap(
      args: Vec<String>,
-@@ -337,9 +362,7 @@ mod unix_common;
+@@ -337,9 +363,7 @@ mod unix_common;
  #[cfg(unix)]
  pub(crate) mod unix_image_files;
  #[cfg(unix)]
@@ -58751,7 +58782,7 @@ index a88275908c290b8260a683451df0c4870fbef537..fc6dc642010472f2b65dbe613740926c
  
  mod client_state;
  pub(crate) use client_state::{create_private_state_file, replace_file, sync_parent_directory};
-@@ -347,9 +370,6 @@ pub(crate) use client_state::{create_private_state_file, replace_file, sync_pare
+@@ -347,9 +371,6 @@ pub(crate) use client_state::{create_private_state_file, replace_file, sync_pare
  #[cfg(not(unix))]
  pub(crate) fn begin_cli_output() {}
  
@@ -58807,10 +58838,10 @@ index f55095e0c2bef6b8cee238bb30aed6eff0ce3366..df9439cf1513a9f7b5620b641ef2d7af
  const FOREGROUND_SELECTION_RECHECK: Duration = Duration::from_secs(5);
 diff --git a/src/platform/windows/installer_helper.rs b/src/platform/windows/installer_helper.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..5f0013390af37e9f42647dc221fa8f7739b0db56
+index 0000000000000000000000000000000000000000..05e8b88565a2dfc7852677f2a04c63ef94710523
 --- /dev/null
 +++ b/src/platform/windows/installer_helper.rs
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,273 @@
 +//! Native owner for the managed Windows install lifecycle.
 +
 +use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf};
@@ -58887,6 +58918,7 @@ index 0000000000000000000000000000000000000000..5f0013390af37e9f42647dc221fa8f77
 +                &[
 +                    "--install-root",
 +                    "--user-profile-root",
++                    "--roaming-app-data-root",
 +                    "--skill-hash-manifest",
 +                    "--settings-disposition",
 +                    "--skill-disposition",
@@ -58899,6 +58931,7 @@ index 0000000000000000000000000000000000000000..5f0013390af37e9f42647dc221fa8f77
 +            installer_helper_lifecycle::uninstall(UninstallOptions {
 +                install_root: required_path(&values, "--install-root")?,
 +                user_profile_root: required_path(&values, "--user-profile-root")?,
++                roaming_app_data_root: required_path(&values, "--roaming-app-data-root")?,
 +                skill_hash_manifest: required_path(&values, "--skill-hash-manifest")?,
 +                settings_disposition: match required_utf8(&values, "--settings-disposition")?
 +                    .as_str()
@@ -60173,10 +60206,10 @@ index 0000000000000000000000000000000000000000..2ef2fb129faa64898c0fd0c8b2b595f2
 +}
 diff --git a/src/platform/windows/installer_helper_lifecycle.rs b/src/platform/windows/installer_helper_lifecycle.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..e66ceadf0dc6374f88c311cd91e5ddaa993bf97b
+index 0000000000000000000000000000000000000000..0e83fde01f007348f1736bc678a142d0a90247f7
 --- /dev/null
 +++ b/src/platform/windows/installer_helper_lifecycle.rs
-@@ -0,0 +1,2662 @@
+@@ -0,0 +1,2663 @@
 +use std::{
 +    collections::BTreeSet,
 +    ffi::{OsStr, OsString},
@@ -60272,6 +60305,7 @@ index 0000000000000000000000000000000000000000..e66ceadf0dc6374f88c311cd91e5ddaa
 +pub(crate) struct UninstallOptions {
 +    pub(crate) install_root: PathBuf,
 +    pub(crate) user_profile_root: PathBuf,
++    pub(crate) roaming_app_data_root: PathBuf,
 +    pub(crate) skill_hash_manifest: PathBuf,
 +    pub(crate) settings_disposition: SettingsDisposition,
 +    pub(crate) skill_disposition: SkillDisposition,
@@ -60680,7 +60714,7 @@ index 0000000000000000000000000000000000000000..e66ceadf0dc6374f88c311cd91e5ddaa
 +            quiet.as_ref(),
 +        )?;
 +        if options.settings_disposition == SettingsDisposition::Remove {
-+            if let Err(err) = skills::remove_user_settings(&profile) {
++            if let Err(err) = skills::remove_user_settings(&options.roaming_app_data_root) {
 +                warnings.push(format!(
 +                "Warning: Selected Herdr settings cleanup was incomplete; locked or unsafe settings were preserved. {err}"
 +            ));
@@ -63784,10 +63818,10 @@ index 0000000000000000000000000000000000000000..9de898edd53c8627a49711b3ad59f7e5
 +}
 diff --git a/src/platform/windows/installer_helper_skills.rs b/src/platform/windows/installer_helper_skills.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..aa86133051c94bc8ac30ca7100a4400b3001e375
+index 0000000000000000000000000000000000000000..f8ef9539e9812a694f97298835fee05151b396ff
 --- /dev/null
 +++ b/src/platform/windows/installer_helper_skills.rs
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,440 @@
 +use std::{
 +    collections::BTreeSet,
 +    env, fs, io,
@@ -64173,12 +64207,13 @@ index 0000000000000000000000000000000000000000..aa86133051c94bc8ac30ca7100a4400b
 +    Ok("Remove")
 +}
 +
-+pub(crate) fn remove_user_settings(profile: &Path) -> io::Result<()> {
-+    let profile = user_profile_root(profile)?;
-+    let settings = profile.join(".herdr");
-+    if !path_within(&settings, &profile)? {
++pub(crate) fn remove_user_settings(roaming_app_data: &Path) -> io::Result<()> {
++    let roaming_app_data = full_path(roaming_app_data)?;
++    assert_regular_dir(&roaming_app_data)?;
++    let settings = roaming_app_data.join("herdr");
++    if !path_within(&settings, &roaming_app_data)? {
 +        return Err(super::installer_helper_files::invalid_data(format!(
-+            "settings directory escaped user profile: {}",
++            "settings directory escaped roaming AppData: {}",
 +            settings.display()
 +        )));
 +    }
@@ -64195,6 +64230,37 @@ index 0000000000000000000000000000000000000000..aa86133051c94bc8ac30ca7100a4400b
 +        )));
 +    }
 +    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn selected_settings_cleanup_preserves_profile_worktrees_and_other_apps() {
++        let root = std::env::temp_dir().join(format!(
++            "herdr-settings-cleanup-{}",
++            super::super::installer_helper_files::unique_hex()
++        ));
++        let roaming = root.join("redirected-roaming");
++        let settings = roaming.join("herdr");
++        let worktree = root.join("profile/.herdr/worktrees/user-project");
++        fs::create_dir_all(&worktree).unwrap();
++        fs::create_dir_all(&roaming).unwrap();
++        fs::write(worktree.join("keep.txt"), b"project").unwrap();
++        fs::write(roaming.join("other-app.txt"), b"other").unwrap();
++        fs::write(&settings, b"not a directory").unwrap();
++        assert!(remove_user_settings(&roaming).is_err());
++        assert_eq!(fs::read(&settings).unwrap(), b"not a directory");
++        fs::remove_file(&settings).unwrap();
++        fs::create_dir_all(settings.join("sessions")).unwrap();
++        fs::write(settings.join("config.toml"), b"[ui]").unwrap();
++        remove_user_settings(&roaming).unwrap();
++        assert!(!settings.exists());
++        assert_eq!(fs::read(worktree.join("keep.txt")).unwrap(), b"project");
++        assert_eq!(fs::read(roaming.join("other-app.txt")).unwrap(), b"other");
++        fs::remove_dir_all(root).unwrap();
++    }
 +}
 diff --git a/src/platform/windows/launcher.rs b/src/platform/windows/launcher.rs
 new file mode 100644
@@ -66243,10 +66309,10 @@ index b211e63d0f4d27f8e3a7278404a7e90e67fbc87d..d139ca2d078cc133d015538e365261ff
      fn marking_current_version_seen_preserves_latest_notes() {
          let path = std::env::temp_dir().join(format!(
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index 17375e0ef8133cc3b9fd21ef9d5c9bf7fd556e69..a059d33b69b576834ac39b7b1d2a87397ecba732 100644
+index 86b6758965ca2552252ab1068a49048b0ee95759..50003ae4463cb4f9640cc2f3aa2005c72b54cc08 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -4515,7 +4515,7 @@ fn run_client_process(
+@@ -4527,7 +4527,7 @@ fn run_client_process(
      reattach_command: &str,
      keybindings: RemoteKeybindings,
  ) -> io::Result<()> {
