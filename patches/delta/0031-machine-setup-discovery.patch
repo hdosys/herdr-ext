@@ -1,4 +1,4 @@
-From 02bd7edf2402975564e48f8cd25674fdef9e9adc Mon Sep 17 00:00:00 2001
+From a90edfc8de064cbd9a4a841397d48d9973d356e6 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 10 Sep 2026 16:13:05 +0200
 Subject: [PATCH 18/23] feat(client): surface machine setup in menu

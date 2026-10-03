@@ -1,4 +1,4 @@
-From 6ae3e0895b7557d412a835885611928e89928c94 Mon Sep 17 00:00:00 2001
+From c9ba7c82f85ac008540a06b5bf171a3154310ea0 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 18:24:37 +0200
 Subject: [PATCH 19/23] feat(distribution): rename fork to Herdr Extended
@@ -32,7 +32,7 @@ Subject: [PATCH 19/23] feat(distribution): rename fork to Herdr Extended
  25 files changed, 68 insertions(+), 64 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index bc0b7d683062e41e608b57dfca72a4760c8e3d96..d48b8360d368a4301e8efe681581a65cda3f97d8 100644
+index 19d867ce2f2ee5a02ba76f12783918d539970a03..81680275d587c5864bf7060b0ef456c79c6db3c0 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -4,7 +4,7 @@

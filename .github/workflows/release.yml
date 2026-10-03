@@ -55,6 +55,7 @@ jobs:
       artifact_name: ${{ steps.release_identity.outputs.artifact_name }}
       archive_asset_name: ${{ steps.release_identity.outputs.archive_asset_name }}
       installer_asset_name: ${{ steps.release_identity.outputs.installer_asset_name }}
+      zig_version: ${{ steps.zig_version.outputs.version }}
     steps:
       - name: Checkout Herdr Extended control repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -131,41 +132,13 @@ jobs:
           Push-Location control
           try {
             $controlHead = (git rev-parse HEAD).Trim()
-            $control = $controlHead
-            $hiddenPrefixes = @(
-              "docs: update website manifest",
-              "docs: update preview manifest",
-              "chore: approve contributor",
-              "chore: approve merged contributor"
-            )
-            while ($true) {
-              $subject = (git show -s --format=%s $control).Trim().ToLowerInvariant()
-              $hidden = $false
-              foreach ($prefix in $hiddenPrefixes) {
-                if ($subject.StartsWith($prefix, [StringComparison]::Ordinal)) {
-                  $hidden = $true
-                  break
-                }
-              }
-              if (-not $hidden) {
-                break
-              }
-              $commitPaths = @(git diff-tree --no-commit-id --name-only -r $control)
-              if ($LASTEXITCODE -ne 0 -or $commitPaths.Count -ne 1 -or $commitPaths[0] -ne "website/preview.json") {
-                throw "hidden commit $control changed files outside website/preview.json"
-              }
-              $control = (git rev-parse "${control}^").Trim()
-            }
-            if ($control -notmatch '^[0-9a-f]{40}$') {
+            $control = (python scripts\delta_workflow.py select-commit --ref $controlHead).Trim()
+            if ($LASTEXITCODE -ne 0 -or $control -cnotmatch '^[0-9a-f]{40}$') {
               throw "failed to select immutable Herdr Extended control revision"
             }
             & git checkout --detach $control
             if ($LASTEXITCODE -ne 0) {
               throw "failed to check out selected control revision $control"
-            }
-            $selected = (python scripts\preview.py select-commit --ref $controlHead).Trim()
-            if ($LASTEXITCODE -ne 0 -or $selected -ne $control) {
-              throw "tested preview selector disagrees with validated control revision $control"
             }
             $buildId = (python scripts\preview.py candidate-build-id `
               --upstream-sha $upstream `
@@ -269,10 +242,19 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           targets: ${{ env.WINDOWS_TARGET }}
 
+      - name: Resolve latest compatible stable Zig for the replayed source
+        id: zig_version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (python control\scripts\delta_workflow.py resolve-zig --source source).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Zig source compatibility validation failed" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
       - name: Install Zig
         uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # v1.0.2
         with:
-          version: 0.15.2
+          version: ${{ steps.zig_version.outputs.version }}
 
       - name: Restore Cargo cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -287,9 +269,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
+          $env:CARGO_BUILD_JOBS = [string] [Environment]::ProcessorCount
+          "CARGO_BUILD_JOBS=$env:CARGO_BUILD_JOBS" >> $env:GITHUB_ENV
           python -m unittest scripts.test_package_windows_conpty
           python -m unittest `
-            scripts.test_preview.PreviewNotesTests.test_build_manifest_archives_current_assets `
+            scripts.test_preview.PreviewNotesTests.test_build_manifest_archives_assets_with_selected_source_generation `
             scripts.test_preview.PreviewNotesTests.test_endpoint_generation_reads_source_and_rejects_invalid_u32 `
             scripts.test_preview.PreviewNotesTests.test_manifest_rejects_invalid_endpoint_generation `
             scripts.test_preview.PreviewNotesTests.test_preview_assets_require_sha256 `
@@ -745,28 +729,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install Zig
-        if: runner.os == 'Linux'
         uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # v1.0.2
         with:
-          version: 0.15.2
-
-      - name: Restore Homebrew Zig cache
-        if: runner.os == 'macOS'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/Library/Caches/Homebrew/downloads
-          key: homebrew-zig-0.15-${{ runner.os }}-${{ runner.arch }}
-          restore-keys: |
-            homebrew-zig-0.15-${{ runner.os }}-
-
-      - name: Install patched Zig on macOS
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install zig@0.15
-          echo "$(brew --prefix zig@0.15)/bin" >> "$GITHUB_PATH"
-          "$(brew --prefix zig@0.15)/bin/zig" version
+          version: ${{ needs.build.outputs.zig_version }}
 
       - name: Install Linux build tools
         if: runner.os == 'Linux'
@@ -797,7 +762,17 @@ jobs:
 
       - name: Build release executable
         working-directory: source
-        run: cargo build --release --locked --target ${{ matrix.target }} --bin herdr
+        run: |
+          export CARGO_BUILD_JOBS="$(getconf _NPROCESSORS_ONLN)"
+          cargo build --release --locked --target ${{ matrix.target }} --bin herdr
+
+      - name: Check Unix terminal input
+        if: matrix.asset_key == 'linux-x86_64'
+        working-directory: source
+        run: |
+          export CARGO_BUILD_JOBS="$(getconf _NPROCESSORS_ONLN)"
+          cargo test --locked --target ${{ matrix.target }} --bin herdr raw_input::tests
+          cargo test --locked --target ${{ matrix.target }} --bin herdr client::input::tests
 
       - name: Package and validate executable
         shell: bash
@@ -1075,7 +1050,7 @@ jobs:
             echo "Candidate control revision ${control_sha} is no longer on master." >&2
             exit 1
           fi
-          selected="$(cd control && python3 scripts/preview.py select-commit --ref origin/master)"
+          selected="$(python3 control/scripts/delta_workflow.py select-commit --ref origin/master)"
           if [[ "$selected" != "$control_sha" ]]; then
             echo "master advanced to untested control revision ${selected}; refusing stale candidate promotion." >&2
             exit 1
@@ -1360,7 +1335,7 @@ jobs:
             echo "Selected control revision ${CONTROL_SHA} is no longer on master." >&2
             exit 1
           fi
-          selected="$(python3 "$generator" select-commit --ref HEAD)"
+          selected="$(python3 scripts/delta_workflow.py select-commit --ref HEAD)"
           if [[ "$selected" != "$CONTROL_SHA" ]]; then
             echo "master advanced to untested control revision ${selected}; refusing stale manifest publication." >&2
             exit 1

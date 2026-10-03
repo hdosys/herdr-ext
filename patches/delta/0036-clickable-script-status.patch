@@ -1,4 +1,4 @@
-From 4fa9254b7e7939dc53910363da8329a41707a80c Mon Sep 17 00:00:00 2001
+From 8ea0a288de977f6c81c5c1f4c824c51375332415 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Fri, 18 Sep 2026 23:39:09 +0200
 Subject: [PATCH 23/23] feat(status): open script status links on the client

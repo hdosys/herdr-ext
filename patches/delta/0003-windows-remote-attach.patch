@@ -1,4 +1,4 @@
-From ab4e2eb299672c305d9c7ce3983c5be65924c711 Mon Sep 17 00:00:00 2001
+From b54932fc1c7f1b3811a8088b15e813b1b8516f70 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 12:00:13 +0200
 Subject: [PATCH 2/23] feat(remote): support Windows SSH hosts
@@ -80,7 +80,7 @@ Subject: [PATCH 2/23] feat(remote): support Windows SSH hosts
  create mode 100644 src/remote/windows_payload_layout.ps1
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 2f32e719486650777ccf965132b9e4119ec8f5da..78c4ee94f3bd0c33973a023e197fed4409256cb0 100644
+index d4d32870aead5edca8346249f224b2fd286965a0..7d9436b3bbed717b42773e5d75d68470ad92812f 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -2,6 +2,9 @@
@@ -90,11 +90,11 @@ index 2f32e719486650777ccf965132b9e4119ec8f5da..78c4ee94f3bd0c33973a023e197fed44
 +### Changed
 +- `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.
 +
- ## [0.9.2] - 2026-09-29
+ ## [0.9.3] - 2026-09-29
  
- ### Breaking Changes
+ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature release: https://github.com/herdrdev/herdr/releases/tag/v0.9.2
 diff --git a/Cargo.lock b/Cargo.lock
-index 87d7ae6c5a90a1cb075aed96f74bc3553832e597..0f47cef22f9bcc3bf15aa38acb989977d757d263 100644
+index fed0f87402a667033c5112ffc97aed1dad3c0015..b218a7ea1401cc2fcf84d252c75a140e8dda8435 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -607,48 +607,12 @@ version = "0.2.0"
@@ -338,7 +338,7 @@ index 87d7ae6c5a90a1cb075aed96f74bc3553832e597..0f47cef22f9bcc3bf15aa38acb989977
  name = "zbus"
  version = "5.19.0"
 diff --git a/Cargo.toml b/Cargo.toml
-index cc787ef1ff3c9eba4dcaa6d1903084a4ceae8e5a..38c72bd5473419ddda7863a5efd724977b7ad6f2 100644
+index c673142479318fafd657a09f982a5fc13784307e..ec76bf837b91a2cbe5345853bcd6116f721f1ca7 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -64,7 +64,6 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
@@ -365,7 +365,7 @@ index cc787ef1ff3c9eba4dcaa6d1903084a4ceae8e5a..38c72bd5473419ddda7863a5efd72497
      "Win32_System_Threading",
      "Win32_UI_Input_Ime",
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index af5931bf917d4789454853002fc8bb9d6eb7e9c6..430b98148bc38c61dcac4e82cb96ef5db1479707 100644
+index 1a9a426826432e7b8bcebf24f5efb1723cc88ce2..a98fd9ef658612f175ffad09a1e68fb0c5b129c7 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -5,6 +5,9 @@
@@ -375,9 +375,9 @@ index af5931bf917d4789454853002fc8bb9d6eb7e9c6..430b98148bc38c61dcac4e82cb96ef5d
 +### Fixed
 +- Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
 +
- ## [0.9.2] - 2026-09-29
+ ## [0.9.3] - 2026-09-29
  
- ### Breaking Changes
+ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature release: https://github.com/herdrdev/herdr/releases/tag/v0.9.2
 diff --git a/docs/next/api/herdr-api.schema.json b/docs/next/api/herdr-api.schema.json
 index e2553f75ff9a24fea89781773a46d68ba6ea3314..a66b63e7a9b6e98df3a03839102b877c0a96e63f 100644
 --- a/docs/next/api/herdr-api.schema.json

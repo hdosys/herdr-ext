@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -8,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Sequence
+from unittest import mock
 
 from scripts.delta_workflow import (
     DEVELOPMENT_BRANCH,
@@ -18,6 +20,8 @@ from scripts.delta_workflow import (
     finalize_delta_mailbox,
     integrate_development_worktree,
     issue_reference_report,
+    latest_build_zig,
+    latest_publishable_commit,
     materialize_delta_worktree,
     publish_development_worktree,
     refresh_delta,
@@ -123,6 +127,36 @@ class DeltaFixture:
 
 
 class DeltaWorkflowTests(unittest.TestCase):
+    def test_zig_selection_uses_latest_compatible_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            manifest = source / "vendor/libghostty-vt/build.zig.zon"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('.minimum_zig_version = "0.16.0",\n', encoding="utf-8")
+            releases = {"master": {}, "0.15.2": {}, "0.16.1": {}, "0.16.0": {}, "0.17.0": {}}
+            with mock.patch("scripts.delta_workflow.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
+                self.assertEqual(latest_build_zig(source), "0.16.1")
+            manifest.write_text('.minimum_zig_version = "0.18.0",\n', encoding="utf-8")
+            with mock.patch("scripts.delta_workflow.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
+                with self.assertRaisesRegex(DeltaWorkflowError, "no stable release compatible"):
+                    latest_build_zig(source)
+
+    def test_control_selector_skips_only_manifest_owned_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = DeltaFixture(Path(directory))
+            expected = run_git(fixture.control, ["rev-parse", "HEAD"])
+            self.assertEqual(latest_publishable_commit("HEAD", fixture.control), expected)
+            website = fixture.control / "website"
+            website.mkdir()
+            (website / "preview.json").write_text("{}\n", encoding="utf-8")
+            run_git(fixture.control, ["add", "website/preview.json"])
+            run_git(fixture.control, ["commit", "-m", "docs: update preview manifest"])
+            self.assertEqual(latest_publishable_commit("HEAD", fixture.control), expected)
+            (fixture.control / "value.txt").write_text("changed source\n", encoding="utf-8")
+            run_git(fixture.control, ["commit", "-am", "docs: update website manifest"])
+            with self.assertRaisesRegex(DeltaWorkflowError, "outside website/preview.json"):
+                latest_publishable_commit("HEAD", fixture.control)
+
     def test_stable_refresh_requires_exact_tree_and_preserves_retained_owner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fixture = DeltaFixture(Path(directory))

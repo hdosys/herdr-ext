@@ -1,4 +1,4 @@
-From 079307ea06cc66f485370364f3257398a5038793 Mon Sep 17 00:00:00 2001
+From 85f30da86d99b47558d7532086cf3c6d7107bd79 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 23 Aug 2026 00:13:32 +0200
 Subject: [PATCH 8/23] fix(agent): restore authority after transient takeover
@@ -10,7 +10,7 @@ Refs herdrdev/herdr#1033
  2 files changed, 70 insertions(+), 2 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index c7acbeea1a07067f5e3ec68346c22d160f6b9e26..dfdf32bf973cda8ad4fea12c14a892e9d1f36fbd 100644
+index 4477ad6d33e6533793164d0aa63c203416e47c1e..8e99c7173299a69e4ecf1d447e17df29e3818e00 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -11,6 +11,7 @@

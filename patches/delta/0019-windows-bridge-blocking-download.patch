@@ -1,4 +1,4 @@
-From bf31856fff659447b34b9e2b984f0adb875dad07 Mon Sep 17 00:00:00 2001
+From 2fb479a4cb4589d4db1c7c915e9bf2d8318b846b Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 11:15:26 +0200
 Subject: [PATCH 12/23] fix(remote): preserve blocking Windows bridge writes

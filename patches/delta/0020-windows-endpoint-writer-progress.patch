@@ -1,4 +1,4 @@
-From d001db7650ecf30c69999c9a351f6d78b8190e72 Mon Sep 17 00:00:00 2001
+From a3bc2d343e47465ed0cc606ba960fe308e0a1509 Mon Sep 17 00:00:00 2001
 From: Jonathan Liebig <jonathan.liebig@gmail.com>
 Date: Wed, 9 Sep 2026 12:27:15 +0200
 Subject: [PATCH 13/23] fix(endpoint): keep Windows polling-peer writes

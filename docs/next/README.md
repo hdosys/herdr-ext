@@ -33,9 +33,9 @@ Detach from a Windows-hosted Herdr session, reconnect from another terminal, and
 
 ```mermaid
 flowchart TB
-    S["Reviewed stable source<br/>Upstream Herdr v0.9.2 / BASE 48292af8e33a"]
+    S["Reviewed stable source<br/>Upstream Herdr v0.9.3 / BASE 7b116c05bfda"]
     Q["Control branch: patches/delta/series<br/>0001 Terminal experience / 0003 Windows SSH / 0004 Managed distribution<br/>0005 OpenCode / 0006 Downloads / 0008 Worktree lifecycle<br/>0009 Agent start / 0010 Hook recovery / 0011 Metadata<br/>0012 Completion / 0016 Integration hints / Remaining fork corrections"]
-    B["Corrections after the foundation<br/>0019-0027, 0030 Reviewed upstream backports<br/>0028-0029, 0031 Local fixes and discoverability"]
+    B["Remaining corrections and extensions<br/>0019-0021, 0026 Reviewed upstream corrections<br/>0028-0029, 0031 Local fixes / 0036 Status links"]
     D["Current maintained source<br/>Finalized queue reproduces the accepted source tree"]
     V["Validated distribution<br/>Fresh replay → native + cross-platform gates<br/>→ Windows setup + ZIP, Linux/macOS binaries + digests"]
     S --> Q --> B --> D --> V
@@ -72,16 +72,17 @@ The table is intentionally capability-level. ✅ marks complete capabilities now
 | Session safety and startup diagnostics | **Included in v2026.09.10.2** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-v090-corrections) | Requires exact recorded names for session deletion and keeps Local startup errors visible without freezing healthy remote views. |
 
 These corrections first shipped in Herdr Extended v2026.09.10.2 on the v0.9.0 base.
-The maintained queue now uses v0.9.2 and retires equivalent upstreamed patches while
+The maintained queue now uses v0.9.3 and retires equivalent upstreamed patches while
 retaining necessary fork adaptations and boundary checks. An upstream PR reference
 records provenance, not a separate release claim.
 
 **Unpublished development candidate:** the development line now incorporates
-Herdr v0.9.2, including upstream [cursor/rendering](https://github.com/herdrdev/herdr/pull/4554),
+Herdr v0.9.3, including the [Escape-prefixed shortcut hotfix](https://github.com/herdrdev/herdr/pull/4759)
+and upstream [cursor/rendering](https://github.com/herdrdev/herdr/pull/4554),
 [scrollback](https://github.com/herdrdev/herdr/pull/4553), and
 [SSH recovery](https://github.com/herdrdev/herdr/pull/4490) improvements. It retains
 the fork's Windows SSH adapter, managed installer, client-local appearance, and
-OpenCode V1 integration. The maintained release queue now targets the same v0.9.2
+OpenCode V1 integration. The maintained release queue now targets the same v0.9.3
 base. Queue finalization and candidate builds do not publish a public release.
 
 The candidate's script-generated status labels can include

@@ -1,4 +1,4 @@
-From 66a5975f61679f837c7326a50bae2b8da4d6a80a Mon Sep 17 00:00:00 2001
+From e75dd4648f83a7844a9ec9e716baccd286449b4a Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 26 Jul 2026 07:35:54 +0200
 Subject: [PATCH 1/23] feat(windows): preserve terminal appearance
@@ -51,7 +51,7 @@ Refs herdrdev/herdr#2786
  41 files changed, 1718 insertions(+), 669 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 2f32e719486650777ccf965132b9e4119ec8f5da..af5931bf917d4789454853002fc8bb9d6eb7e9c6 100644
+index d4d32870aead5edca8346249f224b2fd286965a0..1a9a426826432e7b8bcebf24f5efb1723cc88ce2 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -2,6 +2,9 @@
@@ -61,10 +61,10 @@ index 2f32e719486650777ccf965132b9e4119ec8f5da..af5931bf917d4789454853002fc8bb9d
 +### Changed
 +- Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
 +
- ## [0.9.2] - 2026-09-29
+ ## [0.9.3] - 2026-09-29
  
- ### Breaking Changes
-@@ -361,6 +364,7 @@
+ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature release: https://github.com/herdrdev/herdr/releases/tag/v0.9.2
+@@ -369,6 +372,7 @@ This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature r
  
  ### Changed
  - Agent commands now accept only a unique live agent name or the pane ID currently hosting that agent. Names are cleared when the occupant exits, is released, or is replaced. The old top-level `wait` commands were replaced by `agent wait` and `pane wait-output`, and `agent send` was replaced by `agent send-keys`.
@@ -211,7 +211,7 @@ index 2520286cd7ed03c0f9caf779c7a56fa921b07c9c..6c057cf26f20615e16e6d4e2c6fb2337
              cell_width_px,
              cell_height_px,
 diff --git a/src/client/input.rs b/src/client/input.rs
-index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a887a8a765 100644
+index 08254155db00e64a02e4b95868165b9ee7ec3b9b..7fd431e8aabc6a4234d2986f292737f83e4589de 100644
 --- a/src/client/input.rs
 +++ b/src/client/input.rs
 @@ -97,13 +97,13 @@ fn unix_stdin_reader_loop(
@@ -264,7 +264,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
                  return;
              }
              if held_escape
-@@ -148,7 +135,6 @@ fn unix_stdin_reader_loop(
+@@ -147,7 +134,6 @@ fn unix_stdin_reader_loop(
                  && !send_unix_input_chunks(
                      framer.flush_timeout(),
                      &event_tx,
@@ -272,7 +272,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
                      sgr_pixels,
                      last_geometry,
                  )
-@@ -219,13 +205,7 @@ fn unix_stdin_reader_loop(
+@@ -218,13 +204,7 @@ fn unix_stdin_reader_loop(
                  if !framer.has_pending_input() {
                      pending_mode = None;
                  }
@@ -287,7 +287,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
                      return;
                  }
  
-@@ -242,14 +222,7 @@ fn unix_stdin_reader_loop(
+@@ -241,14 +221,7 @@ fn unix_stdin_reader_loop(
                      if !framer.has_pending_input() {
                          pending_mode = None;
                      }
@@ -303,7 +303,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
                          return;
                      }
                      if held_escape
-@@ -262,13 +235,7 @@ fn unix_stdin_reader_loop(
+@@ -259,13 +232,7 @@ fn unix_stdin_reader_loop(
                          if !framer.has_pending_input() {
                              pending_mode = None;
                          }
@@ -318,7 +318,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
                              return;
                          }
                      }
-@@ -306,30 +273,10 @@ fn filter_direct_input(
+@@ -303,30 +270,10 @@ fn filter_direct_input(
  fn send_unix_input_chunks(
      chunks: Vec<Vec<u8>>,
      event_tx: &mpsc::Sender<ClientLoopEvent>,
@@ -349,7 +349,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
          let Some(event) = classify_unix_input(data, sgr_pixels, geometry) else {
              continue;
          };
-@@ -360,20 +307,6 @@ fn classify_unix_input(
+@@ -357,20 +304,6 @@ fn classify_unix_input(
      Some(ClientLoopEvent::StdinInput(data))
  }
  
@@ -370,7 +370,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
  #[cfg(unix)]
  fn idle_flush_timeout_ms(
      framer: &crate::raw_input::RawInputByteFramer,
-@@ -400,7 +333,7 @@ fn windows_stdin_reader_loop(
+@@ -397,7 +330,7 @@ fn windows_stdin_reader_loop(
  ) {
      if !super::windows_vti_input_backend_enabled() {
          windows_vti::trace_input_transport("reader=crossterm");
@@ -379,7 +379,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
      } else {
          match windows_vti::console_input_handle() {
              Ok(handle) => {
-@@ -414,7 +347,7 @@ fn windows_stdin_reader_loop(
+@@ -411,7 +344,7 @@ fn windows_stdin_reader_loop(
              }
              _ => {
                  windows_vti::trace_input_transport("reader=crossterm-fallback");
@@ -388,7 +388,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
              }
          }
      }
-@@ -424,8 +357,9 @@ fn windows_stdin_reader_loop(
+@@ -421,8 +354,9 @@ fn windows_stdin_reader_loop(
  fn windows_crossterm_reader_loop(
      event_tx: mpsc::Sender<ClientLoopEvent>,
      should_quit: &Arc<AtomicBool>,
@@ -399,7 +399,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
  
      while !should_quit.load(Ordering::Acquire) {
          match crossterm::event::poll(Duration::from_millis(10)) {
-@@ -531,6 +465,15 @@ fn windows_crossterm_input_event(
+@@ -528,6 +462,15 @@ fn windows_crossterm_input_event(
      }
  }
  
@@ -415,7 +415,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
  #[cfg(any(windows, test))]
  fn windows_event_is_control_key(event: &crossterm::event::Event) -> bool {
      use crossterm::event::{Event, KeyModifiers};
-@@ -589,23 +532,24 @@ fn send_windows_raw_events(
+@@ -586,23 +529,24 @@ fn send_windows_raw_events(
      events: Vec<crate::raw_input::RawInputEvent>,
      event_tx: &mpsc::Sender<ClientLoopEvent>,
  ) -> bool {
@@ -456,7 +456,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
  }
  
  #[cfg(any(windows, test))]
-@@ -655,20 +599,7 @@ fn windows_client_input_event_from_raw(
+@@ -652,20 +596,7 @@ fn windows_client_input_event_from_raw(
          crate::raw_input::RawInputEvent::OuterFocusLost => {
              Some(crate::protocol::ClientInputEvent::FocusLost)
          }
@@ -478,7 +478,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
          | crate::raw_input::RawInputEvent::HostColorSchemeChanged(_)
          | crate::raw_input::RawInputEvent::HostCellSizeReport { .. }
          | crate::raw_input::RawInputEvent::Unsupported => None,
-@@ -752,35 +683,6 @@ mod tests {
+@@ -749,35 +680,6 @@ mod tests {
          assert_eq!(retain_geometry(Some(geometry), None), Some(geometry));
      }
  
@@ -514,7 +514,7 @@ index ab46e788c7ec70ef07e98f140cf51a336f8cf16f..ed2f6bff845353d32cb7799a7520b4a8
      #[test]
      fn raw_input_idle_flush_timeout_keeps_escape_responsive() {
          let timeout_ms = std::hint::black_box(crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS);
-@@ -1099,6 +1001,30 @@ mod windows_tests {
+@@ -1321,6 +1223,30 @@ mod windows_tests {
          );
      }
  
@@ -3176,7 +3176,7 @@ index 986536011eafe8ecaa8b44dd5edf90e14ff7c230..61b6abf50639cdd66d37e21f10544d95
  
      #[test]
 diff --git a/src/raw_input.rs b/src/raw_input.rs
-index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2768b57ff 100644
+index c66d758401ac54f2332c8fdd5dab49b69f37756d..a0988ca1cef21587c2bd25f914ae27ad0771015e 100644
 --- a/src/raw_input.rs
 +++ b/src/raw_input.rs
 @@ -16,8 +16,7 @@ pub fn parse_raw_input_bytes_sync(data: &[u8]) -> Vec<RawInputEvent> {
@@ -3189,7 +3189,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
  };
  
  const ESC: u8 = 0x1b;
-@@ -60,9 +59,6 @@ pub enum RawInputEvent {
+@@ -66,9 +65,6 @@ pub enum RawInputEvent {
          kind: DefaultColorKind,
          color: RgbColor,
      },
@@ -3199,7 +3199,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      HostColorSchemeChanged(HostAppearance),
      // The dimensions are only read by the Unix client.
      #[cfg_attr(not(any(unix, test)), allow(dead_code))]
-@@ -79,6 +75,11 @@ pub(crate) struct RawInputFramer {
+@@ -85,6 +81,11 @@ pub(crate) struct RawInputFramer {
  }
  
  impl RawInputFramer {
@@ -3211,7 +3211,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      #[cfg(any(windows, test))]
      pub(crate) fn for_host_input() -> Self {
          Self {
-@@ -142,9 +143,7 @@ impl RawInputFramer {
+@@ -148,9 +149,7 @@ impl RawInputFramer {
      /// Semantic input ends mouse recovery, unlike another idle interval.
      #[cfg(any(windows, test))]
      pub(crate) fn flush_interrupted(&mut self) -> Vec<RawInputEvent> {
@@ -3222,7 +3222,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
          self.byte_framer.timed_out_mouse_prefix = None;
          chunks.extend(self.byte_framer.drain_available_chunks());
          Self::events_from_chunks(chunks)
-@@ -189,16 +188,18 @@ pub(crate) struct RawInputByteFramer {
+@@ -195,6 +194,7 @@ pub(crate) struct RawInputByteFramer {
      host_cell_size_replies_awaited: u16,
      host_appearance_reply_awaited: bool,
      held_pending_host_reply_esc: bool,
@@ -3230,7 +3230,8 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      host_color_scheme_change_tracking: bool,
      host_appearance_query_on_focus: bool,
      split_coalesced_escape: bool,
-     host_escape_disambiguation_active: bool,
+@@ -204,10 +204,11 @@ pub(crate) struct RawInputByteFramer {
+     awaiting_mouse_tail_after: Option<usize>,
  }
  
 -const HOST_COLOR_QUERY_REPLIES: u16 = 258;
@@ -3242,7 +3243,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
  
  impl RawInputByteFramer {
      pub(crate) fn for_host_input() -> Self {
-@@ -215,11 +216,14 @@ impl RawInputByteFramer {
+@@ -224,6 +225,9 @@ impl RawInputByteFramer {
      }
  
      pub(crate) fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
@@ -3250,6 +3251,9 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
 +            self.held_incomplete_default_color_response = false;
 +        }
          self.buffer.extend_from_slice(data);
+         #[cfg(unix)]
+         if let Some(prefix_len) = self.awaiting_mouse_tail_after.take() {
+@@ -237,7 +241,7 @@ impl RawInputByteFramer {
          self.drain_available_chunks()
      }
  
@@ -3258,7 +3262,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      /// at its ESC introducer stitches back together instead of leaking (#549).
      /// Overlapping queries each add their own replies to the window.
      pub(crate) fn host_color_query_sent(&mut self) {
-@@ -228,7 +232,7 @@ impl RawInputByteFramer {
+@@ -246,7 +250,7 @@ impl RawInputByteFramer {
  
      #[cfg(windows)]
      pub(crate) fn host_default_color_query_sent(&mut self, reply_window: Duration) {
@@ -3267,7 +3271,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
          self.host_default_color_query_issued = true;
          self.host_default_color_query_deadline = Some(Instant::now() + reply_window);
      }
-@@ -236,14 +240,7 @@ impl RawInputByteFramer {
+@@ -254,14 +258,7 @@ impl RawInputByteFramer {
      fn host_color_query_sent_with_replies(&mut self, replies: u16) {
          self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_add(replies);
          self.held_pending_host_reply_esc = false;
@@ -3283,7 +3287,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      }
  
      fn host_appearance_query_sent(&mut self) {
-@@ -423,6 +420,20 @@ impl RawInputByteFramer {
+@@ -459,6 +456,20 @@ impl RawInputByteFramer {
          }
  
          if starts_with_incomplete_default_color_response(&self.buffer) {
@@ -3304,7 +3308,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
              tracing::trace!(
                  len = self.buffer.len(),
                  "waiting for host color response terminator"
-@@ -544,9 +555,37 @@ impl RawInputByteFramer {
+@@ -581,9 +592,37 @@ impl RawInputByteFramer {
          tracing::debug!(bytes = ?self.buffer, "dropping incomplete raw input buffer after timeout");
          self.lone_escape_recently_flushed = false;
          self.buffer.clear();
@@ -3342,7 +3346,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      fn retain_timed_out_mouse_prefix(&mut self, prefix: Vec<u8>) {
          self.timed_out_mouse_prefix = (prefix.len() < MAX_DISCARDED_CONTROL_TAIL_BYTES
              && plausible_sgr_mouse_prefix(&prefix))
-@@ -669,10 +708,7 @@ impl RawInputByteFramer {
+@@ -697,10 +736,7 @@ impl RawInputByteFramer {
              let Some((event, consumed)) = extract_one_event(&self.buffer) else {
                  break;
              };
@@ -3354,7 +3358,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
                  self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(1);
              } else if matches!(event, RawInputEvent::HostCellSizeReport { .. }) {
                  self.host_cell_size_replies_awaited =
-@@ -688,6 +724,7 @@ impl RawInputByteFramer {
+@@ -716,6 +752,7 @@ impl RawInputByteFramer {
                  }
              }
              self.held_pending_host_reply_esc = false;
@@ -3362,7 +3366,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
              chunks.push(self.buffer[..consumed].to_vec());
              self.buffer.drain(..consumed);
          }
-@@ -818,15 +855,6 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
+@@ -846,15 +883,6 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
          if let Some((kind, color)) = parse_default_color_response(seq) {
              return Some((RawInputEvent::HostDefaultColor { kind, color }, seq_len));
          }
@@ -3378,7 +3382,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
          match seq {
              "\x1b[I" => return Some((RawInputEvent::OuterFocusGained, seq_len)),
              "\x1b[O" => return Some((RawInputEvent::OuterFocusLost, seq_len)),
-@@ -919,7 +947,10 @@ fn starts_with_incomplete_default_color_response(buffer: &[u8]) -> bool {
+@@ -947,7 +975,10 @@ fn starts_with_incomplete_default_color_response(buffer: &[u8]) -> bool {
          Some(ControlString::Incomplete {
              family: ControlStringFamily::Osc
          })
@@ -3390,7 +3394,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
  }
  
  #[cfg(windows)]
-@@ -931,9 +962,13 @@ fn is_incomplete_host_default_color_prefix(buffer: &[u8]) -> bool {
+@@ -959,9 +990,13 @@ fn is_incomplete_host_default_color_prefix(buffer: &[u8]) -> bool {
                  family: ControlStringFamily::Osc
              })
          )
@@ -3407,7 +3411,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
  }
  
  fn starts_with_incomplete_host_color_scheme_report(buffer: &[u8]) -> bool {
-@@ -1572,23 +1607,21 @@ mod tests {
+@@ -1601,23 +1636,21 @@ mod tests {
      }
  
      #[test]
@@ -3443,7 +3447,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
          );
      }
  
-@@ -3143,9 +3176,38 @@ mod tests {
+@@ -3107,9 +3140,38 @@ mod tests {
  
          assert!(framer.push(b"\x1b").is_empty());
          assert!(framer.flush_timeout().is_empty());
@@ -3482,7 +3486,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
      #[test]
      fn flushes_lone_escape_when_not_awaiting_host_color_reply() {
          let mut framer = RawInputByteFramer::default();
-@@ -3168,18 +3230,12 @@ mod tests {
+@@ -3132,18 +3194,12 @@ mod tests {
  
      #[test]
      fn stops_holding_lone_escape_after_host_color_reply_completes() {
@@ -3503,7 +3507,7 @@ index 1af4e894a6d247f5083531092419f10c1638cc53..af17b54f5ee003d443ef4a7045e83bf2
  
          // Window closed: a later lone Escape flushes immediately.
          assert!(framer.push(b"\x1b").is_empty());
-@@ -3188,17 +3244,11 @@ mod tests {
+@@ -3152,17 +3208,11 @@ mod tests {
  
      #[test]
      fn overlapping_host_color_queries_keep_holding_split_reply_escape() {

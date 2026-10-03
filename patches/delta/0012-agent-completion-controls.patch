@@ -1,4 +1,4 @@
-From 8f9605cff053eebfca2c341152bcc77defe7b3b0 Mon Sep 17 00:00:00 2001
+From 3685285186c6b8426e8113e316c99e579a9ca9bc Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 01:46:36 +0200
 Subject: [PATCH 10/23] feat(agent): add completion alert controls
@@ -26,7 +26,7 @@ Subject: [PATCH 10/23] feat(agent): add completion alert controls
  19 files changed, 127 insertions(+), 17 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index fa3c16884bae56f8f1f3d0253348a74750c0a46e..17f25feff9591eb0787eb50e45c227182544c177 100644
+index 92c054e8ebb00cf60e0db72c9f2242a08a768bac..00b20d464d972ac9198eecb09c77e14e5433f647 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -8,8 +8,10 @@

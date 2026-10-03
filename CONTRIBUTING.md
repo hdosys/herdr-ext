@@ -520,6 +520,12 @@ there is no scheduled upstream query, replay, build, or release. Manual candidat
 build and promotion dispatches are not an upstream refresh; the build operation
 must use the stable commit already recorded in `BASE`.
 
+The release workflow resolves the newest official stable Zig within the compiler
+major/minor line required by the replayed Ghostty source. This source-compatibility
+constraint takes precedence over adopting a newer incompatible compiler. Resolve
+once per candidate and reuse that exact result on every platform; do not maintain
+separate workflow version pins or port the vendor merely to update the build tool.
+
 Repository branding, GitHub Actions, patch metadata, and release orchestration
 must not be included in product mailboxes.
 

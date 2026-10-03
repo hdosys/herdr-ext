@@ -1,4 +1,4 @@
-From 9d06adc733ba6c0627264dadd0ab449c99dc5e97 Mon Sep 17 00:00:00 2001
+From 66d47ade55bed9dda2ae7a2d62786291fe1a7ab8 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 22 Aug 2026 18:22:00 +0200
 Subject: [PATCH 7/23] feat(session): auto-start configured agent
@@ -41,7 +41,7 @@ Refs herdrdev/herdr#321
  33 files changed, 1142 insertions(+), 199 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index e8048a427c2b023c134dab1891d02a084b2a4464..bc0b7d683062e41e608b57dfca72a4760c8e3d96 100644
+index d885067dd32a7e296af433a679fb8ff2e7c4f3d7..19d867ce2f2ee5a02ba76f12783918d539970a03 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -7,6 +7,7 @@
@@ -53,7 +53,7 @@ index e8048a427c2b023c134dab1891d02a084b2a4464..bc0b7d683062e41e608b57dfca72a476
  - Windows worktree removal now waits for terminal sessions to release the checkout before unregistering it, preventing locked directories that cannot be retried by workspace ID.
  
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 6cc6f6a615fc246278e7355862853fb4d52271cd..c7acbeea1a07067f5e3ec68346c22d160f6b9e26 100644
+index 3fb26acdaee78d57dcda00082f42ec5bfdbfa672..4477ad6d33e6533793164d0aa63c203416e47c1e 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -2,11 +2,15 @@

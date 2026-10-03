@@ -7,7 +7,7 @@ stable-release commit recorded in `BASE`.
 The queue contains responsibility-owned feature patches and temporary reviewed
 backports, not a monolith or a patch for every development commit.
 
-The current queue targets Herdr v0.9.2 and retains these logical slots:
+The current queue targets Herdr v0.9.3 and retains these logical slots:
 
 - 0001: client terminal appearance, negotiated cursor color, and Windows VTI input.
 - 0003: Windows SSH adapter, compatible attach, client-config provisioning, and bounded desktop launch.
@@ -40,7 +40,7 @@ remain unused; the frozen upstream archive is unchanged.
 
 These corrections originated in the v0.9.0 distribution and are retained only
 where the fork still needs implementation or product-owned boundary coverage on
-v0.9.2. An upstream PR reference records provenance. The retained queue does not
+v0.9.3. An upstream PR reference records provenance. The retained queue does not
 reintroduce older implementations over equivalent newer upstream code.
 
 | Slot | Responsibility | Reviewed source |

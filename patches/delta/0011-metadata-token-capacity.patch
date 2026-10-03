@@ -1,4 +1,4 @@
-From f23033ef028df3444f54697f1fa3d3780e4b74ad Mon Sep 17 00:00:00 2001
+From 5a8d125e27536a9a2a21a2fd6d8955e6d274fc8a Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 26 Aug 2026 13:52:34 +0200
 Subject: [PATCH 9/23] feat(api): expand metadata token capacity
@@ -13,7 +13,7 @@ Subject: [PATCH 9/23] feat(api): expand metadata token capacity
  6 files changed, 105 insertions(+), 17 deletions(-)
 
 diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index dfdf32bf973cda8ad4fea12c14a892e9d1f36fbd..fa3c16884bae56f8f1f3d0253348a74750c0a46e 100644
+index 8e99c7173299a69e4ecf1d447e17df29e3818e00..92c054e8ebb00cf60e0db72c9f2242a08a768bac 100644
 --- a/docs/next/CHANGELOG.md
 +++ b/docs/next/CHANGELOG.md
 @@ -6,6 +6,7 @@

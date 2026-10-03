@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from dataclasses import dataclass
 from contextlib import contextmanager
 from datetime import datetime
@@ -94,6 +95,47 @@ class MailboxMetadata:
     author_email: str
     author_date: str
     commit_message: str
+
+
+def latest_publishable_commit(ref: str, project_root: Path = PROJECT_ROOT) -> str:
+    """Select control source, skipping only verified generated-manifest commits."""
+    commit = _run_git(project_root, ["rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"]).stdout.strip()
+    prefixes = (
+        "docs: update website manifest",
+        "docs: update preview manifest",
+        "chore: approve contributor",
+        "chore: approve merged contributor",
+    )
+    while True:
+        subject = _run_git(project_root, ["show", "-s", "--format=%s", commit]).stdout.strip().lower()
+        if not subject.startswith(prefixes):
+            return commit
+        paths = _run_git(project_root, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit]).stdout.splitlines()
+        if paths != ["website/preview.json"]:
+            raise DeltaWorkflowError(f"hidden commit {commit} changed files outside website/preview.json")
+        commit = _run_git(project_root, ["rev-parse", f"{commit}^"]).stdout.strip()
+
+
+def latest_build_zig(source: Path) -> str:
+    """Resolve the newest official stable Zig within the source's compiler line."""
+    manifest = (source / "vendor/libghostty-vt/build.zig.zon").read_text(encoding="utf-8")
+    required = re.search(r'\.minimum_zig_version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', manifest)
+    if required is None:
+        raise DeltaWorkflowError("could not read the source Zig requirement")
+    minimum = tuple(map(int, required[1].split(".")))
+    with urllib.request.urlopen("https://ziglang.org/download/index.json", timeout=30) as response:
+        releases = json.load(response)
+    versions = [
+        (tuple(map(int, version.split("."))), version)
+        for version in releases if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version)
+    ]
+    compatible = [(number, version) for number, version in versions
+                  if number[:2] == minimum[:2] and number >= minimum]
+    if not compatible:
+        raise DeltaWorkflowError(
+            f"official Zig index has no stable release compatible with source requirement {required[1]}"
+        )
+    return max(compatible)[1]
 
 
 def _git_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
@@ -1629,6 +1671,12 @@ def _build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--expected-tree", required=True)
     refresh.add_argument("--drop-mailbox", action="append", default=[])
 
+    select = commands.add_parser("select-commit", help="select control source without generated manifest commits")
+    select.add_argument("--ref", default="origin/master")
+
+    zig = commands.add_parser("resolve-zig", help="resolve the latest compatible official stable Zig")
+    zig.add_argument("--source", type=Path, required=True)
+
     check = commands.add_parser(
         "check", help="replay into a temporary index without another checkout"
     )
@@ -1669,6 +1717,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     options = parser.parse_args(arguments)
     try:
+        if options.command == "select-commit":
+            print(latest_publishable_commit(options.ref))
+            return 0
+
+        if options.command == "resolve-zig":
+            print(latest_build_zig(options.source))
+            return 0
+
         if options.command == "start":
             result = start_delta_worktree(options.name, options.path)
             print(f"worktree: {result.path}")

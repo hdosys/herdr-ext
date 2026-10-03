@@ -9,8 +9,8 @@ behavior; code and tests remain the detailed implementation truth.
 
 ## Source and Ownership Model
 
-- The current reviewed base is Herdr v0.9.2, commit
-  `48292af8e33a08c8030b7f1512c8d0da739f5ab1`.
+- The current reviewed base is Herdr v0.9.3, commit
+  `7b116c05bfda646af39d2524c54e70c751f57ee8`.
 - Release source is a fresh checkout of the exact commit behind the upstream stable
   release recorded in `BASE` plus the ordered `patches/delta/series` queue. At each
   explicit manual refresh, select the user's named stable version or otherwise the

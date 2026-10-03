@@ -1,4 +1,4 @@
-From ddf165b885ca821d20639cf2d6bb9c41d2cf9766 Mon Sep 17 00:00:00 2001
+From f292d3acb16b239fbda0f230a24c57bd32b551f6 Mon Sep 17 00:00:00 2001
 From: hdosys <71881005+hdosys@users.noreply.github.com>
 Date: Wed, 29 Jul 2026 19:41:54 +0200
 Subject: [PATCH 4/23] fix(opencode): preserve truthful lifecycle state
@@ -38,7 +38,7 @@ Defer root-session errors until idle or a bounded fallback, cancel them when exp
  delete mode 100644 src/integration/assets/opencode/tui.js
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 2dccde2037769196789b2ef30fa52b4a0bf7c664..7484042d466e850f8cbced739721d673ac166bbd 100644
+index f7ced3ec22bdfcd2da25f2211f7cbfdf1c75a092..869443834aab895c881dbe7a8de9bec5a3ff5896 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -3,6 +3,7 @@
