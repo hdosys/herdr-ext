@@ -204,6 +204,8 @@ Uninstall from **Windows Settings > Apps > Installed apps**. Herdr first asks ru
 
 Configuration and sessions under `%APPDATA%\herdr` are preserved unless you explicitly choose to remove them. Profile `.herdr` worktrees, remote payloads and custom configuration locations remain untouched. Installer-owned skill files can also be removed explicitly; customized copies and unrelated directory content remain preserved.
 
+Older installers selected `%USERPROFILE%\.herdr` for settings removal instead. Leave that option unchecked when using an older installer, especially if that directory contains worktrees. The corrected cleanup is currently in the unpublished development installer, not the earlier release candidates.
+
 ## Troubleshooting
 
 | Symptom | Action |
