@@ -1,4 +1,4 @@
-From b54932fc1c7f1b3811a8088b15e813b1b8516f70 Mon Sep 17 00:00:00 2001
+From b00f321729577d73d28bc7a6b1d026fce580a83b Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 12:00:13 +0200
 Subject: [PATCH 2/23] feat(remote): support Windows SSH hosts
@@ -51,7 +51,7 @@ Subject: [PATCH 2/23] feat(remote): support Windows SSH hosts
  src/protocol/endpoint.rs                      |   11 +
  src/remote.rs                                 |   65 +
  src/remote/args.rs                            |   35 +
- src/remote/attach.rs                          | 4145 ++++++++++-------
+ src/remote/attach.rs                          | 4340 ++++++++++-------
  src/remote/host.rs                            |   21 +-
  src/remote/saved.rs                           |   26 +-
  src/remote/windows.rs                         | 1011 ++++
@@ -66,7 +66,7 @@ Subject: [PATCH 2/23] feat(remote): support Windows SSH hosts
  src/server/headless/tests/mod.rs              |   58 +
  src/ui/panes.rs                               |   21 +-
  src/update.rs                                 |    2 +
- 62 files changed, 7476 insertions(+), 2210 deletions(-)
+ 62 files changed, 7590 insertions(+), 2291 deletions(-)
  create mode 100644 scripts/windows_interactive_server_launch_probe.ps1
  create mode 100644 scripts/windows_interactive_server_probe_job.cs
  create mode 100644 src/config/provision.rs
@@ -4929,7 +4929,7 @@ index 476acf702d60cd404c77c24fe127c84f8010f7f1..df32757803cce82b66a791a2f5ab731e
  }
  
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7fd556e69 100644
+index 82caeb9a5951d140821ef873c24a11c00f2fffbb..86b6758965ca2552252ab1068a49048b0ee95759 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
 @@ -1,7 +1,6 @@
@@ -5767,7 +5767,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  fn current_version() -> String {
      crate::build_info::version()
  }
-@@ -644,18 +609,93 @@ fn current_channel() -> &'static str {
+@@ -644,18 +609,101 @@ fn current_channel() -> &'static str {
  struct InstallSource {
      path: PathBuf,
      temporary_dir: Option<PathBuf>,
@@ -5834,6 +5834,13 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +
 +#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 +#[serde(rename_all = "snake_case")]
++enum RemoteConfigOutcome {
++    Applied,
++    NoSource,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
++#[serde(rename_all = "snake_case")]
 +enum RemoteServerOutcome {
 +    Started,
 +    Reloaded,
@@ -5853,6 +5860,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +    platform: String,
 +    binary: String,
 +    binary_outcome: RemoteBinaryOutcome,
++    config_outcome: RemoteConfigOutcome,
 +    server_outcome: RemoteServerOutcome,
 +    version: String,
 +    protocol: u32,
@@ -5861,7 +5869,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  #[derive(Clone)]
  pub(super) struct ManagedSshOptions {
      config_path: PathBuf,
-@@ -754,10 +794,16 @@ pub(super) struct RemoteSsh {
+@@ -754,10 +802,16 @@ pub(super) struct RemoteSsh {
      session_name: String,
      managed_config: Option<ManagedSshConfig>,
      noninteractive: bool,
@@ -5879,7 +5887,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          let managed_config = if manage_ssh_config {
              write_managed_ssh_config(&target)
                  .inspect_err(|err| {
-@@ -773,16 +819,17 @@ impl RemoteSsh {
+@@ -773,16 +827,17 @@ impl RemoteSsh {
              session_name,
              managed_config,
              noninteractive: false,
@@ -5899,20 +5907,24 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          ssh.noninteractive = true;
          ssh
      }
-@@ -791,6 +838,12 @@ impl RemoteSsh {
+@@ -791,8 +846,14 @@ impl RemoteSsh {
          &self.target
      }
  
+-    fn destination(&self) -> String {
+-        format!("{} (session {})", self.target, self.session_name)
 +    fn progress(&self, message: impl std::fmt::Display) {
 +        if self.interactive_progress {
 +            eprintln!("{message}");
 +        }
 +    }
 +
-     fn destination(&self) -> String {
-         format!("{} (session {})", self.target, self.session_name)
++    fn destination(&self) -> String {
++        format!("{} (session {})", self.target, self.session_name)
      }
-@@ -816,6 +869,7 @@ impl RemoteSsh {
+ 
+     pub(super) fn options(&self) -> Option<&ManagedSshOptions> {
+@@ -816,6 +877,7 @@ impl RemoteSsh {
  
      fn scp_command(&self) -> Command {
          let mut command = Command::new("scp");
@@ -5920,7 +5932,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          apply_managed_scp_options(&mut command, self.options());
          command
      }
-@@ -834,6 +888,7 @@ impl RemoteSsh {
+@@ -834,6 +896,7 @@ impl RemoteSsh {
              return normalize_remote_output(output_with_forwarded_stderr(
                  child,
                  Some(script.as_bytes()),
@@ -5928,7 +5940,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              )?);
          }
  
-@@ -850,7 +905,7 @@ impl RemoteSsh {
+@@ -850,7 +913,7 @@ impl RemoteSsh {
          normalize_remote_output(output)
      }
  
@@ -5937,7 +5949,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          let mut command = self.command();
          command
              // Windows OpenSSH can still read the console with stdin redirected to NUL.
-@@ -859,24 +914,77 @@ impl RemoteSsh {
+@@ -859,24 +922,77 @@ impl RemoteSsh {
              .stdin(Stdio::null())
              .stdout(Stdio::piped())
              .stderr(Stdio::piped());
@@ -6024,7 +6036,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      fn install_herdr(&self, remote_herdr: &RemoteHerdr, source_path: &Path) -> io::Result<()> {
-@@ -923,134 +1031,87 @@ impl RemoteSsh {
+@@ -923,134 +1039,87 @@ impl RemoteSsh {
          }
      }
  
@@ -6230,7 +6242,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  }
  
  fn normalize_remote_output(mut output: Output) -> io::Result<Output> {
-@@ -1118,70 +1179,161 @@ fn remote_install_commit_script(tmp_path: &str, dest_path: &str) -> String {
+@@ -1118,70 +1187,161 @@ fn remote_install_commit_script(tmp_path: &str, dest_path: &str) -> String {
      )
  }
  
@@ -6444,7 +6456,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  }
  
  fn apply_noninteractive_ssh_options(command: &mut Command) {
-@@ -1250,6 +1402,9 @@ impl InstallSource {
+@@ -1250,6 +1410,9 @@ impl InstallSource {
          Self {
              path,
              temporary_dir: None,
@@ -6454,7 +6466,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          }
      }
  
-@@ -1257,6 +1412,35 @@ impl InstallSource {
+@@ -1257,6 +1420,35 @@ impl InstallSource {
          Self {
              path,
              temporary_dir: Some(temporary_dir),
@@ -6490,7 +6502,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          }
      }
  
-@@ -1267,111 +1451,258 @@ impl InstallSource {
+@@ -1267,111 +1459,258 @@ impl InstallSource {
      }
  }
  
@@ -6588,6 +6600,13 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 -            live_handoff_enabled,
 -            require_surface_interest,
 -        )?;
+-    }
+-    if !stop_after_install_approved {
+-        confirm_remote_install(
+-            &ssh.destination(),
+-            &remote_herdr,
+-            &install_source_description(&remote_herdr.platform, override_binary.as_deref()),
+-        )?;
 +        stop_after_install_approved = if yes {
 +            matches!(
 +                remote_server_status(ssh, status_probe_herdr, require_surface_interest)?,
@@ -6602,12 +6621,6 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +            )?
 +        };
      }
--    if !stop_after_install_approved {
--        confirm_remote_install(
--            &ssh.destination(),
--            &remote_herdr,
--            &install_source_description(&remote_herdr.platform, override_binary.as_deref()),
--        )?;
 +    confirm_remote_install(
 +        ssh.target(),
 +        &remote_herdr,
@@ -6619,41 +6632,44 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        current_version(),
 +        ssh.target()
 +    ));
-+    let source = resolve_install_source(&remote_herdr.platform, override_binary)?;
+     let source = resolve_install_source(&remote_herdr.platform, override_binary)?;
 +    ssh.progress(format_args!(
 +        "Transferring and installing Herdr {} on {}...",
 +        current_version(),
 +        ssh.target()
 +    ));
-+    let install_result = ssh.install_herdr(&remote_herdr, &source.path);
-+    source.cleanup();
-+    install_result?;
-+
+     let install_result = ssh.install_herdr(&remote_herdr, &source.path);
+     source.cleanup();
+     install_result?;
+ 
+-    if !remote_binary_supports_endpoint_requirement(ssh, &remote_herdr, require_surface_interest)? {
 +    let client = remote_client_status(ssh, &remote_herdr)?
 +        .ok_or_else(|| io::Error::other("installed remote binary did not report its identity"))?;
 +    if !client.supports_endpoint_requirement(require_surface_interest)
 +        || (exact_identity && !client.matches_deployment_identity())
 +    {
-+        return Err(io::Error::other(format!(
+         return Err(io::Error::other(format!(
+-            "installed remote herdr at {}, but it does not support saved SSH endpoint federation",
+-            remote_herdr.executable.display()
 +            "installed remote herdr at {}, but it does not satisfy the selected deployment identity and endpoint requirement",
 +            remote_herdr.shell_path
-+        )));
-+    }
+         )));
+     }
 +    remote_herdr.client = Some(client);
-+    warn_if_remote_bin_not_on_path(ssh)?;
+     warn_if_remote_bin_not_on_path(ssh)?;
 +    ssh.progress(format_args!(
 +        "Herdr {} is installed and verified on {}.",
 +        current_version(),
 +        ssh.target()
 +    ));
-+
-+    Ok(PreparedRemoteHerdr {
-+        remote_herdr,
+ 
+     Ok(PreparedRemoteHerdr {
+         remote_herdr,
 +        installed_or_replaced: true,
-+        stop_after_install_approved,
-+    })
-+}
-+
+         stop_after_install_approved,
+     })
+ }
+ 
 +fn prepare_remote_windows_herdr(
 +    ssh: &RemoteSsh,
 +    platform: RemotePlatform,
@@ -6714,9 +6730,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +                "local Windows portable payload executable identity does not match the running client",
 +            ));
 +        }
-     }
--    let source = resolve_install_source(&remote_herdr.platform, override_binary)?;
--    let install_result = ssh.install_herdr(&remote_herdr, &source.path);
++    }
 +    let stop_remote = if stop_before_activation {
 +        Some(
 +            &detected
@@ -6731,32 +6745,21 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +    };
 +    let install_result =
 +        ssh.install_windows_payload(&managed, &source.path, expected_sha256, stop_remote);
-     source.cleanup();
--    install_result?;
--
--    if !remote_binary_supports_endpoint_requirement(ssh, &remote_herdr, require_surface_interest)? {
--        return Err(io::Error::other(format!(
--            "installed remote herdr at {}, but it does not support saved SSH endpoint federation",
--            remote_herdr.executable.display()
--        )));
--    }
--    warn_if_remote_bin_not_on_path(ssh)?;
++    source.cleanup();
 +    managed.client = Some(install_result?);
 +    ssh.progress(format_args!(
 +        "Herdr {} is installed and verified on {}.",
 +        current_version(),
 +        ssh.target()
 +    ));
- 
-     Ok(PreparedRemoteHerdr {
--        remote_herdr,
--        stop_after_install_approved,
++
++    Ok(PreparedRemoteHerdr {
 +        remote_herdr: managed,
 +        installed_or_replaced: true,
 +        stop_after_install_approved: stop_before_activation,
-     })
- }
- 
++    })
++}
++
 +fn can_reuse_detected_windows_herdr(
 +    detected: &DetectedWindowsHerdr,
 +    override_payload: Option<&Path>,
@@ -6828,7 +6831,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  return Ok(candidate);
              }
          }
-@@ -1386,212 +1717,292 @@ pub(super) fn find_installed_remote_herdr(ssh: &RemoteSsh) -> io::Result<RemoteH
+@@ -1386,212 +1725,292 @@ pub(super) fn find_installed_remote_herdr(ssh: &RemoteSsh) -> io::Result<RemoteH
      ))
  }
  
@@ -7285,7 +7288,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      let mut candidates = Vec::new();
  
      if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_herdr)? {
-@@ -1612,31 +2023,10 @@ fn remote_binary_candidates(
+@@ -1612,31 +2031,10 @@ fn remote_binary_candidates(
      Ok(candidates)
  }
  
@@ -7318,7 +7321,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      {
          candidates.push(candidate);
      }
-@@ -1750,8 +2140,16 @@ fn remote_client_status(
+@@ -1750,8 +2148,16 @@ fn remote_client_status(
      ssh: &RemoteSsh,
      remote_herdr: &RemoteHerdr,
  ) -> io::Result<Option<RemoteClientStatusJson>> {
@@ -7337,7 +7340,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      if !output.status.success() {
          if output.status.code() == Some(255) {
              return Err(command_failed("remote SSH connection failed", &output));
-@@ -1763,24 +2161,20 @@ fn remote_client_status(
+@@ -1763,24 +2169,20 @@ fn remote_client_status(
      )))
  }
  
@@ -7375,34 +7378,10 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  }
  
  fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
-@@ -1846,46 +2240,256 @@ fn install_source_description_for(
-     }
+@@ -1864,28 +2266,238 @@ fn resolve_install_source(
+     download_release_asset(platform)
  }
  
--fn resolve_install_source(
--    platform: &RemotePlatform,
--    override_binary: Option<PathBuf>,
--) -> io::Result<InstallSource> {
--    if let Some(path) = override_binary {
--        return Ok(InstallSource::persistent(path));
-+fn resolve_install_source(
-+    platform: &RemotePlatform,
-+    override_binary: Option<PathBuf>,
-+) -> io::Result<InstallSource> {
-+    if let Some(path) = override_binary {
-+        return Ok(InstallSource::persistent(path));
-+    }
-+
-+    if *platform == RemotePlatform::local() {
-+        let path = std::env::current_exe()?;
-+        if !crate::update::is_package_manager_managed_exe_path(&path) {
-+            return Ok(InstallSource::persistent(path));
-+        }
-+    }
-+
-+    download_release_asset(platform)
-+}
-+
 +fn resolve_windows_install_source(
 +    platform: &RemotePlatform,
 +    override_payload: Option<PathBuf>,
@@ -7559,14 +7538,10 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        return Err(io::Error::other(format!(
 +            "local Windows payload packager exited with {status}"
 +        )));
-     }
++    }
 +    validate_windows_zip_path(archive)
 +}
- 
--    if *platform == RemotePlatform::local() {
--        let path = std::env::current_exe()?;
--        if !crate::update::is_package_manager_managed_exe_path(&path) {
--            return Ok(InstallSource::persistent(path));
++
 +#[cfg(windows)]
 +fn package_local_windows_runtime(executable: &Path) -> io::Result<InstallSource> {
 +    let source_root = local_windows_runtime_root(executable)?;
@@ -7588,7 +7563,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +            return Err(io::Error::other(
 +                "local Windows remote executable changed while packaging",
 +            ));
-         }
++        }
 +        let archive_sha256 = file_sha256(&archive)?;
 +        Ok(InstallSource::local_windows_zip(
 +            archive.clone(),
@@ -7599,19 +7574,18 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +    })();
 +    if result.is_err() {
 +        let _ = fs::remove_dir_all(&temporary_dir);
-     }
++    }
 +    result
 +}
- 
--    download_release_asset(platform)
++
 +#[cfg(not(windows))]
 +fn package_local_windows_runtime(_executable: &Path) -> io::Result<InstallSource> {
 +    Err(io::Error::new(
 +        io::ErrorKind::Unsupported,
 +        "a local Windows runtime can only be packaged by a Windows client",
 +    ))
- }
- 
++}
++
  fn local_binary_can_seed_remote(platform: &RemotePlatform) -> bool {
 -    if platform.is_windows() || *platform != RemotePlatform::local() {
 +    if !local_binary_compatible_with_remote(platform) {
@@ -7651,7 +7625,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          endpoint_protocol_generation: Option<u32>,
          surface_interest: bool,
          health_check: bool,
-@@ -1918,9 +2522,18 @@ fn ensure_remote_server_ready(
+@@ -1918,9 +2530,18 @@ fn ensure_remote_server_ready(
      remote_herdr: &RemoteHerdr,
      stop_after_install_approved: bool,
      live_handoff_enabled: bool,
@@ -7671,7 +7645,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      let RemoteServerStatus::Running {
          version,
          endpoint_protocol_generation,
-@@ -1928,6 +2541,7 @@ fn ensure_remote_server_ready(
+@@ -1928,6 +2549,7 @@ fn ensure_remote_server_ready(
          health_check,
          live_handoff,
          detached_server_daemon,
@@ -7679,7 +7653,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      } = status
      else {
          return Ok(());
-@@ -1944,6 +2558,10 @@ fn ensure_remote_server_ready(
+@@ -1944,6 +2566,10 @@ fn ensure_remote_server_ready(
      };
  
      if live_handoff_enabled && live_handoff {
@@ -7690,7 +7664,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          match live_handoff_remote_server(ssh, remote_herdr) {
              Ok(()) => return Ok(()),
              Err(err) => {
-@@ -1960,6 +2578,11 @@ fn ensure_remote_server_ready(
+@@ -1960,6 +2586,11 @@ fn ensure_remote_server_ready(
  
      if confirm_remote_server_stop(&ssh.destination(), version.as_deref(), reason)? {
          stop_remote_server(ssh, remote_herdr)?;
@@ -7702,7 +7676,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
      Ok(())
  }
-@@ -1997,6 +2620,20 @@ fn confirm_remote_install_with_running_server(
+@@ -1997,6 +2628,20 @@ fn confirm_remote_install_with_running_server(
              return Ok(false);
          }
      };
@@ -7723,20 +7697,86 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      let RemoteServerStatus::Running {
          version,
          endpoint_protocol_generation,
-@@ -2004,7 +2641,8 @@ fn confirm_remote_install_with_running_server(
+@@ -2004,79 +2649,479 @@ fn confirm_remote_install_with_running_server(
          health_check,
          live_handoff,
          detached_server_daemon,
--    } = &status
 +        ..
 +    } = status
-     else {
-         return Ok(false);
-     };
-@@ -2079,15 +2717,407 @@ fn confirm_remote_install_with_running_server(
-     Ok(true)
- }
- 
++    else {
++        return Ok(false);
++    };
++    let plan = remote_install_running_server_plan(
++        *endpoint_protocol_generation,
++        *detached_server_daemon,
++        *surface_interest,
++        *health_check,
++        *live_handoff,
++        live_handoff_enabled,
++        require_surface_interest,
++    );
++
++    if plan == RemoteInstallRunningServerPlan::KeepRunning {
++        if io::stdin().is_terminal() {
++            eprintln!("remote herdr server on {target} is already compatible:");
++            eprintln!("  server: v{}", version_label(version.as_deref()));
++            eprintln!(
++                "Herdr will install {} without stopping the running remote server.",
++                current_version()
++            );
++        }
++        return Ok(false);
++    }
++
++    if !io::stdin().is_terminal() {
++        match plan {
++            RemoteInstallRunningServerPlan::LiveHandoff => return Ok(false),
++            RemoteInstallRunningServerPlan::StopRequired(_) => {
++                return Err(io::Error::other(format!(
++                    "remote herdr server on {target} is running v{}; run from an interactive terminal to approve stopping it for the update",
++                    version_label(version.as_deref())
++                )));
++            }
++            RemoteInstallRunningServerPlan::KeepRunning => return Ok(false),
++        }
++    }
++
++    if plan == RemoteInstallRunningServerPlan::LiveHandoff {
++        eprintln!("remote herdr server on {target} is currently running:");
++        eprintln!("  server: v{}", version_label(version.as_deref()));
++        eprintln!(
++            "Herdr will install {} and hand off live pane processes to the prepared server.",
++            current_version()
++        );
++        return Ok(false);
++    }
++
++    eprintln!("remote herdr server on {target} is currently running:");
++    eprintln!("  server: v{}", version_label(version.as_deref()));
++    eprintln!(
++        "To complete the remote update, Herdr must stop the running remote server after installing."
++    );
++    eprintln!("This stops active remote pane processes, including shells, agents, dev servers, and tests.");
++    eprintln!();
++    eprint!(
++        "Install {} and stop the remote server now? [y/N] ",
++        current_version()
++    );
++    io::stderr().flush()?;
++
++    let mut answer = String::new();
++    io::stdin().read_line(&mut answer)?;
++    let answer = answer.trim().to_ascii_lowercase();
++    if answer != "y" && answer != "yes" {
++        return Err(io::Error::new(
++            io::ErrorKind::Interrupted,
++            "remote herdr install cancelled",
++        ));
++    }
++
++    Ok(true)
++}
++
 +fn provision_remote(
 +    ssh: &RemoteSsh,
 +    detected: DetectedRemoteHost,
@@ -7822,9 +7862,12 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        .binary
 +        .clone()
 +        .ok_or_else(|| io::Error::other("selected runtime executable is missing"))?;
-+    if let Some(config) = &client_config {
++    let config_outcome = if let Some(config) = &client_config {
 +        deploy_remote_config(ssh, &prepared.remote_herdr, config)?;
-+    }
++        RemoteConfigOutcome::Applied
++    } else {
++        RemoteConfigOutcome::NoSource
++    };
 +    if !config_validated || client_config.is_some() {
 +        validate_remote_config(ssh, &prepared.remote_herdr)?;
 +    }
@@ -7854,6 +7897,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        } else {
 +            RemoteBinaryOutcome::AlreadyMatching
 +        },
++        config_outcome,
 +        server_outcome,
 +        version,
 +        protocol,
@@ -7935,13 +7979,33 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +    } else if let RemoteServerStatus::Running {
 +        binary: Some(running_binary),
 +        ..
-+    } = &status
+     } = &status
+-    else {
+-        return Ok(false);
 +    {
 +        let selected_binary = remote_client_binary(remote_herdr)?;
 +        remote_binary_paths_match_for(remote_herdr.shell, running_binary, &selected_binary)
 +    } else {
 +        false
-+    };
+     };
+-    let plan = remote_install_running_server_plan(
+-        *endpoint_protocol_generation,
+-        *detached_server_daemon,
+-        *surface_interest,
+-        *health_check,
+-        *live_handoff,
+-        live_handoff_enabled,
+-        require_surface_interest,
+-    );
+-
+-    if plan == RemoteInstallRunningServerPlan::KeepRunning {
+-        if io::stdin().is_terminal() {
+-            eprintln!("remote herdr server on {target} is already compatible:");
+-            eprintln!("  server: v{}", version_label(version.as_deref()));
+-            eprintln!(
+-                "Herdr will install {} without stopping the running remote server.",
+-                current_version()
+-            );
 +    match remote_provision_server_action(&status, binary_changed, binary_matches) {
 +        RemoteProvisionServerAction::Start => {
 +            start_remote_server(ssh, remote_herdr)?;
@@ -7961,10 +8025,21 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +            stop_remote_server(ssh, remote_herdr)?;
 +            start_remote_server(ssh, remote_herdr)?;
 +            Ok(RemoteServerOutcome::Restarted)
-+        }
-+    }
+         }
+-        return Ok(false);
+     }
 +}
-+
+ 
+-    if !io::stdin().is_terminal() {
+-        match plan {
+-            RemoteInstallRunningServerPlan::LiveHandoff => return Ok(false),
+-            RemoteInstallRunningServerPlan::StopRequired(_) => {
+-                return Err(io::Error::other(format!(
+-                    "remote herdr server on {target} is running v{}; run from an interactive terminal to approve stopping it for the update",
+-                    version_label(version.as_deref())
+-                )));
+-            }
+-            RemoteInstallRunningServerPlan::KeepRunning => return Ok(false),
 +fn remote_provision_server_action(
 +    status: &RemoteServerStatus,
 +    binary_changed: bool,
@@ -7984,11 +8059,19 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +            && !binary.is_empty() =>
 +        {
 +            RemoteProvisionServerAction::Reload
-+        }
+         }
 +        RemoteServerStatus::Running { .. } => RemoteProvisionServerAction::Restart,
-+    }
+     }
 +}
-+
+ 
+-    if plan == RemoteInstallRunningServerPlan::LiveHandoff {
+-        eprintln!("remote herdr server on {target} is currently running:");
+-        eprintln!("  server: v{}", version_label(version.as_deref()));
+-        eprintln!(
+-            "Herdr will install {} and hand off live pane processes to the prepared server.",
+-            current_version()
+-        );
+-        return Ok(false);
 +fn remote_client_binary(remote_herdr: &RemoteHerdr) -> io::Result<&str> {
 +    remote_herdr
 +        .client
@@ -8003,9 +8086,20 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +    match shell {
 +        RemoteShell::WindowsPowerShell => remote_binary_paths_match(running, selected),
 +        RemoteShell::Posix => running == selected,
-+    }
+     }
 +}
-+
+ 
+-    eprintln!("remote herdr server on {target} is currently running:");
+-    eprintln!("  server: v{}", version_label(version.as_deref()));
+-    eprintln!(
+-        "To complete the remote update, Herdr must stop the running remote server after installing."
+-    );
+-    eprintln!("This stops active remote pane processes, including shells, agents, dev servers, and tests.");
+-    eprintln!();
+-    eprint!(
+-        "Install {} and stop the remote server now? [y/N] ",
+-        current_version()
+-    );
 +fn confirm_remote_provision_restart(target: &str, status: &RemoteServerStatus) -> io::Result<bool> {
 +    if !io::stdin().is_terminal() {
 +        return Err(io::Error::other(format!(
@@ -8019,9 +8113,15 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +    eprintln!("remote Herdr server on {target} is running v{version}.");
 +    eprintln!("restarting saves the Herdr session but stops its active pane processes.");
 +    eprint!("restart the remote server now? [y/N] ");
-+    io::stderr().flush()?;
-+    let mut answer = String::new();
-+    io::stdin().read_line(&mut answer)?;
+     io::stderr().flush()?;
+-
+     let mut answer = String::new();
+     io::stdin().read_line(&mut answer)?;
+-    let answer = answer.trim().to_ascii_lowercase();
+-    if answer != "y" && answer != "yes" {
+-        return Err(io::Error::new(
+-            io::ErrorKind::Interrupted,
+-            "remote herdr install cancelled",
 +    Ok(matches!(
 +        answer.trim().to_ascii_lowercase().as_str(),
 +        "y" | "yes"
@@ -8066,16 +8166,17 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        ssh.progress(format_args!(
 +            "The Herdr configuration is active on {}.",
 +            ssh.target()
-+        ));
+         ));
 +        return Ok(());
-+    }
+     }
 +    Err(io::Error::other(format!(
 +        "remote server config reload was {:?}: {}",
 +        result.status,
 +        result.diagnostics.join("; ")
 +    )))
 +}
-+
+ 
+-    Ok(true)
 +fn start_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<()> {
 +    ssh.progress(format_args!(
 +        "Starting the Herdr server on {}...",
@@ -8130,10 +8231,10 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        println!("protocol: {}", result.protocol);
 +    }
 +    Ok(())
-+}
-+
+ }
+ 
  fn remote_server_status(
-     ssh: &RemoteSsh,
+@@ -2084,10 +3129,7 @@ fn remote_server_status(
      remote_herdr: &RemoteHerdr,
      require_surface_interest: bool,
  ) -> io::Result<RemoteServerStatus> {
@@ -8145,7 +8246,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      if !output.status.success() {
          return Err(command_failed("remote server status failed", &output));
      }
-@@ -2122,9 +3152,8 @@ fn probe_remote_endpoint(
+@@ -2122,9 +3164,8 @@ fn probe_remote_endpoint(
      let path = local_forward_socket_path(ssh.target(), &ssh.session_name);
      let bridge = SshStdioBridge::start(
          ssh.target.clone(),
@@ -8156,7 +8257,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          ssh.options(),
          true,
      )?;
-@@ -2137,8 +3166,10 @@ fn probe_remote_endpoint(
+@@ -2137,8 +3178,10 @@ fn probe_remote_endpoint(
      }
  }
  
@@ -8168,7 +8269,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      #[serde(default)]
      version: Option<String>,
      #[serde(default)]
-@@ -2148,25 +3179,41 @@ struct RemoteClientStatusJson {
+@@ -2148,25 +3191,41 @@ struct RemoteClientStatusJson {
      #[serde(default)]
      endpoint_capabilities: Vec<String>,
      #[serde(default)]
@@ -8218,7 +8319,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  ]
                  .iter()
                  .all(|required| {
-@@ -2181,6 +3228,9 @@ impl RemoteClientStatusJson {
+@@ -2181,6 +3240,9 @@ impl RemoteClientStatusJson {
  struct RemoteServerStatusJson {
      running: bool,
      version: Option<String>,
@@ -8228,7 +8329,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      capabilities: Option<RemoteServerCapabilitiesJson>,
  }
  
-@@ -2217,14 +3267,20 @@ fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatu
+@@ -2217,14 +3279,20 @@ fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatu
              "could not parse remote server status JSON from `{status}`: {err}"
          ))
      })?;
@@ -8251,7 +8352,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          endpoint_protocol_generation: capabilities
              .as_ref()
              .and_then(|capabilities| capabilities.endpoint_protocol_generation),
-@@ -2240,7 +3296,7 @@ fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatu
+@@ -2240,7 +3308,7 @@ fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatu
          detached_server_daemon: capabilities
              .as_ref()
              .is_some_and(|capabilities| capabilities.detached_server_daemon),
@@ -8260,7 +8361,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  }
  
  fn confirm_remote_server_stop(
-@@ -2328,36 +3384,40 @@ fn live_handoff_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io
+@@ -2328,36 +3396,40 @@ fn live_handoff_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io
          .version
          .filter(|version| !version.is_empty())
          .ok_or_else(|| io::Error::other("prepared remote herdr did not report its version"))?;
@@ -8317,7 +8418,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      Ok(())
  }
  
-@@ -2414,15 +3474,31 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
+@@ -2414,15 +3486,31 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
      let dir = private_download_dir(&asset_key)?;
      let path = dir.join("herdr.tmp");
      let status = crate::noninteractive_process::curl_command()
@@ -8351,7 +8452,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      if let Some(expected) = &asset.sha256 {
          if let Err(err) = crate::checksum::verify_sha256(&path, expected) {
              let _ = fs::remove_dir_all(&dir);
-@@ -2433,20 +3509,33 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
+@@ -2433,20 +3521,33 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
          }
      }
  
@@ -8388,7 +8489,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          ])
          .output()
          .map_err(|err| io::Error::new(err.kind(), format!("curl failed: {err}")))?;
-@@ -2460,6 +3549,7 @@ fn remote_asset_info(asset: &RemoteAssetRef) -> RemoteReleaseAsset {
+@@ -2460,6 +3561,7 @@ fn remote_asset_info(asset: &RemoteAssetRef) -> RemoteReleaseAsset {
      RemoteReleaseAsset {
          url: asset.url().to_string(),
          sha256: asset.sha256().map(str::to_string),
@@ -8396,7 +8497,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  }
  
-@@ -2467,6 +3557,11 @@ fn preview_assets_for_build<'a>(
+@@ -2467,6 +3569,11 @@ fn preview_assets_for_build<'a>(
      manifest: &'a RemotePreviewManifest,
      build_id: &str,
  ) -> io::Result<(u32, &'a BTreeMap<String, RemoteAssetRef>)> {
@@ -8408,7 +8509,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      if manifest.build_id == build_id {
          return Ok((manifest.protocol, &manifest.assets));
      }
-@@ -2479,60 +3574,23 @@ fn preview_assets_for_build<'a>(
+@@ -2479,60 +3586,23 @@ fn preview_assets_for_build<'a>(
  }
  
  fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
@@ -8443,7 +8544,9 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 -            "release manifest does not include herdr {current_version}; build herdr for {} or install it there manually",
 -            asset_key
 -        ))
--    })?;
++    let build_id = crate::build_info::build_id().ok_or_else(|| {
++        io::Error::other("herdr-win client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
+     })?;
 -    if let Some(protocol) = release.protocol {
 -        if protocol != CURRENT_PROTOCOL {
 -            return Err(io::Error::other(format!(
@@ -8455,9 +8558,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 -        io::Error::other(format!(
 -            "no {asset_key} binary in the release manifest for herdr {current_version}"
 -        ))
-+    let build_id = crate::build_info::build_id().ok_or_else(|| {
-+        io::Error::other("herdr-win client has no build id; set HERDR_REMOTE_BINARY or install Herdr on the remote manually")
-     })?;
+-    })?;
 -    let mut asset = remote_asset_info(asset);
 -    asset.sha256 = asset
 -        .sha256
@@ -8482,7 +8583,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  }
  
  fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
-@@ -2580,12 +3638,16 @@ fn confirm_remote_install(
+@@ -2580,12 +3650,16 @@ fn confirm_remote_install(
      target: &str,
      remote_herdr: &RemoteHerdr,
      source_description: &str,
@@ -8500,7 +8601,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          )));
      }
  
-@@ -2596,8 +3658,7 @@ fn confirm_remote_install(
+@@ -2596,8 +3670,7 @@ fn confirm_remote_install(
      );
      eprint!(
          "Install {} to {}? [Y/n] ",
@@ -8510,10 +8611,72 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      );
      io::stderr().flush()?;
  
-@@ -2643,25 +3704,145 @@ exit 2"#,
-     )
+@@ -2611,36 +3684,149 @@ fn confirm_remote_install(
+     Ok(())
  }
  
+-fn posix_remote_api_discovery_command(platform: &RemotePlatform, session: &str) -> String {
+-    let script = format!(
+-        r#"set -f
+-candidates=$(
+-command -v herdr
+-{discovery}
+-)
+-IFS='
+-'
+-for candidate in $candidates; do
+-    case "$candidate" in
+-        */mise/shims/herdr) continue ;;
+-        /*) ;;
+-        *) continue ;;
+-    esac
+-    [ -x "$candidate" ] || continue
+-    if capability=$("$candidate" --session {session} remote-api-bridge --check </dev/null 2>/dev/null) && [ "$capability" = herdr-api-bridge-v1 ]; then
+-        printf '%s\n' "$candidate"
+-        exit 0
+-    fi
+-done
+-printf '%s\n' 'remote Herdr does not support machine API forwarding; update Herdr on this machine' >&2
+-exit 2"#,
+-        discovery = known_remote_binary_candidate_script(platform),
+-        session = shell_quote(session),
+-    );
+-    format!(
+-        "/bin/sh -c {}",
+-        shell_quote(&posix_remote_output_command(&script))
+-    )
++fn posix_remote_api_discovery_command(platform: &RemotePlatform, session: &str) -> String {
++    let script = format!(
++        r#"set -f
++candidates=$(
++command -v herdr
++{discovery}
++)
++IFS='
++'
++for candidate in $candidates; do
++    case "$candidate" in
++        */mise/shims/herdr) continue ;;
++        /*) ;;
++        *) continue ;;
++    esac
++    [ -x "$candidate" ] || continue
++    if capability=$("$candidate" --session {session} remote-api-bridge --check </dev/null 2>/dev/null) && [ "$capability" = herdr-api-bridge-v1 ]; then
++        printf '%s\n' "$candidate"
++        exit 0
++    fi
++done
++printf '%s\n' 'remote Herdr does not support machine API forwarding; update Herdr on this machine' >&2
++exit 2"#,
++        discovery = known_remote_binary_candidate_script(platform),
++        session = shell_quote(session),
++    );
++    format!(
++        "/bin/sh -c {}",
++        shell_quote(&posix_remote_output_command(&script))
++    )
++}
++
 +fn remote_session_command(remote_herdr: &RemoteHerdr, session_name: &str, args: &str) -> String {
 +    format!(
 +        "{} --session {} {args}",
@@ -8625,10 +8788,10 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 +        .strip_prefix(r"\\?\")
 +        .unwrap_or(&normalized)
 +        .to_string()
-+}
-+
- pub(super) const STALE_API_METADATA: &str = "herdr-machine-metadata-stale-v1";
+ }
  
+ pub(super) const STALE_API_METADATA: &str = "herdr-machine-metadata-stale-v1";
+@@ -2648,20 +3834,27 @@ pub(super) const STALE_API_METADATA: &str = "herdr-machine-metadata-stale-v1";
  pub(super) fn cached_remote_api_command(
      metadata: &crate::client::endpoint::SshMachineMetadata,
      session: &str,
@@ -8668,7 +8831,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
      let path = shell_quote(&metadata.executable);
      let session = shell_quote(session);
-@@ -2669,24 +3850,39 @@ pub(super) fn cached_remote_api_command(
+@@ -2669,24 +3862,39 @@ pub(super) fn cached_remote_api_command(
          "if capability=$({path} --session {session} remote-api-bridge --check </dev/null 2>/dev/null) && [ \"$capability\" = herdr-api-bridge-v1 ]; then\n{}\nelse\n    printf '%s\\n' '{STALE_API_METADATA}' >&2\n    exit 78\nfi",
          posix_remote_output_command(&format!("exec {path} --session {session} remote-api-bridge")),
      );
@@ -8718,7 +8881,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          }
      }
  }
-@@ -2735,21 +3931,14 @@ pub(super) struct SshStdioBridge {
+@@ -2735,21 +3943,14 @@ pub(super) struct SshStdioBridge {
  impl SshStdioBridge {
      pub(super) fn start(
          target: String,
@@ -8742,7 +8905,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              local_socket,
              ssh_options,
              noninteractive,
-@@ -3399,6 +4588,8 @@ mod tests {
+@@ -3399,6 +4600,8 @@ mod tests {
      use super::*;
  
      fn decode_windows_command(command: &str) -> String {
@@ -8751,7 +8914,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          let encoded = command
              .strip_prefix("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ")
              .expect("encoded PowerShell command");
-@@ -3574,9 +4765,8 @@ mod tests {
+@@ -3574,9 +4777,8 @@ mod tests {
          });
          let bridge = SshStdioBridge::start(
              "example".to_string(),
@@ -8762,7 +8925,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              None,
              false,
          )
-@@ -3695,9 +4885,8 @@ mod tests {
+@@ -3695,9 +4897,8 @@ mod tests {
          });
          let bridge = SshStdioBridge::start(
              "example".to_string(),
@@ -8773,7 +8936,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              None,
              false,
          )
-@@ -3826,7 +5015,7 @@ mod tests {
+@@ -3826,7 +5027,7 @@ mod tests {
      #[test]
      fn authentication_command_uses_shared_transport_without_askpass_or_host_key_relaxation() {
          let config = write_managed_ssh_config("example").unwrap();
@@ -8782,7 +8945,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          assert_eq!(
              config.options.control_path,
              setup.options().unwrap().control_path
-@@ -3870,7 +5059,7 @@ mod tests {
+@@ -3870,7 +5071,7 @@ mod tests {
  
      #[test]
      fn unmanaged_ssh_setup_preserves_plain_transport() {
@@ -8791,7 +8954,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          assert!(ssh.options().is_none());
          assert!(!ssh.command().get_args().any(|arg| arg == "-F"));
      }
-@@ -3893,6 +5082,7 @@ mod tests {
+@@ -3893,6 +5094,7 @@ mod tests {
              target: "example".to_string(),
              session_name: crate::session::DEFAULT_SESSION_NAME.into(),
              managed_config: Some(managed_config),
@@ -8799,7 +8962,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              noninteractive: false,
          };
  
-@@ -3927,6 +5117,7 @@ mod tests {
+@@ -3927,6 +5129,7 @@ mod tests {
          assert_eq!(
              scp_args,
              vec![
@@ -8807,7 +8970,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  "-C".to_string(),
                  "-F".to_string(),
                  config_path.to_string_lossy().into_owned(),
-@@ -3964,6 +5155,7 @@ mod tests {
+@@ -3964,6 +5167,7 @@ mod tests {
              target: "example".to_string(),
              session_name: crate::session::DEFAULT_SESSION_NAME.into(),
              managed_config: Some(managed_config),
@@ -8815,7 +8978,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              noninteractive: false,
          };
          let args = ssh
-@@ -3989,6 +5181,7 @@ mod tests {
+@@ -3989,6 +5193,7 @@ mod tests {
          assert_eq!(
              scp_args,
              vec![
@@ -8823,7 +8986,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  "-C".to_string(),
                  "-F".to_string(),
                  config_path.to_string_lossy().into_owned(),
-@@ -4005,6 +5198,68 @@ mod tests {
+@@ -4005,6 +5210,68 @@ mod tests {
          );
      }
  
@@ -8892,7 +9055,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      #[cfg(windows)]
      #[test]
      fn windows_ssh_user_config_include_uses_home_shorthand() {
-@@ -4044,11 +5299,24 @@ mod tests {
+@@ -4044,11 +5311,24 @@ mod tests {
              session_name: "probe-options".into(),
              managed_config: Some(managed_config),
              noninteractive: false,
@@ -8918,7 +9081,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
  
          let error = probe_remote_endpoint(&ssh, &remote).expect_err("proxy refuses connection");
  
-@@ -4067,7 +5335,7 @@ mod tests {
+@@ -4067,7 +5347,7 @@ mod tests {
  
      #[test]
      fn noninteractive_ssh_command_cannot_prompt_or_accept_unknown_hosts() {
@@ -8927,7 +9090,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          let args = ssh
              .command()
              .get_args()
-@@ -4110,11 +5378,8 @@ mod tests {
+@@ -4110,11 +5390,8 @@ mod tests {
  
      #[test]
      fn saved_machine_compatibility_uses_capabilities_not_release_or_private_protocol() {
@@ -8940,7 +9103,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              version: Some("0.1.0".into()),
              protocol: Some(1),
              endpoint_protocol_generation: Some(
-@@ -4124,48 +5389,39 @@ mod tests {
+@@ -4124,48 +5401,39 @@ mod tests {
                  crate::protocol::endpoint::SURFACE_INTEREST_CAPABILITY.into(),
                  crate::protocol::endpoint::PRESENTATION_EFFECTS_FENCE_CAPABILITY.into(),
                  crate::protocol::endpoint::HEALTH_CHECK_CAPABILITY.into(),
@@ -9002,7 +9165,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      #[test]
-@@ -4174,6 +5430,7 @@ mod tests {
+@@ -4174,6 +5442,7 @@ mod tests {
              target: "example".to_string(),
              session_name: crate::session::DEFAULT_SESSION_NAME.into(),
              managed_config: None,
@@ -9010,7 +9173,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
              noninteractive: false,
          };
  
-@@ -4184,7 +5441,10 @@ mod tests {
+@@ -4184,7 +5453,10 @@ mod tests {
              .collect::<Vec<_>>();
  
          assert_eq!(args, vec!["-C", "-T", "example"]);
@@ -9022,7 +9185,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      #[test]
-@@ -4239,6 +5499,14 @@ mod tests {
+@@ -4239,6 +5511,14 @@ mod tests {
          assert_eq!(remote.keybindings, RemoteKeybindings::Local);
      }
  
@@ -9037,7 +9200,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      #[test]
      fn extract_remote_args_removes_equals_form() {
          let args = vec!["herdr".into(), "--remote=user@host".into()];
-@@ -4289,6 +5557,45 @@ mod tests {
+@@ -4289,6 +5569,45 @@ mod tests {
          assert!(remote.live_handoff);
      }
  
@@ -9083,10 +9246,24 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      #[test]
      fn extract_remote_args_preserves_child_remote_options_after_separator() {
          let args = vec![
-@@ -4365,392 +5672,97 @@ mod tests {
-     }
- 
-     #[test]
+@@ -4351,406 +5670,111 @@ mod tests {
+         let args = vec!["herdr".into(), "--remote=".into()];
+         let err = extract_remote_args(&args).unwrap_err();
+         assert_eq!(err, "missing value for --remote");
+-    }
+-
+-    #[test]
+-    fn extract_remote_args_rejects_duplicate_values() {
+-        let args = vec![
+-            "herdr".into(),
+-            "--remote=dev".into(),
+-            "--remote=prod".into(),
+-        ];
+-        let err = extract_remote_args(&args).unwrap_err();
+-        assert_eq!(err, "--remote can only be specified once");
+-    }
+-
+-    #[test]
 -    fn extract_remote_args_rejects_option_like_target() {
 -        let args = vec!["herdr".into(), "--remote".into(), "-oProxyCommand=x".into()];
 -        let err = extract_remote_args(&args).unwrap_err();
@@ -9332,11 +9509,17 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 -                executable.saved_bridge_command("agents"),
 -                "$process = Start-Process -FilePath herdr.exe -ArgumentList '--session agents remote-client-bridge' -NoNewWindow -PassThru -ErrorAction Stop; $null = $process.Handle; $process.WaitForExit(); exit $process.ExitCode",
 -            ),
--        ];
-+    fn extract_remote_args_rejects_option_like_target() {
-+        let args = vec!["herdr".into(), "--remote".into(), "-oProxyCommand=x".into()];
++    }
++
++    #[test]
++    fn extract_remote_args_rejects_duplicate_values() {
++        let args = vec![
++            "herdr".into(),
++            "--remote=dev".into(),
++            "--remote=prod".into(),
+         ];
 +        let err = extract_remote_args(&args).unwrap_err();
-+        assert_eq!(err, "--remote target must not start with '-'");
++        assert_eq!(err, "--remote can only be specified once");
 +    }
  
 -        let preamble = format!(
@@ -9350,8 +9533,10 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 -            assert_eq!(script, expected, "{label}");
 -        }
 +    #[test]
-+    fn sanitize_path_component_removes_shell_sensitive_chars() {
-+        assert_eq!(sanitize_path_component("user@host:22"), "user-host-22");
++    fn extract_remote_args_rejects_option_like_target() {
++        let args = vec!["herdr".into(), "--remote".into(), "-oProxyCommand=x".into()];
++        let err = extract_remote_args(&args).unwrap_err();
++        assert_eq!(err, "--remote target must not start with '-'");
      }
  
      #[test]
@@ -9372,6 +9557,11 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
 -            ),
 -            "user@example:C:/Temp/Herdr O'Brien/测试/herdr-windows-x86_64.zip"
 -        );
++    fn sanitize_path_component_removes_shell_sensitive_chars() {
++        assert_eq!(sanitize_path_component("user@host:22"), "user-host-22");
++    }
++
++    #[test]
 +    fn remote_platform_maps_uname_values() {
          assert_eq!(
 -            windows_scp_target("ssh://user@example:2222", r"C:\Temp\install.ps1"),
@@ -9548,7 +9738,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      #[test]
-@@ -4856,7 +5868,7 @@ function Get-Process {
+@@ -4856,7 +5880,7 @@ function Get-Process {
          });
          for session in ["default", "agents"] {
              assert_eq!(
@@ -9557,7 +9747,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  posix_remote_output_command(&format!(
                      "exec \"$HOME/.local/bin/herdr\" --session {session} remote-api-bridge"
                  ))
-@@ -4873,14 +5885,25 @@ function Get-Process {
+@@ -4873,14 +5897,25 @@ function Get-Process {
          )
          .unwrap();
          assert!(current.remote_bridge_idle_timeout);
@@ -9588,7 +9778,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      #[test]
-@@ -4890,14 +5913,9 @@ function Get-Process {
+@@ -4890,14 +5925,9 @@ function Get-Process {
              arch: "x86_64",
          });
          assert_eq!(
@@ -9606,7 +9796,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          );
      }
  
-@@ -4911,10 +5929,9 @@ function Get-Process {
+@@ -4911,10 +5941,9 @@ function Get-Process {
              .expect("path binary");
  
          assert_eq!(
@@ -9620,7 +9810,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          );
      }
  
-@@ -4929,10 +5946,9 @@ function Get-Process {
+@@ -4929,10 +5958,9 @@ function Get-Process {
                  .expect("path binary");
  
          assert_eq!(
@@ -9634,7 +9824,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          );
      }
  
-@@ -4947,10 +5963,9 @@ function Get-Process {
+@@ -4947,10 +5975,9 @@ function Get-Process {
                  .expect("path binary");
  
          assert_eq!(
@@ -9648,7 +9838,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          );
          assert_eq!(remote_herdr.platform.asset_key(), "macos-aarch64");
      }
-@@ -4967,14 +5982,8 @@ function Get-Process {
+@@ -4967,14 +5994,8 @@ function Get-Process {
          );
  
          assert_eq!(candidates.len(), 2);
@@ -9665,7 +9855,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      #[test]
-@@ -4990,10 +5999,8 @@ function Get-Process {
+@@ -4990,10 +6011,8 @@ function Get-Process {
  
          assert_eq!(candidates.len(), 1);
          assert_eq!(
@@ -9678,7 +9868,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          );
      }
  
-@@ -5044,10 +6051,9 @@ function Get-Process {
+@@ -5044,10 +6063,9 @@ function Get-Process {
                  .expect("path binary");
  
          assert_eq!(
@@ -9692,7 +9882,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          );
      }
  
-@@ -5107,21 +6113,17 @@ function Get-Process {
+@@ -5107,21 +6125,17 @@ function Get-Process {
  
      #[test]
      fn saved_machine_setup_handoffs_old_server_missing_presentation_fence() {
@@ -9719,7 +9909,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
          for (live_capabilities, expected) in [
              (
                  running_binary.endpoint_capabilities,
-@@ -5167,38 +6169,6 @@ function Get-Process {
+@@ -5167,38 +6181,6 @@ function Get-Process {
          }
      }
  
@@ -9758,7 +9948,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      #[test]
      fn parse_remote_server_status_json_reads_running_server() {
          assert_eq!(
-@@ -5208,6 +6178,8 @@ function Get-Process {
+@@ -5208,6 +6190,8 @@ function Get-Process {
              .unwrap(),
              RemoteServerStatus::Running {
                  version: Some("0.6.0".into()),
@@ -9767,7 +9957,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  endpoint_protocol_generation: Some(1),
                  surface_interest: true,
                  health_check: true,
-@@ -5226,6 +6198,8 @@ function Get-Process {
+@@ -5226,6 +6210,8 @@ function Get-Process {
              .unwrap(),
              RemoteServerStatus::Running {
                  version: Some("0.6.0".into()),
@@ -9776,7 +9966,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  endpoint_protocol_generation: None,
                  surface_interest: false,
                  health_check: false,
-@@ -5246,131 +6220,11 @@ function Get-Process {
+@@ -5246,131 +6232,11 @@ function Get-Process {
          );
      }
  
@@ -9910,7 +10100,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
                  "build_id": "2026-06-06-new",
                  "protocol": 12,
                  "assets": {
-@@ -5400,25 +6254,9 @@ function Get-Process {
+@@ -5400,25 +6266,9 @@ function Get-Process {
          assert_eq!(protocol, 11);
          assert_eq!(asset.url(), "https://example.com/old");
          assert_eq!(asset.sha256(), Some("old"));
@@ -9938,7 +10128,7 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      }
  
      #[test]
-@@ -5433,6 +6271,151 @@ function Get-Process {
+@@ -5433,6 +6283,151 @@ function Get-Process {
          );
      }
  
@@ -10090,6 +10280,32 @@ index 82caeb9a5951d140821ef873c24a11c00f2fffbb..17375e0ef8133cc3b9fd21ef9d5c9bf7
      #[test]
      fn install_source_description_uses_local_binary_when_allowed() {
          let platform = RemotePlatform::local();
+@@ -5584,4 +6579,25 @@ function Get-Process {
+ 
+         assert!(!dir.exists());
+     }
++
++    #[test]
++    fn provision_json_reports_config_outcome() {
++        for (config_outcome, expected) in [
++            (RemoteConfigOutcome::Applied, "applied"),
++            (RemoteConfigOutcome::NoSource, "no_source"),
++        ] {
++            let result = RemoteProvisionResult {
++                target: "guest".into(),
++                platform: "windows-x86_64".into(),
++                binary: "herdr.exe".into(),
++                binary_outcome: RemoteBinaryOutcome::AlreadyMatching,
++                config_outcome,
++                server_outcome: RemoteServerOutcome::Reloaded,
++                version: "test".into(),
++                protocol: 22,
++            };
++            let json = serde_json::to_value(result).unwrap();
++            assert_eq!(json["config_outcome"], expected);
++        }
++    }
+ }
 diff --git a/src/remote/host.rs b/src/remote/host.rs
 index 825ae10c1e07dc9555cae7bc8e70188cedf2c7aa..4f812300c97d3f4312bb12b7e2cb928f62fcbd54 100644
 --- a/src/remote/host.rs
