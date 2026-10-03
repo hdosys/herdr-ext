@@ -1200,7 +1200,7 @@ jobs:
             done
           }
 
-          echo "Release notes: https://github.com/${GITHUB_REPOSITORY}/blob/master/CHANGELOG.md" > RELEASE_NOTES.md
+          echo "Release notes: https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/CHANGELOG.md" > RELEASE_NOTES.md
 
           release_pages="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
           release_matches="$(jq -c --arg tag "$tag" '[.[][] | select(.tag_name == $tag)]' <<<"$release_pages")"
