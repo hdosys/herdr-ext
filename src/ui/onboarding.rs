@@ -7,7 +7,6 @@ pub(crate) const ONBOARDING_DESCRIPTION: [&str; 3] = [
     "  click the sidebar to switch workspaces, drag pane",
     "  borders to resize, right-click for context menus.",
 ];
-pub(crate) const ONBOARDING_PREFIX_LABEL: &str = "ctrl+b";
 pub(crate) const ONBOARDING_PREFIX_SUFFIX: &str = " enters prefix mode · ";
 pub(crate) const ONBOARDING_HELP_LABEL: &str = "?";
 pub(crate) const ONBOARDING_HELP_SUFFIX: &str = " shows keybinds and settings";

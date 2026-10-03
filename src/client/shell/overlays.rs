@@ -56,7 +56,7 @@ pub(crate) fn render_client_overlay(
         }
     }
     match o {
-        ClientShellOverlay::Onboarding => render_onboarding_overlay(b, p),
+        ClientShellOverlay::Onboarding => render_onboarding_overlay(b, k, p),
         ClientShellOverlay::ProductAnnouncement(v) => render_product_announcement_overlay(b, v, p),
         ClientShellOverlay::ReleaseNotes(v) => {
             render_release_notes_overlay(b, v, &s.update_install_command, p)
@@ -536,7 +536,11 @@ fn render_product_announcement_overlay(
     })
 }
 
-fn render_onboarding_overlay(b: &mut Buffer, p: &Palette) -> Option<OverlayRender> {
+fn render_onboarding_overlay(
+    b: &mut Buffer,
+    k: &LiveKeybindConfig,
+    p: &Palette,
+) -> Option<OverlayRender> {
     let outer = popup(b.area, 64, 16)?;
     let inner = panel(b, outer, p.accent, p.panel_bg)?;
     if inner.height < 11 {
@@ -585,9 +589,10 @@ fn render_onboarding_overlay(b: &mut Buffer, p: &Palette) -> Option<OverlayRende
 
     let key_y = content.y.saturating_add(4);
     let mut key_x = content.x;
+    let prefix = k.primary_prefix_label();
     for (value, style) in [
         ("  ", base),
-        (crate::ui::ONBOARDING_PREFIX_LABEL, accent),
+        (prefix.as_str(), accent),
         (crate::ui::ONBOARDING_PREFIX_SUFFIX, text),
         (crate::ui::ONBOARDING_HELP_LABEL, accent),
         (crate::ui::ONBOARDING_HELP_SUFFIX, text),

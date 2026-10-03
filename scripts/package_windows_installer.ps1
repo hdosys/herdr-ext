@@ -25,6 +25,8 @@ param(
 
     [string]$ProductName = "Herdr",
 
+    [string]$PythonExe = "python",
+
     [string]$NsisArchive,
     [string]$NsisCacheDir,
 
@@ -542,7 +544,7 @@ if ($InstallerHelperExe.Equals($payloadExe, [System.StringComparison]::OrdinalIg
 
 # The ConPTY packager remains the sole owner of package provenance, hashes,
 # exact marker content, and the allowed stage layout.
-Invoke-NativeChecked python @(
+Invoke-NativeChecked $PythonExe @(
     $packager,
     "validate",
     "--stage-dir", $StageDir

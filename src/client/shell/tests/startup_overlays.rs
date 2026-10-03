@@ -289,6 +289,23 @@ fn onboarding_has_priority_over_endpoint_product_announcement() {
 }
 
 #[test]
+fn startup_onboarding_displays_the_configured_prefix() {
+    let config: Config = toml::from_str("[keys]\nprefix = 'ctrl+a'").unwrap();
+    let config = ClientShellConfig::from_config(&config).with_startup_onboarding(true);
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let frame = state.compose(106, 20).expect("onboarding frame");
+    let text: String = frame
+        .cells
+        .iter()
+        .map(|cell| cell.symbol.as_str())
+        .collect();
+    assert!(text.contains("ctrl+a enters prefix mode"));
+    assert!(!text.contains("ctrl+b enters prefix mode"));
+}
+
+#[test]
 fn startup_onboarding_is_client_rendered_and_modal() {
     let config = ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
     let mut state = ClientShellState::new(config);

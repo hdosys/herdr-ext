@@ -93,6 +93,7 @@ pub(crate) struct InstallOptions {
 pub(crate) struct UninstallOptions {
     pub(crate) install_root: PathBuf,
     pub(crate) user_profile_root: PathBuf,
+    pub(crate) roaming_app_data_root: PathBuf,
     pub(crate) skill_hash_manifest: PathBuf,
     pub(crate) settings_disposition: SettingsDisposition,
     pub(crate) skill_disposition: SkillDisposition,
@@ -501,7 +502,7 @@ pub(crate) fn uninstall(options: UninstallOptions) -> io::Result<String> {
             quiet.as_ref(),
         )?;
         if options.settings_disposition == SettingsDisposition::Remove {
-            if let Err(err) = skills::remove_user_settings(&profile) {
+            if let Err(err) = skills::remove_user_settings(&options.roaming_app_data_root) {
                 warnings.push(format!(
                 "Warning: Selected Herdr settings cleanup was incomplete; locked or unsafe settings were preserved. {err}"
             ));
