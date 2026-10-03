@@ -383,12 +383,13 @@ pub(crate) fn skill_removal_default(
     Ok("Remove")
 }
 
-pub(crate) fn remove_user_settings(profile: &Path) -> io::Result<()> {
-    let profile = user_profile_root(profile)?;
-    let settings = profile.join(".herdr");
-    if !path_within(&settings, &profile)? {
+pub(crate) fn remove_user_settings(roaming_app_data: &Path) -> io::Result<()> {
+    let roaming_app_data = full_path(roaming_app_data)?;
+    assert_regular_dir(&roaming_app_data)?;
+    let settings = roaming_app_data.join("herdr");
+    if !path_within(&settings, &roaming_app_data)? {
         return Err(super::installer_helper_files::invalid_data(format!(
-            "settings directory escaped user profile: {}",
+            "settings directory escaped roaming AppData: {}",
             settings.display()
         )));
     }
@@ -405,4 +406,35 @@ pub(crate) fn remove_user_settings(profile: &Path) -> io::Result<()> {
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_settings_cleanup_preserves_profile_worktrees_and_other_apps() {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-settings-cleanup-{}",
+            super::super::installer_helper_files::unique_hex()
+        ));
+        let roaming = root.join("redirected-roaming");
+        let settings = roaming.join("herdr");
+        let worktree = root.join("profile/.herdr/worktrees/user-project");
+        fs::create_dir_all(&worktree).unwrap();
+        fs::create_dir_all(&roaming).unwrap();
+        fs::write(worktree.join("keep.txt"), b"project").unwrap();
+        fs::write(roaming.join("other-app.txt"), b"other").unwrap();
+        fs::write(&settings, b"not a directory").unwrap();
+        assert!(remove_user_settings(&roaming).is_err());
+        assert_eq!(fs::read(&settings).unwrap(), b"not a directory");
+        fs::remove_file(&settings).unwrap();
+        fs::create_dir_all(settings.join("sessions")).unwrap();
+        fs::write(settings.join("config.toml"), b"[ui]").unwrap();
+        remove_user_settings(&roaming).unwrap();
+        assert!(!settings.exists());
+        assert_eq!(fs::read(worktree.join("keep.txt")).unwrap(), b"project");
+        assert_eq!(fs::read(roaming.join("other-app.txt")).unwrap(), b"other");
+        fs::remove_dir_all(root).unwrap();
+    }
 }

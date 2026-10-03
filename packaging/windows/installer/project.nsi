@@ -569,7 +569,7 @@ Section "Uninstall"
   DetailPrint "Stopping running ${INFO_DISTRIBUTIONNAME} sessions before uninstall..."
   StrCpy $InstallMutationActive "1"
   Call un.DisableUninstallCancellation
-  nsExec::ExecToStack /TIMEOUT=180000 '"$PLUGINSDIR\installer-helper.exe" uninstall --install-root "$INSTDIR" --user-profile-root "${APP_USER_PROFILE_ROOT}" --settings-disposition "$SettingsDisposition" --skill-hash-manifest "$PLUGINSDIR\managed-skill-hashes.txt" --skill-disposition "$SkillDisposition" ${APP_UNINSTALL_FAULT_ARGS} $QuietHelperArgs'
+  nsExec::ExecToStack /TIMEOUT=180000 '"$PLUGINSDIR\installer-helper.exe" uninstall --install-root "$INSTDIR" --user-profile-root "${APP_USER_PROFILE_ROOT}" --roaming-app-data-root "$APPDATA" --settings-disposition "$SettingsDisposition" --skill-hash-manifest "$PLUGINSDIR\managed-skill-hashes.txt" --skill-disposition "$SkillDisposition" ${APP_UNINSTALL_FAULT_ARGS} $QuietHelperArgs'
   Pop $HelperExitCode
   Pop $HelperOutput
   StrCmp $HelperExitCode "error" un_helper_start_failed

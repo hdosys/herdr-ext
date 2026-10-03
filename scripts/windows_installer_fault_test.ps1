@@ -236,7 +236,7 @@ $skillRoot = Join-Path $env:USERPROFILE ".agents\skills\herdr"
 $skillPath = Join-Path $skillRoot "SKILL.md"
 $claudeSkillRoot = Join-Path $env:CLAUDE_CONFIG_DIR "skills\herdr"
 $claudeSkillPath = Join-Path $claudeSkillRoot "SKILL.md"
-$settingsRoot = Join-Path $env:USERPROFILE ".herdr"
+$settingsRoot = Join-Path $env:APPDATA "herdr"
 $inheritedUserProfileDecoy = Join-Path $AgentUserProfileRoot "inherited-userprofile-decoy"
 New-Item -ItemType Directory -Path $inheritedUserProfileDecoy | Out-Null
 $env:USERPROFILE = $inheritedUserProfileDecoy
@@ -1003,7 +1003,7 @@ try {
     Write-Host "Sibling-preserving skill uninstall passed."
 
     # Explicit settings cleanup is best effort after application/integration
-    # removal. A real running image under .herdr keeps only that residual while
+    # removal. A real running image under roaming herdr keeps that residual while
     # setup files, ARP registration, and the installer-owned PATH entry disappear.
     $lockedStateInstallExit = Start-TestProcess -FilePath $modifiedInstaller -Arguments @("/S")
     if ($lockedStateInstallExit -ne 0) {
@@ -1210,6 +1210,7 @@ try {
         "uninstall",
         "--install-root", $installRoot,
         "--user-profile-root", $AgentUserProfileRoot,
+        "--roaming-app-data-root", $env:APPDATA,
         "--skill-hash-manifest", (Join-Path $newPackage "skill\managed-skill-hashes.txt"),
         "--settings-disposition", "Keep",
         "--skill-disposition", "Auto"

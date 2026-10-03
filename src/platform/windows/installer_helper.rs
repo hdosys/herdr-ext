@@ -74,6 +74,7 @@ pub(crate) fn run() -> io::Result<String> {
                 &[
                     "--install-root",
                     "--user-profile-root",
+                    "--roaming-app-data-root",
                     "--skill-hash-manifest",
                     "--settings-disposition",
                     "--skill-disposition",
@@ -86,6 +87,7 @@ pub(crate) fn run() -> io::Result<String> {
             installer_helper_lifecycle::uninstall(UninstallOptions {
                 install_root: required_path(&values, "--install-root")?,
                 user_profile_root: required_path(&values, "--user-profile-root")?,
+                roaming_app_data_root: required_path(&values, "--roaming-app-data-root")?,
                 skill_hash_manifest: required_path(&values, "--skill-hash-manifest")?,
                 settings_disposition: match required_utf8(&values, "--settings-disposition")?
                     .as_str()
