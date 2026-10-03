@@ -4602,27 +4602,6 @@ mod tests {
     #[cfg(windows)]
     use interprocess::local_socket::traits::Stream as _;
 
-    #[test]
-    fn provision_json_reports_config_outcome() {
-        for (config_outcome, expected) in [
-            (RemoteConfigOutcome::Applied, "applied"),
-            (RemoteConfigOutcome::NoSource, "no_source"),
-        ] {
-            let result = RemoteProvisionResult {
-                target: "guest".into(),
-                platform: "windows-x86_64".into(),
-                binary: "herdr.exe".into(),
-                binary_outcome: RemoteBinaryOutcome::AlreadyMatching,
-                config_outcome,
-                server_outcome: RemoteServerOutcome::Reloaded,
-                version: "test".into(),
-                protocol: 22,
-            };
-            let json = serde_json::to_value(result).unwrap();
-            assert_eq!(json["config_outcome"], expected);
-        }
-    }
-
     #[cfg(windows)]
     #[test]
     fn windows_bridge_copy_progresses_with_polling_and_peer_disconnect() {
@@ -6674,5 +6653,26 @@ mod tests {
         InstallSource::temporary(path, dir.clone()).cleanup();
 
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn provision_json_reports_config_outcome() {
+        for (config_outcome, expected) in [
+            (RemoteConfigOutcome::Applied, "applied"),
+            (RemoteConfigOutcome::NoSource, "no_source"),
+        ] {
+            let result = RemoteProvisionResult {
+                target: "guest".into(),
+                platform: "windows-x86_64".into(),
+                binary: "herdr.exe".into(),
+                binary_outcome: RemoteBinaryOutcome::AlreadyMatching,
+                config_outcome,
+                server_outcome: RemoteServerOutcome::Reloaded,
+                version: "test".into(),
+                protocol: 22,
+            };
+            let json = serde_json::to_value(result).unwrap();
+            assert_eq!(json["config_outcome"], expected);
+        }
     }
 }
