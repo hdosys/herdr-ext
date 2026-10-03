@@ -202,7 +202,7 @@ Direct updates accept only a newer stable CalVer from an immutable normal GitHub
 
 Uninstall from **Windows Settings > Apps > Installed apps**. Herdr first asks running managed sessions to stop through their graceful server API. If a session remains active, uninstall preserves the installation and reports the required action instead of force-terminating work.
 
-Settings under `%USERPROFILE%\.herdr` are preserved unless you explicitly choose to remove them. Installer-owned skill files can also be removed explicitly; customized copies and unrelated directory content remain preserved.
+Configuration and sessions under `%APPDATA%\herdr` are preserved unless you explicitly choose to remove them. Profile `.herdr` worktrees, remote payloads and custom configuration locations remain untouched. Installer-owned skill files can also be removed explicitly; customized copies and unrelated directory content remain preserved.
 
 ## Troubleshooting
 

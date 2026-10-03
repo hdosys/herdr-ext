@@ -631,9 +631,31 @@ def _dynamic_msvc_runtime_imports(dependencies: str) -> list[str]:
 
 
 def _verify_self_contained_windows_executables(paths: Sequence[Path]) -> None:
+    vswhere = _safe_path(
+        Path(os.environ["ProgramFiles(x86)"])
+        / "Microsoft Visual Studio/Installer/vswhere.exe",
+        "Visual Studio discovery tool",
+        directory=False,
+    )
+    candidates = _run(
+        vswhere,
+        [
+            "-latest", "-products", "*",
+            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-find", r"VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe",
+        ],
+        timeout=30,
+    ).stdout.splitlines()
+    if not candidates:
+        raise LocalInstallerError(
+            "dumpbin.exe is unavailable in the selected Visual Studio installation"
+        )
+    dumpbin = _safe_path(
+        Path(candidates[0].strip()), "MSVC import inspector", directory=False
+    )
     for path in paths:
         dependencies = _run(
-            "dumpbin.exe",
+            dumpbin,
             ["/DEPENDENTS", str(path)],
             timeout=30,
         ).stdout
@@ -1042,6 +1064,8 @@ def build(
         "Bypass",
         "-File",
         str(source / "scripts/package_windows_installer.ps1"),
+        "-PythonExe",
+        sys.executable,
         "-StageDir",
         str(bundle / "stage"),
         "-LauncherExe",

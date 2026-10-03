@@ -174,8 +174,11 @@ tests remain the detailed implementation truth.
   new processes again. A `herdr` skill directory is removed only immediately after
   its authorized `SKILL.md` removal proves it empty. The separate interactive
   settings checkbox preserves configuration and session data under
-  `%USERPROFILE%\.herdr` by default; silent uninstall accepts `/REMOVE_SETTINGS` as
-  the explicit settings-deletion choice. If locked or unsafe content prevents that
+  `%APPDATA%\herdr` by default; silent uninstall accepts `/REMOVE_SETTINGS` as
+  the explicit settings-deletion choice. This uses the current user's Windows
+  roaming AppData location, including redirection. Profile `.herdr` worktrees and
+  remote payloads, other applications and explicit configuration overrides remain
+  outside this cleanup. If locked or unsafe content prevents that
   selected cleanup or a selected installer-managed skill removal from finishing,
   uninstall preserves and reports the residual while still removing the managed
   program, Installed Apps registration, and its installer-owned `PATH` entry.

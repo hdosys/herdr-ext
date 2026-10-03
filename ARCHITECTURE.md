@@ -365,9 +365,12 @@ behavior; code and tests remain the detailed implementation truth.
   it resolves to the managed directory. Every other entry and its order remain
   unchanged, and the value is deleted only when setup created it and no concurrent
   entries remain.
-- Interactive and silent uninstall both preserve `%USERPROFILE%\.herdr` by
+- Interactive and silent uninstall both preserve `%APPDATA%\herdr` by
   default; the interactive checkbox or `/REMOVE_SETTINGS` explicitly authorizes
-  deletion. Settings cleanup stays in the helper's validated filesystem boundary
+  deletion. NSIS passes its current-user roaming AppData root to the helper, which
+  selects only its `herdr` child. Profile `.herdr`, custom configuration overrides
+  and unrelated AppData entries are never cleanup targets. Settings cleanup stays
+  in the helper's validated filesystem boundary
   and never follows ambiguous/reparse-point content. It runs after managed skill,
   application, PATH, and Installed Apps cleanup; an unsafe or locked settings
   residual is preserved and reported without changing successful application
