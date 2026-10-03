@@ -14,6 +14,14 @@
 ### Changed
 - `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.
 
+## [0.9.3] - 2026-09-29
+
+This is a hotfix release for v0.9.2. See the v0.9.2 notes for the full feature release: https://github.com/herdrdev/herdr/releases/tag/v0.9.2
+
+### Fixed
+- Terminal shortcuts that send Escape followed by a key work again in panes. On macOS, Option+Left/Right and Option+Backspace from Ghostty's defaults or iTerm2's Natural Text Editing preset move and delete by word again, instead of typing `b` and `f` or deleting one character. Escape-based Shift+Enter bindings insert a newline in Claude Code instead of submitting. Clicking a pane still doesn't send a stray Escape. (#4751)
+- Alt+[ followed quickly by another key no longer merges into a different key. (#4751)
+
 ## [0.9.2] - 2026-09-29
 
 ### Breaking Changes
