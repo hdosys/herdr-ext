@@ -1,7 +1,7 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // HERDR_INTEGRATION_ID=opencode-tui
-// HERDR_INTEGRATION_VERSION=28
+// HERDR_INTEGRATION_VERSION=29
 
 import net from "node:net";
 

@@ -881,6 +881,36 @@ test("keeps the child pane when delayed idle disagrees with live status", async 
   expect(requestParam(requests[0], "pane_id")).toBe("test:p2");
 });
 
+for (const transition of ["created", "busy"] as const) {
+  test(`reports root work before ${transition} child pane setup completes`, async () => {
+    const plugin = await loadPlugin({ serverUrl: new URL("http://127.0.0.1:4096") });
+    await plugin.event(sessionStatusEvent("root-session", { type: "idle" }));
+    if (transition === "busy") {
+      await openDirectChild(plugin);
+      await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
+    }
+    requests.length = 0;
+    clients.length = 0;
+    autoAcknowledge = false;
+    const firstRequest = waitForNextRequest();
+    const opening = plugin.event(transition === "busy"
+      ? sessionStatusEvent("child-session", { type: "busy" })
+      : { event: { type: "session.created", properties: {
+        info: { id: "child-session", parentID: "root-session" },
+      } } });
+    await firstRequest;
+    try {
+      expect(requestState(requests[0])).toBe("working");
+      expect(requestSessionID(requests[0])).toBe("root-session");
+    } finally {
+      autoAcknowledge = true;
+      acknowledgeRequest(0, 0);
+      await opening;
+      await plugin.dispose();
+    }
+  });
+}
+
 test("keeps the root working while a direct child is busy", async () => {
   const plugin = await loadPlugin();
   await plugin["chat.message"]({ sessionID: "root-session" });
