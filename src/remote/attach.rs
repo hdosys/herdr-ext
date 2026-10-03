@@ -7,18 +7,17 @@ use std::io::{self, IsTerminal, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
-use interprocess::TryClone as _;
-use interprocess::local_socket::ListenerNonblockingMode;
 #[cfg(unix)]
 use interprocess::local_socket::traits::Listener as _;
 #[cfg(all(test, unix))]
 use interprocess::local_socket::traits::Stream as _;
+use interprocess::local_socket::ListenerNonblockingMode;
+use interprocess::TryClone as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc,
+    mpsc, Arc,
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -235,7 +234,7 @@ impl SavedSshSetup {
                             session.running && crate::session::validate_name(&session.name).is_ok()
                         })
                         .map(|session| session.name)
-                        .collect());
+                        .collect())
                 }
                 Err(error) => failure = format!("invalid remote session list: {error}"),
             }
@@ -759,10 +758,7 @@ pub(crate) fn ssh_authentication_command(target: &str) -> io::Result<SshAuthenti
         ));
     }
     if !crate::platform::remote_ssh_config_paths().multiplexing {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "interactive SSH recovery requires Unix OpenSSH multiplexing; authenticate outside Herdr on this platform",
-        ));
+        return Err(io::Error::new(io::ErrorKind::Unsupported, "interactive SSH recovery requires Unix OpenSSH multiplexing; authenticate outside Herdr on this platform"));
     }
     if !crate::config::Config::load()
         .config
@@ -1802,10 +1798,8 @@ pub(super) fn discover_remote_api_metadata(
             if !output.status.success()
                 || String::from_utf8_lossy(&output.stdout).trim() != "herdr-api-bridge-v1"
             {
-                return Err(io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    "remote Herdr does not support machine API forwarding; update Herdr on this machine",
-                ));
+                return Err(io::Error::new(io::ErrorKind::Unsupported,
+                    "remote Herdr does not support machine API forwarding; update Herdr on this machine"));
             }
             crate::client::endpoint::SshMachineMetadata {
                 os: "windows".into(),
@@ -3867,9 +3861,7 @@ pub(super) fn cached_remote_api_command(
     let session = shell_quote(session);
     let script = format!(
         "if capability=$({path} --session {session} remote-api-bridge --check </dev/null 2>/dev/null) && [ \"$capability\" = herdr-api-bridge-v1 ]; then\n{}\nelse\n    printf '%s\\n' '{STALE_API_METADATA}' >&2\n    exit 78\nfi",
-        posix_remote_output_command(&format!(
-            "exec {path} --session {session} remote-api-bridge"
-        )),
+        posix_remote_output_command(&format!("exec {path} --session {session} remote-api-bridge")),
     );
     Ok(format!("/bin/sh -c {}", shell_quote(&script)))
 }
@@ -4610,27 +4602,6 @@ mod tests {
     #[cfg(windows)]
     use interprocess::local_socket::traits::Stream as _;
 
-    #[test]
-    fn provision_json_reports_config_outcome() {
-        for (config_outcome, expected) in [
-            (RemoteConfigOutcome::Applied, "applied"),
-            (RemoteConfigOutcome::NoSource, "no_source"),
-        ] {
-            let result = RemoteProvisionResult {
-                target: "guest".into(),
-                platform: "windows-x86_64".into(),
-                binary: "herdr.exe".into(),
-                binary_outcome: RemoteBinaryOutcome::AlreadyMatching,
-                config_outcome,
-                server_outcome: RemoteServerOutcome::Reloaded,
-                version: "test".into(),
-                protocol: 22,
-            };
-            let json = serde_json::to_value(result).unwrap();
-            assert_eq!(json["config_outcome"], expected);
-        }
-    }
-
     #[cfg(windows)]
     #[test]
     fn windows_bridge_copy_progresses_with_polling_and_peer_disconnect() {
@@ -4690,12 +4661,10 @@ mod tests {
         .expect("second download must begin before disconnect");
         // A disappearing client must release a download even when it no longer reads.
         drop(client);
-        assert!(
-            phase_rx
-                .recv_timeout(Duration::from_secs(3))
-                .unwrap()
-                .is_err()
-        );
+        assert!(phase_rx
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap()
+            .is_err());
         writer.join().unwrap();
         drop(listener);
         crate::ipc::remove_socket_file_if_owned(&socket, &socket_identity).unwrap();
@@ -5159,10 +5128,9 @@ mod tests {
             |(key, value)| *key == std::ffi::OsStr::new("SSH_ASKPASS_REQUIRE")
                 && *value == Some(std::ffi::OsStr::new("never"))
         ));
-        assert!(
-            env.iter()
-                .any(|(key, value)| *key == std::ffi::OsStr::new("SSH_ASKPASS") && value.is_none())
-        );
+        assert!(env
+            .iter()
+            .any(|(key, value)| *key == std::ffi::OsStr::new("SSH_ASKPASS") && value.is_none()));
     }
 
     #[test]
@@ -5432,7 +5400,7 @@ mod tests {
                 crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
             ),
             endpoint_capabilities: vec![
-                crate::protocol::endpoint::REMOTE_CONNECT_ONLY_CAPABILITY.into(),
+                crate::protocol::endpoint::REMOTE_CONNECT_ONLY_CAPABILITY.into()
             ],
             remote_bridge_idle_timeout: false,
         });
@@ -6008,29 +5976,21 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        assert!(
-            !remote_bridge_command(&remote, "agents", false)
-                .unwrap()
-                .contains("--idle-timeout-v1")
-        );
+        assert!(!remote_bridge_command(&remote, "agents", false)
+            .unwrap()
+            .contains("--idle-timeout-v1"));
         assert!(remote_bridge_command(&remote, "agents", true).is_err());
         let mut current = current;
         current
             .endpoint_capabilities
             .push(crate::protocol::endpoint::REMOTE_CONNECT_ONLY_CAPABILITY.into());
         remote.client = Some(current);
-        assert!(
-            !remote_bridge_command(&remote, "agents", false)
-                .unwrap()
-                .contains("--idle-timeout-v1")
-        );
-        assert!(
-            remote_bridge_command(&remote, "agents", true)
-                .unwrap()
-                .ends_with(
-                    " --session agents remote-client-bridge --connect-only --idle-timeout-v1"
-                )
-        );
+        assert!(!remote_bridge_command(&remote, "agents", false)
+            .unwrap()
+            .contains("--idle-timeout-v1"));
+        assert!(remote_bridge_command(&remote, "agents", true)
+            .unwrap()
+            .ends_with(" --session agents remote-client-bridge --connect-only --idle-timeout-v1"));
     }
 
     #[test]
@@ -6421,7 +6381,7 @@ mod tests {
                 crate::protocol::endpoint::ENDPOINT_PROTOCOL_GENERATION,
             ),
             endpoint_capabilities: vec![
-                crate::protocol::endpoint::WINDOWS_REMOTE_HOST_CAPABILITY.into(),
+                crate::protocol::endpoint::WINDOWS_REMOTE_HOST_CAPABILITY.into()
             ],
             remote_bridge_idle_timeout: false,
         });
@@ -6442,14 +6402,12 @@ mod tests {
         assert!(!can_reuse_detected_windows_herdr(
             &detected, None, false, true
         ));
-        assert!(
-            !detected
-                .remote_herdr
-                .client
-                .as_ref()
-                .unwrap()
-                .matches_deployment_identity()
-        );
+        assert!(!detected
+            .remote_herdr
+            .client
+            .as_ref()
+            .unwrap()
+            .matches_deployment_identity());
         detected
             .remote_herdr
             .client
@@ -6587,10 +6545,9 @@ mod tests {
     fn windows_local_forward_endpoint_uses_private_state_dir() {
         let path = local_forward_socket_path("user@example.com", "work");
         assert!(path.starts_with(crate::platform::remote_private_temp_base()));
-        assert!(
-            path.file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with("herdr-r-"))
-        );
+        assert!(path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("herdr-r-")));
     }
 
     #[cfg(unix)]
@@ -6696,5 +6653,26 @@ mod tests {
         InstallSource::temporary(path, dir.clone()).cleanup();
 
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn provision_json_reports_config_outcome() {
+        for (config_outcome, expected) in [
+            (RemoteConfigOutcome::Applied, "applied"),
+            (RemoteConfigOutcome::NoSource, "no_source"),
+        ] {
+            let result = RemoteProvisionResult {
+                target: "guest".into(),
+                platform: "windows-x86_64".into(),
+                binary: "herdr.exe".into(),
+                binary_outcome: RemoteBinaryOutcome::AlreadyMatching,
+                config_outcome,
+                server_outcome: RemoteServerOutcome::Reloaded,
+                version: "test".into(),
+                protocol: 22,
+            };
+            let json = serde_json::to_value(result).unwrap();
+            assert_eq!(json["config_outcome"], expected);
+        }
     }
 }
