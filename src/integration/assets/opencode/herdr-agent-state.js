@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=28
+// HERDR_INTEGRATION_VERSION=29
 
 import { createHash } from "node:crypto";
 import net from "node:net";
@@ -889,10 +889,10 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
           child.working = true;
         }
         if (await syncRootSelection()) {
-          await reconcileChildPane(info.id);
           if (rootIsIdle && rootSessionFor(info.id) === currentRootSessionID) {
             await reportIdleOrConfirmError(currentRootSessionID);
           }
+          await reconcileChildPane(info.id);
         }
         return;
       }
@@ -909,7 +909,11 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
       if (disposing || disposed) return;
 
       if (child) {
-        if (childStatus && selectionKnown) await reconcileChildPane(sessionID);
+        // Working is already known; pane startup must not delay its report.
+        // Idle still needs the live-status confirmation performed by reconciliation.
+        if (childStatus && childStatus !== "working" && selectionKnown) {
+          await reconcileChildPane(sessionID);
+        }
         const state = updatePromptState(type, properties, sessionID)
           ?? CHILD_EVENT_STATES.get(type);
         if (state && selectionKnown && rootSessionFor(sessionID) === currentRootSessionID &&
@@ -919,6 +923,7 @@ export const HerdrAgentStatePlugin = async ({ client, directory, serverUrl } = {
                    rootSessionFor(sessionID) === currentRootSessionID) {
           await reportIdleOrConfirmError(currentRootSessionID);
         }
+        if (childStatus === "working" && selectionKnown) await reconcileChildPane(sessionID);
         return;
       }
 
