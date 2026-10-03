@@ -15,6 +15,4 @@ rules belong in `PRODUCT.md`; stable technical design belongs in
 
 ## Items
 
-- Make OpenCode activity reporting keep the sidebar indicator busy whenever the
-  visible root or a direct child session is still working; currently a working child
-  can transiently appear idle until a later OpenCode event corrects the state.
+No selected future product outcomes.
