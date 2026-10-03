@@ -20,6 +20,28 @@ configuration repository.
 
 ## Proposals
 
+- **Status: proposed. Preserve unrelated mailbox context during tiny source
+  formatting.** A one-field remote-result change triggered whole-file formatter
+  churn and then two reverse-replay conflicts during release finalization. Removing
+  unrelated formatting and moving the unchanged test outside another mailbox's
+  insertion context restored exact replay. Scope formatting to accepted edits and
+  review the resulting diff before committing, rather than carrying unrelated churn
+  into the queue. The two-minute artifact goal was missed; exact request/edit timings
+  were not retained. The final warm build took145.381seconds (Cargo93.292,
+  native probe7.468, packaging28.213); avoidable compiler discovery and a531-second
+  failed/waiting build invocation preceded it. Reuse the already documented compiler
+  context instead of another discovery cycle. Owners: `CONTRIBUTING.md` and the
+  existing source/queue workflow. No additional pre-artifact replay gate proposed.
+
+- **Status: proposed. Report exact residuals when an installer terminal assertion
+  fails.** A hosted release stopped after17m31s with only a combined settings/root/ARP
+  timeout. A Windows PowerShell5.1 probe demonstrated that inherited AppData differed
+  from a fresh process's shell-folder result after the fixture changed USERPROFILE.
+  Extend the existing failure diagnostic with the resolved fixture paths and each
+  residual boolean, without adding retries or a second state owner. Expected benefit:
+  distinguish incorrect fixture targeting from uninstall-worker failure before another
+  release dispatch. Owner: `scripts/windows_installer_fault_test.ps1`.
+
 - **Status: done. Carry native compiler and cache context across build
   assignments and source handoffs.** After a successful 0.9.2 build, the next session
   inherited Zig 0.15.2

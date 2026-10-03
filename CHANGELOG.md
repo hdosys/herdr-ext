@@ -4,7 +4,7 @@ This changelog records only user-visible changes released by Herdr Extended. For
 
 ## Unreleased
 
-## [2026.10.03.2] - 2026-10-03
+## [2026.10.03.3] - 2026-10-03
 
 Herdr Extended snapshot based on Herdr v0.9.3 plus the maintained delta.
 
