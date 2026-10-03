@@ -228,6 +228,20 @@ current replay plus every completed change integrated into the development branc
 Topic branches keep package output temporary and remove it after their focused
 check under the global artifact lifecycle.
 
+Carry the existing native compiler context into each build: the selected `ZIG`
+executable and version, Candidate's Cargo target, and any effective
+`ZIG_LOCAL_CACHE_DIR` / `ZIG_GLOBAL_CACHE_DIR` overrides. Check the compiler against
+the replayed `vendor/libghostty-vt/build.zig.zon` requirement. Do not silently fall
+back to a different PATH compiler or move a cache owned by another process.
+The local builder passes its own Python interpreter to the source packager and
+resolves the installed MSVC import inspector through `vswhere`.
+
+When concurrent builders mutate the same canonical Candidate output or shared
+build resources, the existing resource-lock invocation uses exactly
+`resource:herdr-win-local-windows-installer` for the complete bounded command.
+This is distinct from the development integration lock; direct-mode builds do
+not acquire it. Do not introduce another lock key or ownership registry.
+
 Commit the coherent integrated development tree, then build and report the installer
 before focused behavior checks and publication. Candidate packaging compares every
 changed embedded integration with the accepted queue, requires a higher migration
@@ -296,12 +310,19 @@ binary merely to prove an embedded script already exercised by its own runtime:
 ```powershell
 Push-Location -LiteralPath <development-worktree>
 try {
-    bun test src/integration/assets/opencode/herdr-agent-state.test.ts
+    bun test src/integration/assets/opencode/herdr-agent-state.test.ts `
+      src/integration/assets/opencode/herdr-tui-session.test.ts
     if ($LASTEXITCODE -ne 0) { throw "OpenCode integration asset check failed" }
 } finally {
     Pop-Location
 }
 ```
+
+The server plugin owns root aggregation; an attached child's TUI owns its native
+status reports. Asset behavior, TUI-to-native reporting, and cold-shell startup
+are separate acceptance boundaries. An `agent_started` acknowledgement is not
+interactive prompt readiness. Reuse the existing boundary-specific checks rather
+than reconstructing the external plugin host or adding another startup harness.
 
 The optional filters on `candidate` still support an explicitly combined unattended
 check/build invocation. They run before packaging and are not the interactive
@@ -415,6 +436,13 @@ Local work retains build and package-integrity validation, focused source checks
 and native probes whose state and process ownership are demonstrably isolated.
 User-performed installation and usage checks remain acceptance evidence; reuse them
 while the relevant artifact, source, and environment assumptions are unchanged.
+
+For installer identity, copy or artwork changes, inspect the already-built
+canonical setup before release dispatch at a representative supported DPI. Check
+the caption, heading, copy and artwork together, then close it without installing
+into the working profile. This conditional presentation check does not require
+another package build, OCR, or a full installation matrix; an ordinary build-label
+change alone does not trigger it.
 
 A separate runtime or remote sidecar, an alternate Herdr session, or an overridden
 temporary data directory does not establish installer isolation. These tests can
@@ -636,6 +664,13 @@ The final status must be clean before editing package manifests. This procedure
 only prepares an external contribution checkout; it does not authorize manifest
 changes, a pull request, or release publication.
 
+Before installation validation, verify that its actual process token is
+non-elevated. A Limited scheduled task in an administrator-only environment is not
+proof of that boundary. Keep the manifest's `elevationProhibited` contract; report
+a missing valid token instead of weakening it. Direct `/S /WINGET` setup evidence
+does not replace WinGet's own installation validation. Do not create remote refs
+as a routine workaround for an unexplained slow push.
+
 ## Verification
 
 The **Fork verification policy** in `AGENTS.md` is the admission gate for every
@@ -654,6 +689,17 @@ Run formatting and the smallest changed-behavior test in the replayed task tree
 before recording its tested tree ID. The finalizer's exact tree match transfers
 that evidence to the checked-in queue without another checkout, compile, or test
 pass. Do not run blanket Clippy or all Rust tests for every ordinary edit.
+
+For a bounded Rust edit, run the source checkout's selected formatter on the
+explicit changed files, preserving the current edition and avoiding recursive
+module rewrites:
+
+```powershell
+rustfmt --edition 2021 --config skip_children=true <changed-file.rs>
+```
+
+Review that scoped diff; do not rewrite unrelated BASE files or add a second
+formatter wrapper merely to compensate for a different inherited toolchain.
 
 For Windows packaging changes, select only the focused package or vendor modules
 that own the changed boundary rather than running the whole list by default:

@@ -33,6 +33,7 @@ Optional context: `$1 ${@:2}`
 
 ## 4. Build and promote
 
+- For installer identity, copy or artwork changes, complete the conditional local setup presentation check in `CONTRIBUTING.md` before dispatch.
 - Choose one unused Herdr Extended CalVer `YYYY.MM.DD.N`.
 - Push the verified control commit, then dispatch `release.yml` with `operation=build` and that CalVer.
 - Require the successful retained candidate to contain the Windows ZIP/setup plus matching Linux and macOS amd64/arm64 binaries, coherent source/control identities, and verified digests.

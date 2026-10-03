@@ -20,7 +20,7 @@ configuration repository.
 
 ## Proposals
 
-- **Status: proposed. Carry native compiler and cache context across build
+- **Status: done. Carry native compiler and cache context across build
   assignments and source handoffs.** After a successful 0.9.2 build, the next session
   inherited Zig 0.15.2
   from PATH and failed in the vendored native build even though the required 0.16
@@ -44,7 +44,11 @@ configuration repository.
   toolchain discovery after successful source integration. Owners:
   `scripts/local_windows_installer.py` and `CONTRIBUTING.md`.
 
-- **Status: proposed. Parallelize independent immutable-payload checks and
+  Resolution: Candidate guidance now carries the selected source-compatible
+  compiler and effective cache context explicitly. Cross-Sandbox cache retention
+  remains outside this repository; no persistent context or fallback was added.
+
+- **Status: declined. Parallelize independent immutable-payload checks and
   packaging when resources permit.** A menu-only deletion still took151.573 seconds
   to its installer on16CPUs:98.175 compiling,9.418 for the native launch probe,
   and26.787 packaging. Request-to-artifact therefore exceeded151.573 seconds and
@@ -55,7 +59,11 @@ configuration repository.
   probe, not a claim that this alone meets the goal. Owner:
   `scripts/local_windows_installer.py`; no gate removal or compiler-identity change.
 
-- **Status: proposed. Keep the selected Python interpreter consistent through
+  Decision: the packager itself publishes the canonical installer. Saving the
+  measured nine seconds would require another staging/publication barrier and
+  cancellation/join path. Keep the simpler probe-before-package ordering.
+
+- **Status: done. Keep the selected Python interpreter consistent through
   packaging.** The absolute registered interpreter completed a114.520-second
   build, but `scripts/package_windows_installer.ps1` independently resolved a
   broken bare `python` from PATH and failed. A process-local PATH selecting the
@@ -66,7 +74,11 @@ configuration repository.
   after a successful compile. Owners: `scripts/local_windows_installer.py` and
   `scripts/package_windows_installer.ps1`.
 
-- **Status: proposed. Resolve Windows invocation semantics before classifying an
+  Resolution: the builder forwards `sys.executable` through the source packager's
+  explicit `PythonExe` input. The real candidate package path passed without a
+  global PATH change or interpreter fallback.
+
+- **Status: done. Resolve Windows invocation semantics before classifying an
   output-format fix as owner-known.** Explicit `-OutputFormat Text` did not stop
   Windows PowerShell5.1 encoded-command stderr serialization. Installed-runtime
   evidence established the override; a later native fixture also incorrectly
@@ -80,7 +92,11 @@ configuration repository.
   Owner: Windows remote native checks and focused-diagnosis guidance in
   `CONTRIBUTING.md`.
 
-- **Status: proposed. Keep OpenCode repair acceptance out of packaging and
+  Resolution: the current Windows bootstrap owner uses a literal text decoder;
+  its existing native test consumes the production command through `cmd.exe`
+  with `raw_arg`. No additional shell-semantics reference suite is needed.
+
+- **Status: done. Keep OpenCode repair acceptance out of packaging and
   exploratory test loops.** The V1 repair required repeated 155-238 second
   candidate builds, a 522-second Rust test compilation for 0.23 seconds of
   execution, and an isolated startup harness that blocked on redirected output
@@ -92,14 +108,22 @@ configuration repository.
   spending another iteration building a new test setup. Owner: OpenCode V1
   acceptance tooling and `CONTRIBUTING.md`.
 
-- **Status: proposed. Name one canonical installer resource-lock key.** The
+  Resolution: the Candidate procedure separates artifact handoff from exact
+  source-owned behavior checks and excludes exploratory startup harnesses.
+  This procedural completion is not a claim of provider-authenticated acceptance.
+
+- **Status: done. Name one canonical installer resource-lock key.** The
   source-loss investigation found both `resource:herdr-win-local-windows-installer`
   and `resource:herdr-win-windows-candidate-build` used for the same build owner.
   Different keys do not serialize shared outputs. Standardize the exact key in
   the existing candidate command owner if concurrent building is selected again.
   No overlapping mutation or link to source loss was established.
 
-- **Status: proposed. Keep OpenCode native status checks at the actual plugin
+  Resolution: `CONTRIBUTING.md` names
+  `resource:herdr-win-local-windows-installer` only for concurrent mutation of
+  shared Candidate resources. Direct builds and the integration lock stay separate.
+
+- **Status: done. Keep OpenCode native status checks at the actual plugin
   host boundary.** The attached-child regression simulated a server plugin that
   `opencode attach` never loads. A parent-forwarding correction then treated
   queued `agent_started` as readiness, requiring a replacement installer.
@@ -111,6 +135,10 @@ configuration repository.
   checks separate from status-reporting acceptance. Expected benefit: fewer false
   positive mocks and less debugging time at unrelated startup boundaries. Owner:
   OpenCode integration asset checks and `CONTRIBUTING.md`.
+
+  Resolution: the existing procedure names both server and TUI asset checks and
+  distinguishes their evidence from native reporting and cold-shell readiness.
+  No additional runtime, timer or test harness was introduced.
 
 - **Status: done. Scope Git trust inside the delta-worktree helper.** Every helper
   Git command now trusts only the resolved control checkout and selected worktree
@@ -224,7 +252,7 @@ configuration repository.
   in 3.143 seconds, replacing a full checkout that exceeded 600 seconds. Owner:
   `CONTRIBUTING.md`.
 
-- **Status: proposed. Prepare WinGet contribution prerequisites before validation
+- **Status: done. Prepare WinGet contribution prerequisites before validation
   and push.** The administrator-only Sandbox rejected the existing
   `elevationProhibited` package even through a Limited task; the manifest must not
   be weakened. Check the token first and distinguish direct `/S /WINGET` upgrade
@@ -234,6 +262,10 @@ configuration repository.
   Extend the existing WinGet procedure with these two bounded preflights to avoid
   unsuccessful local launch attempts and unnecessary object transfer. Owner:
   `CONTRIBUTING.md`.
+
+  Resolution: contribution guidance requires the actual non-elevated validation
+  token and distinguishes direct setup evidence. Automatic remote-ref seeding is
+  rejected: one slow-push observation does not justify that recovery mechanism.
 
 - **Status: done. Make Windows worktree removal terminal before dropping its
   recovery metadata.** The Windows lifecycle now waits for the pane process and
@@ -340,6 +372,11 @@ configuration repository.
   placement. Resume only in a user-authorized provider session; the existing Bun suite
   remains the deterministic split-logic owner. Owner: the OpenCode native Candidate
   acceptance boundary, reusing its current split probe rather than a second harness.
+
+  Current disposition: keep blocked. A current-integration, restored,
+  provider-backed session and its authorized activation are still required.
+  Ordinary asset checks are not a substitute; no live restart or provider probe
+  is part of the selected maintenance work.
 
 - **Status: done. Fail local Candidate builds before Cargo when Windows
   commit headroom is exhausted.** Read the Windows committed-bytes and commit-limit
@@ -493,7 +530,7 @@ configuration repository.
   one duplicate mandatory gate without introducing another runner or test suite.
   Owner: `CONTRIBUTING.md`, `ARCHITECTURE.md`, and the diagnostic CLI help.
 
-- **Status: proposed. Resolve the provisioned MSVC inspection tools in the canonical
+- **Status: done. Resolve the provisioned MSVC inspection tools in the canonical
   local installer owner.** A clean candidate build failed before packaging because
   `dumpbin.exe` was installed under the Sandbox Visual Studio toolchain but absent
   from the caller's `PATH`; prepending its existing `Hostx64\x64` directory made the
@@ -505,7 +542,11 @@ configuration repository.
   Owner: `scripts/local_windows_installer.py` and its focused packaging-tool discovery
   checks.
 
-- **Status: proposed. Inspect presentation changes in the local installer before
+  Resolution: the local owner uses the release workflow's existing `vswhere`
+  selection contract and an absolute `dumpbin.exe` path. Actual payload import
+  inspection and the complete candidate package path passed.
+
+- **Status: done. Inspect presentation changes in the local installer before
   release dispatch.** The first immutable Herdr Extended release had correct setup
   title and copy but retained the old name in raster artwork; the mismatch was found
   only by launching the published installer and required a corrective release. For
@@ -516,7 +557,11 @@ configuration repository.
   test harness, or another package build. Owner: `CONTRIBUTING.md` and the existing
   Herdr Extended pre-release audit.
 
-- **Status: proposed. Provide one repository-compatible changed-file Rust formatter.**
+  Resolution: the procedure and audit pointer now require that conditional
+  presentation review, without installation into the working profile or another
+  packaging pass. Ordinary build-label changes do not trigger it.
+
+- **Status: declined. Provide one repository-compatible changed-file Rust formatter.**
   Formatting the one-file updater transition with `cargo fmt --all` rewrote three
   unrelated clean source files, while a direct `rustfmt` check produced a different
   full-file result from the release environment. Add one repository command that
@@ -524,3 +569,8 @@ configuration repository.
   and refuses unrelated rewrites. Expected benefit: satisfy the formatting gate
   without cleanup churn or user interruption. Owner: `justfile` and the formatting
   procedure in `CONTRIBUTING.md`.
+
+  Decision: the source toolchain and edition already agree with the release
+  owner. Document explicit changed-file `rustfmt` with child-module traversal
+  disabled and inspect the diff. A new wrapper or unrelated-rewrite detector
+  adds no demonstrated value; the scoped command was sufficient in maintenance.
