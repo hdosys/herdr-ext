@@ -1,7 +1,7 @@
 From b00f321729577d73d28bc7a6b1d026fce580a83b Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 12:00:13 +0200
-Subject: [PATCH 2/24] feat(remote): support Windows SSH hosts
+Subject: [PATCH 2/25] feat(remote): support Windows SSH hosts
 
 ---
  CHANGELOG.md                                  |    3 +

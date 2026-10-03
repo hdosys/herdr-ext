@@ -1,7 +1,7 @@
 From a3bc2d343e47465ed0cc606ba960fe308e0a1509 Mon Sep 17 00:00:00 2001
 From: Jonathan Liebig <jonathan.liebig@gmail.com>
 Date: Wed, 9 Sep 2026 12:27:15 +0200
-Subject: [PATCH 13/24] fix(endpoint): keep Windows polling-peer writes
+Subject: [PATCH 13/25] fix(endpoint): keep Windows polling-peer writes
  progressing
 
 Backport herdrdev/herdr@c43bdfcfe1c5886d5ca05bc4127ce17d593eb8e8 and herdrdev/herdr@6bc877e17af64b2ebeb4fd5f3cfa620198645ebc. Keep the native polling-peer regression bounded.

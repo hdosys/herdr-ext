@@ -1,7 +1,7 @@
 From eac9179dbe6c504d85269d725e6d80f817719c8d Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 3 Oct 2026 20:48:04 +0200
-Subject: [PATCH 24/24] fix(windows): bound process termination and omit
+Subject: [PATCH 24/25] fix(windows): bound process termination and omit
  environment diagnostics
 
 ---

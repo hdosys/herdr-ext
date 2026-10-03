@@ -1,0 +1,108 @@
+From 69b630230ee32cba95fca82ef260f63b959292d6 Mon Sep 17 00:00:00 2001
+From: User-3090 <71881005+User-3090@users.noreply.github.com>
+Date: Sat, 3 Oct 2026 20:48:35 +0200
+Subject: [PATCH 25/25] fix(onboarding): display the configured prefix key
+
+---
+ src/client/shell/overlays.rs               | 11 ++++++++---
+ src/client/shell/tests/startup_overlays.rs | 17 +++++++++++++++++
+ src/ui.rs                                  |  4 ++--
+ src/ui/onboarding.rs                       |  1 -
+ 4 files changed, 27 insertions(+), 6 deletions(-)
+
+diff --git a/src/client/shell/overlays.rs b/src/client/shell/overlays.rs
+index 696de1c60bc99acb73ba7162da6efeabaac03c1c..79a6df9af79c203e80a143b9c206512db086d4c2 100644
+--- a/src/client/shell/overlays.rs
++++ b/src/client/shell/overlays.rs
+@@ -56,7 +56,7 @@ pub(crate) fn render_client_overlay(
+         }
+     }
+     match o {
+-        ClientShellOverlay::Onboarding => render_onboarding_overlay(b, p),
++        ClientShellOverlay::Onboarding => render_onboarding_overlay(b, k, p),
+         ClientShellOverlay::ProductAnnouncement(v) => render_product_announcement_overlay(b, v, p),
+         ClientShellOverlay::ReleaseNotes(v) => {
+             render_release_notes_overlay(b, v, &s.update_install_command, p)
+@@ -536,7 +536,11 @@ fn render_product_announcement_overlay(
+     })
+ }
+ 
+-fn render_onboarding_overlay(b: &mut Buffer, p: &Palette) -> Option<OverlayRender> {
++fn render_onboarding_overlay(
++    b: &mut Buffer,
++    k: &LiveKeybindConfig,
++    p: &Palette,
++) -> Option<OverlayRender> {
+     let outer = popup(b.area, 64, 16)?;
+     let inner = panel(b, outer, p.accent, p.panel_bg)?;
+     if inner.height < 11 {
+@@ -585,9 +589,10 @@ fn render_onboarding_overlay(b: &mut Buffer, p: &Palette) -> Option<OverlayRende
+ 
+     let key_y = content.y.saturating_add(4);
+     let mut key_x = content.x;
++    let prefix = k.primary_prefix_label();
+     for (value, style) in [
+         ("  ", base),
+-        (crate::ui::ONBOARDING_PREFIX_LABEL, accent),
++        (prefix.as_str(), accent),
+         (crate::ui::ONBOARDING_PREFIX_SUFFIX, text),
+         (crate::ui::ONBOARDING_HELP_LABEL, accent),
+         (crate::ui::ONBOARDING_HELP_SUFFIX, text),
+diff --git a/src/client/shell/tests/startup_overlays.rs b/src/client/shell/tests/startup_overlays.rs
+index 9fc3008a51a374ced117701ec941d009ec6ebdfe..351a58708ba9b370ae1bdb0f7e11244919e64aa4 100644
+--- a/src/client/shell/tests/startup_overlays.rs
++++ b/src/client/shell/tests/startup_overlays.rs
+@@ -288,6 +288,23 @@ fn onboarding_has_priority_over_endpoint_product_announcement() {
+     ));
+ }
+ 
++#[test]
++fn startup_onboarding_displays_the_configured_prefix() {
++    let config: Config = toml::from_str("[keys]\nprefix = 'ctrl+a'").unwrap();
++    let config = ClientShellConfig::from_config(&config).with_startup_onboarding(true);
++    let mut state = ClientShellState::new(config);
++    state.set_snapshot(Box::new(snapshot()));
++    state.set_pane_surface(surface());
++    let frame = state.compose(106, 20).expect("onboarding frame");
++    let text: String = frame
++        .cells
++        .iter()
++        .map(|cell| cell.symbol.as_str())
++        .collect();
++    assert!(text.contains("ctrl+a enters prefix mode"));
++    assert!(!text.contains("ctrl+b enters prefix mode"));
++}
++
+ #[test]
+ fn startup_onboarding_is_client_rendered_and_modal() {
+     let config = ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
+diff --git a/src/ui.rs b/src/ui.rs
+index 141e09d3323674a2bdc5ab164bea5c8d4f94e960..8fb7c7d3056e4dfd82aef7c60480ff5008dd1808 100644
+--- a/src/ui.rs
++++ b/src/ui.rs
+@@ -12,8 +12,8 @@ mod widgets;
+ 
+ pub(crate) use self::onboarding::{
+     onboarding_welcome_continue_rect, ONBOARDING_DESCRIPTION, ONBOARDING_HELP_LABEL,
+-    ONBOARDING_HELP_SUFFIX, ONBOARDING_NEXT, ONBOARDING_PREFIX_LABEL, ONBOARDING_PREFIX_SUFFIX,
+-    ONBOARDING_SUBTITLE, ONBOARDING_TITLE,
++    ONBOARDING_HELP_SUFFIX, ONBOARDING_NEXT, ONBOARDING_PREFIX_SUFFIX, ONBOARDING_SUBTITLE,
++    ONBOARDING_TITLE,
+ };
+ #[cfg(all(test, unix))]
+ pub(crate) use self::panes::popup_pane_rects;
+diff --git a/src/ui/onboarding.rs b/src/ui/onboarding.rs
+index 94c9b2a0728b0e8a7c2e500532f22bb5a41b4126..148574d69dac36a9be3b2fe803c4a2f0af394c8e 100644
+--- a/src/ui/onboarding.rs
++++ b/src/ui/onboarding.rs
+@@ -7,7 +7,6 @@ pub(crate) const ONBOARDING_DESCRIPTION: [&str; 3] = [
+     "  click the sidebar to switch workspaces, drag pane",
+     "  borders to resize, right-click for context menus.",
+ ];
+-pub(crate) const ONBOARDING_PREFIX_LABEL: &str = "ctrl+b";
+ pub(crate) const ONBOARDING_PREFIX_SUFFIX: &str = " enters prefix mode · ";
+ pub(crate) const ONBOARDING_HELP_LABEL: &str = "?";
+ pub(crate) const ONBOARDING_HELP_SUFFIX: &str = " shows keybinds and settings";
+-- 
+2.55.0.windows.5
+

@@ -4,6 +4,33 @@ This changelog records only user-visible changes released by Herdr Extended. For
 
 ## Unreleased
 
+## [2026.10.03.2] - 2026-10-03
+
+Herdr Extended snapshot based on Herdr v0.9.3 plus the maintained delta.
+
+### Added
+- Explicit remote provisioning transfers portable settings from the existing client
+  configuration while preserving the target's shell, worktree directory, and other
+  machine-local values. JSON results report `config_outcome` as `applied` or
+  `no_source` so provisioning tools can confirm configuration ownership.
+- Script-status links can be opened on the client that displays them.
+
+### Fixed
+- OpenCode root panes report active child work immediately, before child-pane startup
+  completes. Child-pane lifecycle and prompt-readiness handling remain session-bound.
+- Windows pane, integration, and custom-command callbacks use the managed launcher,
+  allowing Claude session hooks to report their state without a missing-runtime-lease
+  error (`hdosys/herdr-ext#1`).
+- Windows uninstall honors the selected settings-removal option, and managed cleanup
+  preserves files it cannot safely identify as installer-owned.
+- Onboarding displays the configured prefix key rather than a fixed default.
+- Windows process termination uses the required process rights, and PTY diagnostics
+  no longer print environment values.
+
+### Verification
+- Native Windows checks passed for managed callback launch, configuration-result
+  serialization, and packaged installer inputs.
+
 ## [2026.09.15.5] - 2026-09-15
 
 Herdr Extended snapshot based on Herdr v0.9.0 plus the maintained delta.

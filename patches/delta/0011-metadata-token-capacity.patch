@@ -1,7 +1,7 @@
 From 5a8d125e27536a9a2a21a2fd6d8955e6d274fc8a Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 26 Aug 2026 13:52:34 +0200
-Subject: [PATCH 9/24] feat(api): expand metadata token capacity
+Subject: [PATCH 9/25] feat(api): expand metadata token capacity
 
 ---
  docs/next/CHANGELOG.md              |  1 +

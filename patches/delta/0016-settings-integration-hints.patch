@@ -1,7 +1,7 @@
 From 748b31e435e50fa21150942d9688b43462a43471 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 30 Aug 2026 17:33:23 +0200
-Subject: [PATCH 11/24] fix(settings): show valid integration hints
+Subject: [PATCH 11/25] fix(settings): show valid integration hints
 
 Refs herdrdev/herdr#2880
 ---
