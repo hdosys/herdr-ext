@@ -1,4 +1,4 @@
-From f292d3acb16b239fbda0f230a24c57bd32b551f6 Mon Sep 17 00:00:00 2001
+From 5d6d273d4ba9d4b46cbbfb284da604168b0ddf17 Mon Sep 17 00:00:00 2001
 From: hdosys <71881005+hdosys@users.noreply.github.com>
 Date: Wed, 29 Jul 2026 19:41:54 +0200
 Subject: [PATCH 4/23] fix(opencode): preserve truthful lifecycle state
@@ -17,24 +17,24 @@ Defer root-session errors until idle or a bounded fallback, cancel them when exp
  src/client/shell/agent_sidebar.rs             |    5 +
  .../tests/agents_worktrees_notifications.rs   |   32 +
  src/integration/actions.rs                    |   15 +-
- .../assets/opencode/herdr-agent-state.js      | 1023 +++++++++--
- .../assets/opencode/herdr-agent-state.test.ts | 1549 ++++++++++++++++-
- .../assets/opencode/herdr-tui-session.js      |  779 +++------
+ .../assets/opencode/herdr-agent-state.js      | 1028 +++++++++--
+ .../assets/opencode/herdr-agent-state.test.ts | 1579 ++++++++++++++++-
+ .../assets/opencode/herdr-tui-session.js      |  779 +++-----
  .../assets/opencode/herdr-tui-session.test.ts |  808 +++------
  src/integration/assets/opencode/tui.js        |    5 -
  src/integration/env.rs                        |   39 -
  src/integration/mod.rs                        |    5 +-
- src/integration/opencode_config.rs            |  393 ++---
+ src/integration/opencode_config.rs            |  393 ++--
  src/integration/registry.rs                   |   12 -
  src/integration/targets.rs                    |   33 +-
- src/integration/tests.rs                      |  293 +---
+ src/integration/tests.rs                      |  293 +--
  src/integration/types.rs                      |    4 +-
  src/platform/client_state.rs                  |   78 +
  src/platform/mod.rs                           |    2 +
  src/terminal/metadata.rs                      |   17 +-
  src/terminal/state.rs                         |  108 +-
  src/workspace.rs                              |  123 ++
- 29 files changed, 3441 insertions(+), 1959 deletions(-)
+ 29 files changed, 3476 insertions(+), 1959 deletions(-)
  delete mode 100644 src/integration/assets/opencode/tui.js
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
@@ -353,7 +353,7 @@ index e57fc0c25028373b91b1555861b11310959f5cf3..92c4fa22cb429c0f1dc87f5c8ac4730e
              }
              messages
 diff --git a/src/integration/assets/opencode/herdr-agent-state.js b/src/integration/assets/opencode/herdr-agent-state.js
-index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de06204db6 100644
+index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..e42c7c4e521442fe8b30e4b6390636bae7b9ba3a 100644
 --- a/src/integration/assets/opencode/herdr-agent-state.js
 +++ b/src/integration/assets/opencode/herdr-agent-state.js
 @@ -2,19 +2,26 @@
@@ -361,7 +361,7 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
  // add custom hooks/plugins beside this file instead of editing it.
  // HERDR_INTEGRATION_ID=opencode
 -// HERDR_INTEGRATION_VERSION=13
-+// HERDR_INTEGRATION_VERSION=28
++// HERDR_INTEGRATION_VERSION=29
  
 +import { createHash } from "node:crypto";
  import net from "node:net";
@@ -531,7 +531,7 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
      process.env.HERDR_ENV !== "1" ||
      !process.env.HERDR_SOCKET_PATH ||
      !process.env.HERDR_PANE_ID
-@@ -142,51 +88,852 @@ export const HerdrAgentStatePlugin = async () => {
+@@ -142,51 +88,857 @@ export const HerdrAgentStatePlugin = async () => {
      return {};
    }
  
@@ -1348,15 +1348,15 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
 +          child.working = true;
 +        }
 +        if (await syncRootSelection()) {
-+          await reconcileChildPane(info.id);
 +          if (rootIsIdle && rootSessionFor(info.id) === currentRootSessionID) {
 +            await reportIdleOrConfirmError(currentRootSessionID);
            }
 -          await reportState(state, rootSessionID);
-         }
-         return;
-       }
- 
++          await reconcileChildPane(info.id);
++        }
++        return;
++      }
++
 +      if (type === "session.created" || type === "session.updated") return;
 +      if (!(type?.startsWith("session.") || CHILD_EVENT_STATES.has(type) ||
 +            type === "tool.execute.before" || type === "tool.execute.after")) return;
@@ -1369,7 +1369,11 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
 +      if (disposing || disposed) return;
 +
 +      if (child) {
-+        if (childStatus && selectionKnown) await reconcileChildPane(sessionID);
++        // Working is already known; pane startup must not delay its report.
++        // Idle still needs the live-status confirmation performed by reconciliation.
++        if (childStatus && childStatus !== "working" && selectionKnown) {
++          await reconcileChildPane(sessionID);
++        }
 +        const state = updatePromptState(type, properties, sessionID)
 +          ?? CHILD_EVENT_STATES.get(type);
 +        if (state && selectionKnown && rootSessionFor(sessionID) === currentRootSessionID &&
@@ -1378,15 +1382,16 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
 +        } else if (childStatus && selectionKnown && rootIsIdle &&
 +                   rootSessionFor(sessionID) === currentRootSessionID) {
 +          await reportIdleOrConfirmError(currentRootSessionID);
-+        }
+         }
++        if (childStatus === "working" && selectionKnown) await reconcileChildPane(sessionID);
 +        return;
 +      }
 +
 +      updatePromptState(type, properties, sessionID);
 +      if (!selectionKnown || (sessionID && sessionID !== currentRootSessionID)) {
-+        return;
-+      }
-+
+         return;
+       }
+ 
        switch (type) {
 -        case "session.created":
 -          // Creation is server-global, so an attached client may own it. The
@@ -1411,7 +1416,7 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
            }
            break;
          }
-@@ -196,29 +943,37 @@ export const HerdrAgentStatePlugin = async () => {
+@@ -196,29 +948,37 @@ export const HerdrAgentStatePlugin = async () => {
          case "question.replied":
          case "question.rejected":
          case "session.compacted":
@@ -1463,7 +1468,7 @@ index 09c007043ddda1da8ca2634d1edeb44fc8cefd73..0855b7a2b22437f1319f08574d35f9de
 -  setup() {},
 -};
 diff --git a/src/integration/assets/opencode/herdr-agent-state.test.ts b/src/integration/assets/opencode/herdr-agent-state.test.ts
-index 93d27583c5562f8d6b10c35c599c6e71c063a2f0..f90de1ea42b153c37e859d739f3ac376ba07f965 100644
+index 93d27583c5562f8d6b10c35c599c6e71c063a2f0..0c47a65064df0da701233363c47e2c06eaa760b5 100644
 --- a/src/integration/assets/opencode/herdr-agent-state.test.ts
 +++ b/src/integration/assets/opencode/herdr-agent-state.test.ts
 @@ -1,40 +1,65 @@
@@ -1742,7 +1747,7 @@ index 93d27583c5562f8d6b10c35c599c6e71c063a2f0..f90de1ea42b153c37e859d739f3ac376
    expect(requests.map(requestMethod)).toEqual(["pane.report_agent"]);
    expect(requests.map(requestSessionID)).toEqual(["attached-session"]);
  });
-@@ -164,104 +292,1333 @@ test("reports retry status as working", async () => {
+@@ -164,104 +292,1363 @@ test("reports retry status as working", async () => {
    expect(requests.map(requestSessionID)).toEqual(["root-session"]);
  });
  
@@ -2404,6 +2409,36 @@ index 93d27583c5562f8d6b10c35c599c6e71c063a2f0..f90de1ea42b153c37e859d739f3ac376
 +  expect(requests.map(requestMethod)).toEqual(["pane.close"]);
 +  expect(requestParam(requests[0], "pane_id")).toBe("test:p2");
 +});
++
++for (const transition of ["created", "busy"] as const) {
++  test(`reports root work before ${transition} child pane setup completes`, async () => {
++    const plugin = await loadPlugin({ serverUrl: new URL("http://127.0.0.1:4096") });
++    await plugin.event(sessionStatusEvent("root-session", { type: "idle" }));
++    if (transition === "busy") {
++      await openDirectChild(plugin);
++      await plugin.event(sessionStatusEvent("child-session", { type: "idle" }));
++    }
++    requests.length = 0;
++    clients.length = 0;
++    autoAcknowledge = false;
++    const firstRequest = waitForNextRequest();
++    const opening = plugin.event(transition === "busy"
++      ? sessionStatusEvent("child-session", { type: "busy" })
++      : { event: { type: "session.created", properties: {
++        info: { id: "child-session", parentID: "root-session" },
++      } } });
++    await firstRequest;
++    try {
++      expect(requestState(requests[0])).toBe("working");
++      expect(requestSessionID(requests[0])).toBe("root-session");
++    } finally {
++      autoAcknowledge = true;
++      acknowledgeRequest(0, 0);
++      await opening;
++      await plugin.dispose();
++    }
++  });
++}
 +
 +test("keeps the root working while a direct child is busy", async () => {
 +  const plugin = await loadPlugin();
@@ -3147,7 +3182,7 @@ index 93d27583c5562f8d6b10c35c599c6e71c063a2f0..f90de1ea42b153c37e859d739f3ac376
    return requestParam(request, "state");
  }
 diff --git a/src/integration/assets/opencode/herdr-tui-session.js b/src/integration/assets/opencode/herdr-tui-session.js
-index d21c1f7e806ca51f24a095463be589163e02ed0a..f62e364310a543986c2d4b1ffada839600bafb88 100644
+index d21c1f7e806ca51f24a095463be589163e02ed0a..bf1cd9929038f6c51cb75c40d630e4cda4bdb4b9 100644
 --- a/src/integration/assets/opencode/herdr-tui-session.js
 +++ b/src/integration/assets/opencode/herdr-tui-session.js
 @@ -1,7 +1,7 @@
@@ -3155,7 +3190,7 @@ index d21c1f7e806ca51f24a095463be589163e02ed0a..f62e364310a543986c2d4b1ffada8396
  // managed by herdr; reinstalling or updating the integration overwrites this file.
  // HERDR_INTEGRATION_ID=opencode-tui
 -// HERDR_INTEGRATION_VERSION=13
-+// HERDR_INTEGRATION_VERSION=28
++// HERDR_INTEGRATION_VERSION=29
  
  import net from "node:net";
  
@@ -4987,7 +5022,7 @@ index bec9e23bfcb1e0ec36733c13a72caf3de87d9767..3a75de670fb3c3ef14cbdd7dfd6445d7
 -    }
 -}
 diff --git a/src/integration/mod.rs b/src/integration/mod.rs
-index 69142bd77d503387b5086b97b3bf4b8c9fac0727..f21238b159bd41497d61ec8baa01ae6dc96be6d9 100644
+index 69142bd77d503387b5086b97b3bf4b8c9fac0727..516eba2c7bf93df9d5870b539d7f3580a73422f5 100644
 --- a/src/integration/mod.rs
 +++ b/src/integration/mod.rs
 @@ -181,10 +181,7 @@ const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-agent-st
@@ -4998,7 +5033,7 @@ index 69142bd77d503387b5086b97b3bf4b8c9fac0727..f21238b159bd41497d61ec8baa01ae6d
 -const OPENCODE_V2_TUI_PLUGIN_SPEC: &str = "./herdr-opencode";
 -const OPENCODE_V2_TUI_PLUGIN_ASSET: &str = include_str!("assets/opencode/tui.js");
 -const OPENCODE_INTEGRATION_VERSION: u32 = 13;
-+const OPENCODE_INTEGRATION_VERSION: u32 = 28;
++const OPENCODE_INTEGRATION_VERSION: u32 = 29;
  const KILO_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state.js";
  const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/herdr-agent-state.js");
  const KILO_INTEGRATION_VERSION: u32 = 4;
@@ -5666,7 +5701,7 @@ index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa
  }
  
 diff --git a/src/integration/tests.rs b/src/integration/tests.rs
-index 7743fbf2021c2a919cb99ca69b8eb8a014441dba..cf4dddd85543cf01d74a112fdea821a39216a362 100644
+index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc3851bcf4d9 100644
 --- a/src/integration/tests.rs
 +++ b/src/integration/tests.rs
 @@ -4,8 +4,6 @@ use super::env::*;
@@ -5686,7 +5721,7 @@ index 7743fbf2021c2a919cb99ca69b8eb8a014441dba..cf4dddd85543cf01d74a112fdea821a3
      #[cfg(windows)]
      std::env::remove_var("APPDATA");
      std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
-@@ -2342,288 +2339,11 @@ fn install_opencode_writes_server_and_tui_plugins() {
+@@ -2316,288 +2313,11 @@ fn install_opencode_writes_server_and_tui_plugins() {
      let tui_config: Value =
          serde_json::from_str(&fs::read_to_string(&installed.tui_config_path).unwrap()).unwrap();
      assert_eq!(tui_config["plugin"], json!([OPENCODE_TUI_PLUGIN_SPEC]));
@@ -5975,7 +6010,7 @@ index 7743fbf2021c2a919cb99ca69b8eb8a014441dba..cf4dddd85543cf01d74a112fdea821a3
  #[test]
  fn opencode_status_requires_the_tui_plugin_and_config_entry() {
      let _lock = integration_env_lock();
-@@ -2667,16 +2387,10 @@ fn uninstall_opencode_removes_plugins_and_managed_tui_config_entry() {
+@@ -2641,16 +2361,10 @@ fn uninstall_opencode_removes_plugins_and_managed_tui_config_entry() {
  
      assert!(result.removed_plugin);
      assert!(result.removed_tui_plugin);
@@ -5994,7 +6029,7 @@ index 7743fbf2021c2a919cb99ca69b8eb8a014441dba..cf4dddd85543cf01d74a112fdea821a3
      assert_eq!(installed.plugin_path, result.plugin_path);
  
      std::env::remove_var("HOME");
-@@ -2732,9 +2446,10 @@ fn uninstall_opencode_removes_plugins_when_tui_config_is_invalid() {
+@@ -2706,9 +2420,10 @@ fn uninstall_opencode_removes_plugins_when_tui_config_is_invalid() {
      assert!(err.contains("failed to parse OpenCode TUI config"));
      assert!(!plugin_path.exists());
      assert!(!tui_plugin_path.exists());
@@ -6119,10 +6154,10 @@ index d339bae82efdb9caee62ac5629842d2e40f0df07..69293d62bd3cc37b7cc88879cbcdf4a8
  pub(crate) fn create_private_state_file(path: &Path) -> std::io::Result<std::fs::File> {
      super::create_remote_ssh_config_file(path)
 diff --git a/src/platform/mod.rs b/src/platform/mod.rs
-index fc6dc642010472f2b65dbe613740926ceb89e57d..a4476fd71671cc57a62761bea1092b7691b9163f 100644
+index acf493af50aaa493c7c760f16426c7bb41612bc6..a9a8cd9cb5a93e4b229a172b3ae1845a58579af0 100644
 --- a/src/platform/mod.rs
 +++ b/src/platform/mod.rs
-@@ -365,6 +365,8 @@ pub(crate) mod unix_image_files;
+@@ -366,6 +366,8 @@ pub(crate) mod unix_image_files;
  pub(crate) use unix_common::{begin_cli_output, forward_remote_bridge_stdio, RemoteBridgeWake};
  
  mod client_state;
