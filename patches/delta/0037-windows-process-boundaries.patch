@@ -1,0 +1,89 @@
+From eac9179dbe6c504d85269d725e6d80f817719c8d Mon Sep 17 00:00:00 2001
+From: User-3090 <71881005+User-3090@users.noreply.github.com>
+Date: Sat, 3 Oct 2026 20:48:04 +0200
+Subject: [PATCH 24/24] fix(windows): bound process termination and omit
+ environment diagnostics
+
+---
+ src/platform/windows.rs               | 35 ++++++++++++++++++++++++---
+ vendor/portable-pty/src/cmdbuilder.rs |  2 --
+ 2 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/src/platform/windows.rs b/src/platform/windows.rs
+index 2aced950d9a5f42e521705e7341307f30c53e76e..cfca20b772c9d290d7fad38ccd3d1130480011ec 100644
+--- a/src/platform/windows.rs
++++ b/src/platform/windows.rs
+@@ -3143,11 +3143,11 @@ pub fn signal_processes(pids: &[u32], signal: Signal) {
+     }
+ 
+     for &pid in pids {
+-        let Some(process) = ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION) else {
++        let Some(process) = ProcessHandle::open(pid, PROCESS_TERMINATE) else {
+             continue;
+         };
+-        unsafe {
+-            TerminateProcess(process.0, 1);
++        if unsafe { TerminateProcess(process.0, 1) } == 0 {
++            tracing::warn!(pid, error = %std::io::Error::last_os_error(), "failed to terminate pane process");
+         }
+     }
+ }
+@@ -4105,6 +4105,35 @@ mod tests {
+         assert!(!command.contains("EncodedCommand"));
+     }
+ 
++    #[test]
++    fn pane_signal_terminates_an_owned_process() {
++        let job = super::ChildProcessJob::new_kill_on_close().expect("create signal test job");
++        let mut child = Command::new("powershell.exe")
++            .args([
++                "-NoLogo",
++                "-NoProfile",
++                "-Command",
++                "Start-Sleep -Seconds 30",
++            ])
++            .stdin(Stdio::null())
++            .stdout(Stdio::null())
++            .stderr(Stdio::null())
++            .spawn()
++            .expect("spawn signal test child");
++        if let Err(err) = job.assign(&child) {
++            let _ = child.kill();
++            let _ = super::wait_child_bounded(&mut child, Duration::from_secs(5));
++            panic!("assign signal test child: {err}");
++        }
++        super::signal_processes(&[child.id()], super::Signal::Terminate);
++        let stopped = super::wait_child_bounded(&mut child, Duration::from_secs(5));
++        if !matches!(stopped, Ok(Some(_))) {
++            job.terminate_and_wait(&mut child, Duration::from_secs(5))
++                .expect("clean up signal test child");
++        }
++        assert!(stopped.expect("wait for signal test child").is_some());
++    }
++
+     #[test]
+     fn child_process_job_assigns_and_terminates_within_deadline() {
+         let mut child = Command::new("powershell.exe")
+diff --git a/vendor/portable-pty/src/cmdbuilder.rs b/vendor/portable-pty/src/cmdbuilder.rs
+index e4a9edc786c9dee8362e0999ffd704bb1b6a5c3d..97d380cedebb7e6aed16febb22c01382b79f77d4 100644
+--- a/vendor/portable-pty/src/cmdbuilder.rs
++++ b/vendor/portable-pty/src/cmdbuilder.rs
+@@ -179,7 +179,6 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
+                         continue;
+                     }
+                     if let Ok(value) = reg_value_to_string(&value) {
+-                        log::trace!("adding SYS env: {:?} {:?}", name, value);
+                         env.insert(
+                             EnvEntry::map_key(name.clone().into()),
+                             EnvEntry {
+@@ -213,7 +212,6 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
+                             value
+                         };
+ 
+-                        log::trace!("adding USER env: {:?} {:?}", name, value);
+                         env.insert(
+                             EnvEntry::map_key(name.clone().into()),
+                             EnvEntry {
+-- 
+2.55.0.windows.5
+
