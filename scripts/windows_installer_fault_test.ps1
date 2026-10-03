@@ -236,7 +236,6 @@ $skillRoot = Join-Path $env:USERPROFILE ".agents\skills\herdr"
 $skillPath = Join-Path $skillRoot "SKILL.md"
 $claudeSkillRoot = Join-Path $env:CLAUDE_CONFIG_DIR "skills\herdr"
 $claudeSkillPath = Join-Path $claudeSkillRoot "SKILL.md"
-$settingsRoot = Join-Path $env:APPDATA "herdr"
 $inheritedUserProfileDecoy = Join-Path $AgentUserProfileRoot "inherited-userprofile-decoy"
 New-Item -ItemType Directory -Path $inheritedUserProfileDecoy | Out-Null
 $env:USERPROFILE = $inheritedUserProfileDecoy
@@ -272,10 +271,14 @@ function Start-TestProcess {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
         [string[]]$Arguments = @(),
-        [int]$TimeoutMilliseconds = 120000
+        [int]$TimeoutMilliseconds = 120000,
+        [string]$StandardOutputPath
     )
 
-    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru
+    $startOptions = @{ FilePath = $FilePath; ArgumentList = $Arguments; PassThru = $true }
+    if ($StandardOutputPath) { $startOptions.RedirectStandardOutput = $StandardOutputPath }
+    $process = Start-Process @startOptions
+    [void]$process.Handle
     try {
         if (-not $process.WaitForExit($TimeoutMilliseconds)) {
             $taskkill = Join-Path $env:SystemRoot "System32\taskkill.exe"
@@ -301,6 +304,24 @@ function Start-TestProcess {
         $process.Dispose()
     }
 }
+
+# Like NSIS, resolve shell folders in a fresh process after changing USERPROFILE.
+# Windows PowerShell 5.1 can retain the original shell-folder result in this process.
+$roamingQueryOutput = Join-Path $AgentUserProfileRoot 'roaming-root.txt'
+$roamingQuery = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::WriteLine([Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData, [Environment+SpecialFolderOption]::DoNotVerify))'
+$roamingQueryEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($roamingQuery))
+$roamingQueryExit = Start-TestProcess -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Arguments @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $roamingQueryEncoded
+) -TimeoutMilliseconds 10000 -StandardOutputPath $roamingQueryOutput
+if ($roamingQueryExit -ne 0) { throw "The Windows roaming-folder query failed with exit code $roamingQueryExit." }
+$roamingRoot = [IO.File]::ReadAllText($roamingQueryOutput, [Text.Encoding]::UTF8).Trim()
+Remove-Item -LiteralPath $roamingQueryOutput
+if ([string]::IsNullOrWhiteSpace($roamingRoot) -or
+    -not [IO.Path]::GetFullPath($roamingRoot).StartsWith(
+        $AgentUserProfileRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "The Windows roaming folder is outside the test-owned profile; settings fixtures were not created."
+}
+$settingsRoot = Join-Path $roamingRoot "herdr"
 
 function New-TestIdentityLauncher {
     param(
@@ -1210,7 +1231,7 @@ try {
         "uninstall",
         "--install-root", $installRoot,
         "--user-profile-root", $AgentUserProfileRoot,
-        "--roaming-app-data-root", $env:APPDATA,
+        "--roaming-app-data-root", $roamingRoot,
         "--skill-hash-manifest", (Join-Path $newPackage "skill\managed-skill-hashes.txt"),
         "--settings-disposition", "Keep",
         "--skill-disposition", "Auto"
