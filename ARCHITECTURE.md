@@ -207,6 +207,68 @@ behavior; code and tests remain the detailed implementation truth.
   with an advancing sequence when it returns. Process-exit and explicit hook-clear
   suppression remain fail closed, so a stale or replaced session cannot resurrect.
 
+## Draft-safe OpenCode messages
+
+**Status: selected follow-up design, not implemented.** `BACKLOG.md` owns the
+future user-visible outcome. This OpenCode-only path does not claim to fix
+[herdrdev/herdr#4001](https://github.com/herdrdev/herdr/issues/4001) for other agents.
+
+The current generic `agent.prompt` path constructs text plus Enter and submits
+both through the recipient's terminal. An already-present human draft belongs to
+the application's editor, so even an indivisible terminal write can submit it.
+Reading the screen before sending only adds a check/write race. Agent lifecycle
+status, focus and elapsed time do not prove that the editor is empty.
+
+The selected delivery path is:
+
+```text
+herdr agent prompt
+  -> existing OpenCode TUI integration for the acknowledged pane/session
+  -> that TUI's configured api.client.session.promptAsync(...)
+  -> OpenCode session message processing
+```
+
+The human's draft remains local to the TUI. Do not append to, submit, clear,
+save/restore or otherwise manipulate its prompt widget. Do not replace this
+with a clipboard operation, synthetic Enter, screen parsing or a typing timeout.
+Explicit human/automation ownership modes were rejected because they introduce
+an additional operator handoff instead of allowing both activities to continue.
+
+Reuse the pane-local TUI's existing selected-session authority and configured
+client, including its directory, transport and authentication context. Bind each
+request to that acknowledged session and terminal instance; reject stale or
+unavailable recipients instead of retargeting a newly selected session. Preserve
+the existing readiness and blocked-state safeguards. An unavailable OpenCode
+integration must return an actionable error, never fall back to terminal input.
+
+The missing implementation is a targeted Herdr-to-TUI delivery and acknowledgement
+path. Reuse the existing integration and IPC owners rather than introduce another
+agent framework, durable inbox, broker or background polling service. The precise
+registration, request correlation, cancellation and acknowledgement contract must
+be settled at that boundary before coding. Do not export authentication secrets
+through pane metadata or assume that a reported server URL is externally usable.
+
+Source inspection of OpenCode **1.18.33** establishes:
+
+- The TUI plugin exposes `api.client`. The default TUI may use worker-RPC fetch
+  rather than a listening HTTP server; a localhost URL is not reachability proof.
+- `session.promptAsync` targets `POST /session/{sessionID}/prompt_async`. TUI
+  prompt clearing is a separate local action; ordinary incoming session/message
+  events do not invoke it. Do not use TUI append/submit commands for this delivery.
+- HTTP 204 acknowledges asynchronous request acceptance, not message persistence,
+  processing completion or an answer. Later processing can fail. Busy submissions
+  join the existing runner; this is not a guaranteed separate FIFO turn per call.
+  Report those semantics truthfully and do not blindly resend an uncertain result.
+- The TUI client's `@opencode-ai/sdk/v2` namespace is not a migration to the future
+  OpenCode V2 API/protocol. This design retains the existing V1 integration path.
+
+Evidence: [prompt lifecycle](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/tui/src/component/prompt/index.tsx#L1093-L1145),
+[configured plugin client](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/tui/src/plugin/adapters.tsx#L300-L304),
+[session handlers](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts#L295-L329),
+and [default TUI transport](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/cli/cmd/tui.ts#L233-L249).
+These are source findings, not provider-backed runtime acceptance. No activation,
+live-session restart, public release or implementation is implied by this decision.
+
 ## Managed Windows Distribution
 
 - The managed install uses exactly one stable launcher at `bin/herdr.exe` and

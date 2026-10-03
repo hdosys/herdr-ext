@@ -15,4 +15,9 @@ rules belong in `PRODUCT.md`; stable technical design belongs in
 
 ## Items
 
-No selected future product outcomes.
+- Make automated messages to OpenCode arrive independently of the human's
+  unfinished input. Preserve the draft while agent communication continues,
+  without manual input-ownership modes or a release step. Scope this outcome to
+  OpenCode; do not claim a generic fix for other agents. The selected technical
+  design and boundaries are in
+  [Draft-safe OpenCode messages](ARCHITECTURE.md#draft-safe-opencode-messages).
