@@ -179,7 +179,6 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                         continue;
                     }
                     if let Ok(value) = reg_value_to_string(&value) {
-                        log::trace!("adding SYS env: {:?} {:?}", name, value);
                         env.insert(
                             EnvEntry::map_key(name.clone().into()),
                             EnvEntry {
@@ -213,7 +212,6 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                             value
                         };
 
-                        log::trace!("adding USER env: {:?} {:?}", name, value);
                         env.insert(
                             EnvEntry::map_key(name.clone().into()),
                             EnvEntry {
