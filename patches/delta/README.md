@@ -19,7 +19,7 @@ The current queue targets Herdr v0.9.3 and retains these logical slots:
 - 0010: transient foreground takeover recovery.
 - 0011: 64-token metadata capacity.
 - 0012: client-local completion controls and cancellation suppression.
-- 0016: section-aware integration settings hints.
+- 0016: hide the inapplicable row-selection hint in integration settings.
 - 0032: Herdr Extended runtime, installer, update-source, and documentation identity.
 - 0033: current installer artwork.
 - 0034: validated asset-transition handling.
@@ -42,18 +42,19 @@ remain unused; the frozen upstream archive is unchanged.
 
 These corrections originated in the v0.9.0 distribution and are retained only
 where the fork still needs implementation or product-owned boundary coverage on
-v0.9.3. An upstream PR reference records provenance. The retained queue does not
-reintroduce older implementations over equivalent newer upstream code.
+v0.9.3. Runtime changes and test-only remainders are distinct below. An upstream PR
+reference records provenance, not current runtime ownership. The retained queue
+does not reintroduce older implementations over equivalent newer upstream code.
 
-| Slot | Responsibility | Reviewed source |
-| --- | --- | --- |
-| [0019](0019-windows-bridge-blocking-download.patch) | Blocking Windows SSH bridge downloads and native socket fixture | [PR 3661](https://github.com/herdrdev/herdr/pull/3661) |
-| [0020](0020-windows-endpoint-writer-progress.patch) | Windows polling-peer write progress and stall detection | [PR 3721](https://github.com/herdrdev/herdr/pull/3721) |
-| [0021](0021-associated-control-key-text.patch) | Matching associated text for control keys, including Tab and Escape | [PR 3592](https://github.com/herdrdev/herdr/pull/3592) |
-| [0026](0026-public-agent-focus-projection.patch) | Successful public Agent focus on attached clients | [PR 3764](https://github.com/herdrdev/herdr/pull/3764) |
-| [0028](0028-exact-recorded-session-deletion.patch) | Exact recorded session names and live-session deletion refusal | Local correction for [issue 3819](https://github.com/herdrdev/herdr/issues/3819) |
-| [0029](0029-local-startup-diagnostics.patch) | Visible Local startup diagnostics without freezing healthy remote views | Local correction for [issue 3759](https://github.com/herdrdev/herdr/issues/3759) |
-| [0031](0031-machine-setup-discovery.patch) | Machine setup guidance in the client menu | Local discoverability improvement |
+| Slot | Current delta | Responsibility | Reviewed source |
+| --- | --- | --- | --- |
+| [0019](0019-windows-bridge-blocking-download.patch) | Regression coverage; production formatting only | Native Windows bridge polling/download and peer-disconnect checks. Runtime behavior comes from upstream. | [PR 3661](https://github.com/herdrdev/herdr/pull/3661) |
+| [0020](0020-windows-endpoint-writer-progress.patch) | Runtime and checks | Bounded writer chunks, Windows pipe capacity, polling-peer progress, and stall detection. | [PR 3721](https://github.com/herdrdev/herdr/pull/3721) |
+| [0021](0021-associated-control-key-text.patch) | Regression coverage only | Captured Tab/Escape associated-text cases against the upstream parser. | [PR 3592](https://github.com/herdrdev/herdr/pull/3592) |
+| [0026](0026-public-agent-focus-projection.patch) | Regression coverage only | Failed-focus preservation and bounded response waits against upstream public Agent focus. | [PR 3764](https://github.com/herdrdev/herdr/pull/3764) |
+| [0028](0028-exact-recorded-session-deletion.patch) | Runtime and checks | Recorded-directory selection and unmatched-name errors, preserving upstream exact-name and live-session guards. | Local correction for [issue 3819](https://github.com/herdrdev/herdr/issues/3819) |
+| [0029](0029-local-startup-diagnostics.patch) | Runtime, documentation, and checks | Visible Local startup diagnostics without freezing healthy remote views. | Local correction for [issue 3759](https://github.com/herdrdev/herdr/issues/3759) |
+| [0031](0031-machine-setup-discovery.patch) | Runtime | Add machine menu link to setup documentation. | Local discoverability improvement |
 
 Keep each temporary correction with its original author credit, immutable source
 references, and necessary fork adaptations. Retire it only during an explicitly

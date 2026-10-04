@@ -61,9 +61,9 @@ tests remain the detailed implementation truth.
   Welcome description derives and displays the current reviewed Herdr base version
   from the canonical package input. Setup identifies the
   fork as an unofficial distribution built from the latest reviewed stable Herdr
-  release plus the maintained Windows
-  patches. The destination remains fixed without displaying a path or offering a
-  directory choice on Welcome. Setup presents the Apache-2.0 license before modifying
+  release plus the maintained improvements. The destination remains fixed without
+  displaying a path or offering a directory choice on Welcome. Setup presents the
+  Apache-2.0 license before modifying
   files and ends with the exact first command plus separate user-invoked links to the
   fork guide and official upstream project. It never opens Herdr or a browser
   automatically. The installed payload and portable ZIP include the same license as
@@ -307,17 +307,23 @@ tests remain the detailed implementation truth.
   understanding or action.
 - Status inspection is observational: viewing status never starts, retries, or
   changes work.
-- Windows remote downloads and polling-peer connections preserve forward progress
-  without extending stall timeouts. Matching Tab/Escape reports and nested mouse
-  input remain usable without weakening input validation.
-- Worktree collapse preferences belong to their machine, and creating a worktree
+- The Windows polling-peer extension preserves forward progress through bounded
+  writes and pipe capacity without extending stall timeouts. Upstream owns bridge
+  download and matching Tab/Escape behavior; retained fork checks exercise these
+  boundaries without replacing their runtime implementation. Nested mouse input is
+  also supplied by the reviewed upstream base.
+- The reviewed upstream base owns workspace navigation, focus, and geometry:
+  worktree collapse preferences belong to their machine, and creating a worktree
   focuses it only in the requesting client. Navigate can preview workspaces across
   connected machines while refusing actions on stale selections. Explicit public
   Agent focus reaches attached clients; activating a background view preserves the
   focused terminal's geometry.
-- Session deletion requires the exact recorded name and refuses a live target.
-  A Local startup failure remains visible when saved remote machines are present,
-  without interrupting healthy remote views or changing restored selection.
+- Session deletion preserves upstream's exact-name and live-target guards. The
+  maintained correction additionally selects only recorded directories and reports
+  unmatched names instead of apparent success.
+- Maintained Local startup diagnostics remain visible when saved remote machines
+  are present, without interrupting healthy remote views or changing restored
+  selection.
 
 ## Release Promise
 

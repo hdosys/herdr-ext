@@ -744,7 +744,13 @@ Keep `PRODUCT.md` as the concise canonical user-visible truth and
 facts into the fork README without turning it into internal design documentation.
 Keep root `README.md` and `docs/next/README.md` byte-for-byte identical. Product
 documentation carried in release source belongs in the logical mailbox that owns
-the behavior. When a completed, pushed development candidate fixes a referenced
+the behavior. Keep the README contribution comparison expanded and prominent;
+cleanup must not hide maintained extensions, upstream adoption, or integration and
+verification work. Distinguish current runtime changes, inherited behavior, and
+test-only remainders using the actual maintained hunks, not patch subjects or
+first-shipped dates. Document shipped defaults separately from optional examples
+and personal configuration. Preserve attribution and source links.
+When a completed, pushed development candidate fixes a referenced
 upstream issue, add its concise user-visible outcome to the README's current
 development candidate section in the same milestone. List only fixes actually on
 `origin/candidate/development`, link the fully qualified upstream report, and state

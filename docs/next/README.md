@@ -43,43 +43,50 @@ flowchart TB
 
 ## What differs from upstream
 
-The maintained extensions focus on Windows setup and SSH hosting, terminal appearance, OpenCode subagent panes, managed agent launch, completion controls, and clickable status labels. Equivalent upstream fixes replace fork patches rather than becoming a parallel implementation.
+Herdr Extended combines original extensions, reviewed upstream corrections, Windows integration work, and regression tests. The tables below compare the maintained queue with its **Herdr v0.9.3 base**. Each row identifies current ownership and links to the implementation, integration, or verification work. Contributions remain visible as equivalent behavior is adopted upstream.
 
-<details>
-<summary><strong>Capability comparison and patch references</strong></summary>
+### Maintained extensions and fixes
 
-✅ marks capabilities now provided by upstream. 🟡 **Partly upstream** marks a foundation already in v0.9.0 whose linked mailbox carries only the remaining extensions.
-
-| Area | Status | What this repository contributes |
+| Area | Current ownership | What this repository contributes |
 | --- | --- | --- |
-| Native ConPTY foundation | ✅ **Upstreamed in Herdr v0.6.9** | Reuses Herdr's modern app-local ConPTY packaging instead of carrying a duplicate foundation. |
-| Terminal experience | 🟡 **Partly upstream in Herdr v0.9.0; extended here** · [`0001`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0001-windows-terminal-appearance.patch) | Builds on upstream appearance handling; follows the host by default when unconfigured, preserves host and child cursor colors, supports Windows VTI observations, and avoids automatic OSC 4 palette queries. |
-| Windows SSH target support | 🟡 **Partly upstream in Herdr v0.9.0; extended here** · [#2329](https://github.com/herdrdev/herdr/pull/2329) · [`0003`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0003-windows-remote-attach.patch) | Reuses upstream Windows-client SSH transport; adds Windows x86_64/ARM64 targets, exact provisioning and activation, visible progress, and fail-closed launch in the SSH user's active desktop session. |
-| Managed Windows releases | 🟡 **Partly upstream in Herdr v0.9.0; extended here** · [`0004`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0004-windows-managed-distribution.patch) | Builds on upstream portable ZIP and per-user installation; adds branded setup, immutable leased runtimes, fork-owned stable updates and WinGet ownership, and process-safe uninstall. |
-| OpenCode and multi-Agent workflows | 🟡 **Partly upstream in Herdr v0.9.0; extended here** · [#3052](https://github.com/herdrdev/herdr/issues/3052) · [#2450](https://github.com/herdrdev/herdr/issues/2450) · [`0005`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0005-opencode-retry-notifications.patch) | v0.9.0 fixes pane-selected session tracking and child-prompt recovery. This fork adds retry/error correlation, stricter pane-local root ownership, and adaptive panes for concurrent direct subagents. |
+| Terminal experience | 🟡 **Upstream foundation, extended here** · [`0001`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0001-windows-terminal-appearance.patch) | Follows the host appearance by default when unconfigured, preserves host and child cursor colors, supports Windows VTI observations, and avoids automatic OSC 4 palette queries. |
+| Windows SSH hosting | 🟡 **Upstream foundation, extended here** · [#2329](https://github.com/herdrdev/herdr/pull/2329) · [`0003`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0003-windows-remote-attach.patch) | Extends upstream Windows-client and x86_64-host support with ARM64 targets, exact payload provisioning and activation, visible progress, and guarded launch in the SSH user's active desktop session. |
+| Remote configuration provisioning | **Maintained here** · [`0003`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0003-windows-remote-attach.patch) | Explicit provisioning transfers client settings to Windows and Unix targets, preserves machine-local values, validates the result, and reports whether configuration was applied. |
+| Managed Windows distribution | 🟡 **Upstream foundation, extended here** · [`0004`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0004-windows-managed-distribution.patch) · [Identity and packaging inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md) | Adds branded setup and artwork, immutable leased runtimes, safe pending activation, fork-owned stable updates, WinGet ownership, and process-safe uninstall. Slots `0032` through `0035` maintain distribution identity and release asset presentation. |
+| OpenCode and multi-agent workflows | 🟡 **Upstream foundation, extended here** · [#3052](https://github.com/herdrdev/herdr/issues/3052) · [#2450](https://github.com/herdrdev/herdr/issues/2450) · [`0005`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0005-opencode-retry-notifications.patch) | Adds retry/error correlation, stricter pane-local root ownership, immediate child-work reporting, and adaptive panes for concurrent direct subagents. |
 | Runtime downloads | **Maintained here** · [`0006`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0006-harden-curl-transfers.patch) | Ignores user `curl` configuration and bounds runtime downloads to TLS 1.2+ HTTPS with limited redirects. |
-| Cross-platform docs checks | ✅ **Upstreamed in Herdr v0.9.0** · [#3041](https://github.com/herdrdev/herdr/issues/3041) | Upstream's documentation-parity assertion now uses native path separators on Windows and POSIX systems. |
-| Worktree lifecycle | 🟡 **Partly upstream in Herdr v0.9.0; extended here** · [#3044](https://github.com/herdrdev/herdr/issues/3044) · [`0008`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0008-worktree-scoped-git-trust.patch) | Builds on upstream request-scoped trust and safer Windows removal; automatically scopes trust to the exact checkout and waits for PTY shutdown before unregistering it. |
-| Managed Agent start | 🟡 **Partly upstream in Herdr v0.9.0; extended here** · [#321](https://github.com/herdrdev/herdr/issues/321) · [#2685](https://github.com/herdrdev/herdr/issues/2685) · [`0009`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0009-session-agent-autostart.patch) | Builds on upstream PowerShell npm-shim launching; adds optional new-tab Agent start, live-reload catch-up, and selected-shell rendering shared with session restore. |
+| Worktree lifecycle | 🟡 **Upstream foundation, extended here** · [#3044](https://github.com/herdrdev/herdr/issues/3044) · [`0008`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0008-worktree-scoped-git-trust.patch) | Scopes Git trust to the exact checkout for the child command and waits for Windows PTY shutdown before unregistering a worktree. |
+| Managed agent start | 🟡 **Upstream foundation, extended here** · [#321](https://github.com/herdrdev/herdr/issues/321) · [#2685](https://github.com/herdrdev/herdr/issues/2685) · [`0009`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0009-session-agent-autostart.patch) | Adds the client-preferred `prefix+o` shortcut, optional new-tab agent start, live-reload catch-up, and selected-shell rendering shared with session restore. |
 | Agent hook recovery | **Maintained here** · [#1033](https://github.com/herdrdev/herdr/issues/1033) · [`0010`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0010-agent-transient-hook-takeover.patch) | Lets a still-running full-lifecycle Agent regain hook authority after a temporary foreground takeover without reviving a session after a real exit. |
 | Metadata capacity | **Maintained here** · [`0011`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0011-metadata-token-capacity.patch) | Atomically updates and retains up to 64 pane or workspace metadata tokens while preserving existing validation bounds. |
-| Completion alerts | 🟡 **Partly upstream in Herdr v0.9.0; controls maintained here** · [`0012`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0012-agent-completion-controls.patch) | Adds a persistent completion-only popup and sound opt-out plus cancellation suppression without disabling questions, permission prompts, or errors. |
+| Completion alerts | 🟡 **Upstream foundation, extended here** · [`0012`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0012-agent-completion-controls.patch) | Adds a persistent completion-only popup and sound opt-out plus cancellation suppression without disabling questions, permission prompts, or errors. |
+| Integration settings guidance | **Maintained here** · [#2880](https://github.com/herdrdev/herdr/issues/2880) · [`0016`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0016-settings-integration-hints.patch) | Removes the misleading row-selection hint from Settings > integrations while retaining section-navigation guidance. |
+| Windows endpoint transport | **Maintained here** · [`0020`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0020-windows-endpoint-writer-progress.patch) | Uses bounded write chunks and Windows pipe capacity to preserve polling-peer progress and detect stalled writes. |
+| Session deletion | **Maintained here** · [#3819](https://github.com/herdrdev/herdr/issues/3819) · [`0028`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0028-exact-recorded-session-deletion.patch) | Tightens recorded-directory selection and reports unmatched names rather than apparent success, preserving upstream exact-name and live-session guards. |
+| Local startup diagnostics | **Maintained here** · [#3759](https://github.com/herdrdev/herdr/issues/3759) · [`0029`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0029-local-startup-diagnostics.patch) | Keeps Local startup errors visible without freezing healthy remote views or losing the diagnostic during view changes. |
+| Machine setup and onboarding | **Maintained here** · [`0031`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0031-machine-setup-discovery.patch) · [`0038`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0038-onboarding-configured-prefix.patch) | Adds an Add machine menu link to setup documentation and shows the configured prefix key in onboarding. |
+| Clickable script status labels | **Maintained here** · [`0036`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0036-clickable-script-status.patch) | Supports multiple OSC 8 web links in bounded command output, opened in the attached client's browser while retaining plain-text compatibility. |
+| Windows process boundaries | **Maintained here** · [`0037`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0037-windows-process-boundaries.patch) | Uses the required process-termination rights and omits inherited environment values from PTY trace diagnostics. |
+
+### Upstream adoption and retained regression coverage
+
+When equivalent behavior reaches the reviewed upstream base, its fork implementation is retired. The history and references remain visible here; additional boundary tests are identified separately from runtime extensions.
+
+| Area | Current ownership | Integration and verification work |
+| --- | --- | --- |
+| Native ConPTY foundation | ✅ **Provided upstream** | Reuses upstream's modern app-local ConPTY packaging rather than maintaining a duplicate foundation. |
+| Windows bridge downloads | ✅ **Upstream runtime, additional regression coverage** · [`0019`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0019-windows-bridge-blocking-download.patch) | Exercises the upstream bridge through native Windows polling/download and peer-disconnect checks. |
+| Associated control-key text | ✅ **Upstream runtime, additional regression coverage** · [`0021`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0021-associated-control-key-text.patch) | Extends captured Tab/Escape parser cases without replacing the upstream parser implementation. |
+| Public agent focus | ✅ **Upstream runtime, additional regression coverage** · [`0026`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0026-public-agent-focus-projection.patch) | Checks that failed focus requests preserve the client view and bounds test response waits. |
+| Nested mouse and multi-machine workspace views | ✅ **Provided by the reviewed upstream base** · [Retirement inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md) | The v0.9.2 refresh retired the corresponding mouse, collapse-scoping, requesting-client focus, navigation, geometry, and resize patches. These capabilities remain available. |
+| Cross-platform docs checks | ✅ **Provided by Herdr v0.9.0** · [#3041](https://github.com/herdrdev/herdr/issues/3041) | Uses upstream's native-path documentation-parity assertion on Windows and POSIX systems. |
 | Terminal history | ✅ **Provided by Herdr v0.9.2** · [#2893](https://github.com/herdrdev/herdr/issues/2893) | Upstream owns the current history implementation; the older fork mailbox is retired. |
-| Plugin command resolution | ✅ **Upstreamed in Herdr v0.9.0** · [#3024](https://github.com/herdrdev/herdr/issues/3024) | Upstream resolves explicit relative pane commands from the linked plugin root, including Windows plugin-local executables. |
+| Plugin command resolution | ✅ **Provided by Herdr v0.9.0** · [#3024](https://github.com/herdrdev/herdr/issues/3024) | Resolves explicit relative pane commands from the linked plugin root, including Windows plugin-local executables. |
 | Muted-label contrast | ✅ **Provided by Herdr v0.9.2** · [#2692](https://github.com/herdrdev/herdr/issues/2692) | Keeps muted sidebar and inactive tab labels readable without the older fork mailbox. |
-| Integration settings | **Maintained here** · [#2880](https://github.com/herdrdev/herdr/issues/2880) · [`0016`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0016-settings-integration-hints.patch) | Shows only controls that the selected integration supports. |
-| Devin configuration | ✅ **Upstreamed in Herdr v0.9.0** · [#2724](https://github.com/herdrdev/herdr/issues/2724) | Upstream finds Devin's native configuration in roaming AppData while respecting an explicit XDG override. |
-| Windows process environment | ✅ **Upstreamed in Herdr v0.9.0** · [#3430](https://github.com/herdrdev/herdr/issues/3430) | Upstream rejects malformed Windows environment entries and validates registry values before process creation. |
-| Remote transport and input corrections | **Included in v2026.09.10.2** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-v090-corrections) | Preserves Windows download and endpoint-write progress, matching control-key text, and nested mouse input. |
-| Multi-machine workspace views | **Included in v2026.09.10.2** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-v090-corrections) | Scopes collapsed groups to each machine, focuses new worktrees in the requesting client, supports guarded cross-machine navigation, and preserves public focus and focused geometry. |
-| Session safety and startup diagnostics | **Included in v2026.09.10.2** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-v090-corrections) | Requires exact recorded names for session deletion and keeps Local startup errors visible without freezing healthy remote views. |
+| Devin configuration | ✅ **Provided by Herdr v0.9.0** · [#2724](https://github.com/herdrdev/herdr/issues/2724) | Finds Devin's native configuration in roaming AppData while respecting an explicit XDG override. |
+| Windows environment validation | ✅ **Provided by Herdr v0.9.0** · [#3430](https://github.com/herdrdev/herdr/issues/3430) | Rejects malformed Windows environment entries and validates registry values before process creation. Diagnostic privacy remains a separate maintained correction above. |
 
-These corrections first shipped in Herdr Extended v2026.09.10.2 on the v0.9.0 base.
-The maintained queue now uses v0.9.3 and retires equivalent upstreamed patches while
-retaining necessary fork adaptations and boundary checks. An upstream PR reference
-records provenance, not a separate release claim.
-
-</details>
+The [changelog](https://github.com/hdosys/herdr-ext/blob/master/CHANGELOG.md) records when each improvement shipped. The [patch inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md) identifies current responsibility and reviewed source, with original author credit retained in each mailbox.
 
 ## Install
 
@@ -140,7 +147,7 @@ Herdr works with its defaults. To customize it, edit `%APPDATA%\herdr\config.tom
 
 ### Start an agent
 
-Press **prefix then o** to start your preferred installed agent in the selected available shell, including a selected remote pane. OpenCode is the default; client-owned `[agent]` settings select another agent. **prefix then Shift+O** opens the notification target. No shell alias is needed.
+With **Herdr Extended's default bindings**, press **prefix then o** to start your preferred installed agent in the selected available shell, including a selected remote pane. The shipped `[agent]` default is `kind = "opencode"`; client settings can select another agent. **prefix then Shift+O** opens the notification target. These defaults need no shell alias or personal configuration; explicit keybinding overrides still take precedence.
 
 ### Clickable status labels
 
@@ -163,7 +170,7 @@ Explicit provisioning also transfers your existing client configuration to Windo
 
 ### Fork-specific options
 
-Start OpenCode automatically in the root pane of each genuinely new persistent-session tab:
+Automatic agent startup is **off by default**. To opt in to starting OpenCode in the root pane of each genuinely new persistent-session tab, add:
 
 ```toml
 [session]
@@ -241,7 +248,7 @@ The files in `patches/delta/series` are the complete maintained product delta:
 3. Review each mailbox as one responsibility with its implementation, tests, and documentation.
 4. Follow [`CONTRIBUTING.md`](https://github.com/hdosys/herdr-ext/blob/master/CONTRIBUTING.md) for replay and verification.
 
-The mailboxes are focused evidence, not an all-or-nothing merge request. Fork branding, release workflows, and publication state stay outside the product queue.
+The mailboxes are focused evidence, not an all-or-nothing merge request. Repository-only branding, release workflows, and publication state stay outside the product queue; runtime and installer presentation are maintained in their owning patches.
 
 </details>
 
