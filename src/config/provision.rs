@@ -5,6 +5,15 @@ use std::path::Path;
 
 use base64::Engine as _;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ConfigOutcome {
+    Applied,
+    Unchanged,
+    Preserved,
+    NoSource,
+}
+
 // This is the complete exclusion list, not an allowlist of supported settings.
 // Excluded values never leave the client and existing target values survive.
 pub(crate) const EXCLUDED_KEYS: &[&str] = &[
@@ -92,7 +101,7 @@ pub(crate) fn export() -> io::Result<Option<String>> {
     Ok(Some(encoded))
 }
 
-pub(crate) fn import(reader: impl Read, path: &Path) -> io::Result<()> {
+pub(crate) fn import(reader: impl Read, path: &Path, overwrite: bool) -> io::Result<ConfigOutcome> {
     let mut encoded = String::new();
     reader
         .take(MAX_TRANSFER_BYTES + 1)
@@ -108,16 +117,20 @@ pub(crate) fn import(reader: impl Read, path: &Path) -> io::Result<()> {
     let content = std::str::from_utf8(&bytes)
         .map_err(|_| invalid("provisioned configuration is not UTF-8"))?;
     let mut incoming = filtered(content)?;
-    let current = super::io::read_optional_config(path)?.unwrap_or_default();
-    let mut existing = parse(&current)?;
+    let current = super::io::read_optional_config(path)?;
+    let mut existing = parse(current.as_deref().unwrap_or_default())?;
+    let original = existing.clone();
     for key in EXCLUDED_KEYS {
         if let Some(value) = remove(&mut existing, key) {
             insert(&mut incoming, key, value)?;
         }
     }
     let text = validated_text(&incoming)?;
-    if text == current {
-        return Ok(());
+    if current.is_some() && incoming == original {
+        return Ok(ConfigOutcome::Unchanged);
+    }
+    if current.is_some() && !overwrite {
+        return Ok(ConfigOutcome::Preserved);
     }
     if let Some(parent) = path
         .parent()
@@ -126,7 +139,8 @@ pub(crate) fn import(reader: impl Read, path: &Path) -> io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     // Reuse the protected user-config writer, including permissions and link checks.
-    crate::integration::config_file::write_config(path, text)
+    crate::integration::config_file::write_config(path, text)?;
+    Ok(ConfigOutcome::Applied)
 }
 
 #[cfg(test)]
@@ -196,7 +210,18 @@ auto_start_agent = "opencode"
         assert!(!outgoing.contains("pwsh.exe"));
         assert!(!outgoing.contains("local-command"));
         let encoded = base64::engine::general_purpose::STANDARD.encode(outgoing);
-        import(encoded.as_bytes(), &path).unwrap();
+        assert_eq!(
+            import(encoded.as_bytes(), &path, false).unwrap(),
+            ConfigOutcome::Preserved
+        );
+        assert_eq!(
+            parse(&std::fs::read_to_string(&path).unwrap()).unwrap(),
+            existing
+        );
+        assert_eq!(
+            import(encoded.as_bytes(), &path, true).unwrap(),
+            ConfigOutcome::Applied
+        );
         let saved = std::fs::read_to_string(&path).unwrap();
         let actual = parse(&saved).unwrap();
         assert_eq!(
@@ -214,11 +239,9 @@ auto_start_agent = "opencode"
             actual["session"]["auto_start_agent"].as_str(),
             Some("opencode")
         );
-        assert!(
-            actual["session"]
-                .get("startup_per_agent_delay_ms")
-                .is_none()
-        );
+        assert!(actual["session"]
+            .get("startup_per_agent_delay_ms")
+            .is_none());
         assert_eq!(actual["ui"]["sound"]["enabled"].as_bool(), Some(false));
         let source = parse(local).unwrap();
         assert_eq!(actual["ui"]["tab_bar_right"], source["ui"]["tab_bar_right"]);
@@ -228,10 +251,23 @@ auto_start_agent = "opencode"
         );
         assert_eq!(actual["ui"]["sound"]["path"].as_str(), sound.to_str());
         assert!(saved.contains("remote-command"));
-        import(encoded.as_bytes(), &path).unwrap();
+        assert_eq!(
+            import(encoded.as_bytes(), &path, false).unwrap(),
+            ConfigOutcome::Unchanged
+        );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        let commented = format!("# Keep local comments\n{saved}");
+        std::fs::write(&path, &commented).unwrap();
+        assert_eq!(
+            import(encoded.as_bytes(), &path, true).unwrap(),
+            ConfigOutcome::Unchanged
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), commented);
         let fresh = root.join("fresh.toml");
-        import(encoded.as_bytes(), &fresh).unwrap();
+        assert_eq!(
+            import(encoded.as_bytes(), &fresh, false).unwrap(),
+            ConfigOutcome::Applied
+        );
         let fresh = parse(&std::fs::read_to_string(fresh).unwrap()).unwrap();
         assert_eq!(fresh["ui"]["tab_bar_right"], source["ui"]["tab_bar_right"]);
         assert_eq!(fresh["ui"]["tab_bar_right_separator"].as_str(), Some(" | "));
@@ -248,10 +284,10 @@ auto_start_agent = "opencode"
         std::fs::write(&path, original).unwrap();
         for content in ["[broken", "[server]\nheadless_cols = 0", "unknown = true"] {
             let encoded = base64::engine::general_purpose::STANDARD.encode(content);
-            assert!(import(encoded.as_bytes(), &path).is_err());
+            assert!(import(encoded.as_bytes(), &path, true).is_err());
             assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         }
-        assert!(import(b"not base64".as_slice(), &path).is_err());
+        assert!(import(b"not base64".as_slice(), &path, true).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         std::fs::remove_dir_all(root).unwrap();
     }

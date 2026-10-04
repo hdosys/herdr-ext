@@ -299,7 +299,9 @@ pub(super) fn streaming_herdr_command(
     match shell {
         WindowsSshShell::Pwsh => {
             let command = powershell_herdr_script(Some(executable), arguments, sidecar);
-            Ok(format!("[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{marker}'); [Console]::Out.Flush(); {command}"))
+            Ok(format!(
+                "[Console]::Out.WriteLine(); [Console]::Out.WriteLine('{marker}'); [Console]::Out.Flush(); {command}"
+            ))
         }
         WindowsSshShell::Cmd => cmd_herdr_command(executable, arguments, sidecar)
             .map(|command| format!("echo.&echo {marker}&{command}")),
@@ -353,7 +355,7 @@ pub(super) fn checked_api_bridge_command(
         _ => {
             return Err(std::io::Error::other(
                 "validated Windows SSH shell became unsupported",
-            ))
+            ));
         }
     })
 }
@@ -381,10 +383,19 @@ fn powershell_herdr_script(
     script
 }
 
-pub(super) fn powershell_config_import_command(executable: &str, sidecar: bool) -> String {
+pub(super) fn powershell_config_import_command(
+    executable: &str,
+    sidecar: bool,
+    overwrite: bool,
+) -> String {
     let script = format!(
-        "{}; [Console]::In.ReadToEnd() | & $herdr 'config' 'provision-import'; exit $LASTEXITCODE",
+        "{}; [Console]::In.ReadToEnd() | & $herdr 'config' 'provision-import'{}; exit $LASTEXITCODE",
         powershell_herdr_prefix(Some(executable), sidecar),
+        if overwrite {
+            " '--overwrite'"
+        } else {
+            ""
+        },
     );
     encoded_powershell_command(&script)
 }
@@ -536,7 +547,9 @@ fn encoded_powershell_command(script: &str) -> String {
     // decoder so diagnostics use the normal text formatter. Only base64 enters
     // this fixed command string, never raw script text or shell arguments.
     let encoded = encoded_powershell_script(script);
-    format!("powershell.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -Command \"& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded}'))))\"")
+    format!(
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -Command \"& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded}'))))\""
+    )
 }
 
 fn encoded_powershell_script(script: &str) -> String {
