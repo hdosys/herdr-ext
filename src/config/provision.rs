@@ -14,7 +14,6 @@ pub(crate) const EXCLUDED_KEYS: &[&str] = &[
     "worktrees.directory",
     "agent.args",
     "keys.command",
-    "ui.tab_bar_right",
     "ui.sound.path",
     "ui.sound.done_path",
     "ui.sound.request_path",
@@ -152,6 +151,8 @@ new_cwd = "/srv/projects"
 directory = "/srv/worktrees"
 [agent]
 args = ["--model", "remote-model"]
+[ui]
+tab_bar_right = [{ type = "text", text = "old target status" }]
 [ui.sound]
 path = "sound.mp3"
 [keys]
@@ -175,6 +176,12 @@ directory = 'C:\Worktrees'
 [agent]
 kind = "opencode"
 args = ["--model", "local-model"]
+[ui]
+tab_bar_right = [
+    { type = "command", command = 'nu --no-config-file "%USERPROFILE%\.config\opencode\commands\usage-status.nu"', interval_seconds = 600, timeout_seconds = 45 },
+    { type = "text", text = "Usage" },
+]
+tab_bar_right_separator = " | "
 [ui.sound]
 enabled = false
 path = 'C:\sound.wav'
@@ -207,14 +214,27 @@ auto_start_agent = "opencode"
             actual["session"]["auto_start_agent"].as_str(),
             Some("opencode")
         );
-        assert!(actual["session"]
-            .get("startup_per_agent_delay_ms")
-            .is_none());
+        assert!(
+            actual["session"]
+                .get("startup_per_agent_delay_ms")
+                .is_none()
+        );
         assert_eq!(actual["ui"]["sound"]["enabled"].as_bool(), Some(false));
+        let source = parse(local).unwrap();
+        assert_eq!(actual["ui"]["tab_bar_right"], source["ui"]["tab_bar_right"]);
+        assert_eq!(
+            actual["ui"]["tab_bar_right_separator"].as_str(),
+            Some(" | ")
+        );
         assert_eq!(actual["ui"]["sound"]["path"].as_str(), sound.to_str());
         assert!(saved.contains("remote-command"));
         import(encoded.as_bytes(), &path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        let fresh = root.join("fresh.toml");
+        import(encoded.as_bytes(), &fresh).unwrap();
+        let fresh = parse(&std::fs::read_to_string(fresh).unwrap()).unwrap();
+        assert_eq!(fresh["ui"]["tab_bar_right"], source["ui"]["tab_bar_right"]);
+        assert_eq!(fresh["ui"]["tab_bar_right_separator"].as_str(), Some(" | "));
         std::fs::remove_dir_all(root).unwrap();
     }
 
