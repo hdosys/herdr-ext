@@ -375,6 +375,13 @@ Command entries run immediately and then at `interval_seconds` without blocking 
 
 Separators appear only between visible entries. Set `tab_bar_right_separator = ""` for direct concatenation. On a narrow tab row, the complete status area yields to the tabs and their controls.
 
+Explicit remote provisioning synchronizes `ui.tab_bar_right` and its separator from
+the client, including command entries, on both new and existing targets. Commands
+are transferred unchanged and run on the target. Use target-compatible commands
+and environment-relative paths; referenced scripts, programs, and credentials must
+already be available there. Provisioning does not copy those dependencies. Ordinary
+attachment does not synchronize configuration.
+
 Any script language can emit OSC 8 hyperlinks around individual text sections in
 its last output line. One command can return several independently clickable
 labels, mixed with ordinary text and separators. No per-link command or special
