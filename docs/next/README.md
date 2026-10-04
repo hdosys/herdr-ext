@@ -170,6 +170,8 @@ Explicit provisioning also transfers your existing client configuration to Windo
 
 ### Fork-specific options
 
+The **development installer** also protects existing remote configuration during provisioning: missing configuration is created automatically, unchanged settings are left alone, and differing settings require one confirmation (default No). Automation can explicitly allow replacement with `--provision --overwrite-config --yes`; `--yes` alone preserves differing settings. Ordinary connections never transfer settings or ask about them. This consent flow is not yet in release 2026.10.03.3.
+
 Automatic agent startup is **off by default**. To opt in to starting OpenCode in the root pane of each genuinely new persistent-session tab, add:
 
 ```toml

@@ -297,6 +297,13 @@ tests remain the detailed implementation truth.
   Client-omitted transferable settings return to defaults; a missing client file
   leaves the target configuration unchanged. This applies to Windows and Unix
   targets. Ordinary attachment and reconnect never synchronize configuration.
+  The development implementation creates a missing target configuration without
+  asking, leaves semantically unchanged settings untouched, and asks once (default
+  No) before replacing differing existing settings during interactive provisioning.
+  Declining continues provisioning with existing settings. Noninteractive calls
+  preserve differing settings unless `--overwrite-config` explicitly authorizes
+  replacement; general `--yes` does not. JSON reports `applied`, `unchanged`,
+  `preserved`, or `no_source`. There is no separate sync command or stored sync policy.
   Shell and directory paths, free-form agent arguments, custom command bindings,
   local sound paths and onboarding state remain local. The status-bar entry list
   and separator synchronize, including command entries, so new targets do not need
