@@ -298,7 +298,10 @@ tests remain the detailed implementation truth.
   leaves the target configuration unchanged. This applies to Windows and Unix
   targets. Ordinary attachment and reconnect never synchronize configuration.
   Shell and directory paths, free-form agent arguments, custom command bindings,
-  the status-bar entry list, local sound paths and onboarding state remain local.
+  local sound paths and onboarding state remain local. The status-bar entry list
+  and separator synchronize, including command entries, so new targets do not need
+  a separate status setup. Commands transfer unchanged and execute on the target;
+  referenced programs, scripts and credentials must already be available there.
 - An expected missing Windows probe command on a Unix target is platform-detection
   data, not a user-visible error. Actual SSH authentication/connection diagnostics
   and failed Windows probes remain visible.

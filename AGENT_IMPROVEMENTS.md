@@ -70,6 +70,18 @@ configuration repository.
   compiler and effective cache context explicitly. Cross-Sandbox cache retention
   remains outside this repository; no persistent context or fallback was added.
 
+  **Follow-up status: proposed. Use the existing source-compatible resolver before
+  provisioning a missing compiler.** The status-sync correction missed the two-minute
+  request-to-artifact goal: the first native build exhausted a 600-second process
+  deadline after selecting newest Zig 0.17 without first using `resolve-zig`.
+  `scripts/delta_workflow.py resolve-zig` then selected compatible 0.16 and the
+  unchanged source built in 285.128 seconds (Cargo 238.398, native probe 7.953,
+  packaging 24.244); focused test compilation followed the artifact in 130.173 seconds.
+  Exact request/edit-to-artifact timing was not retained. Reuse that existing
+  resolver during compiler discovery instead of choosing a compiler directly from
+  the generic release index. Expected benefit: avoid an unnecessary compiler
+  download and failed cold-build attempt without adding another gate or fallback.
+
 - **Status: declined. Parallelize independent immutable-payload checks and
   packaging when resources permit.** A menu-only deletion still took151.573 seconds
   to its installer on16CPUs:98.175 compiling,9.418 for the native launch probe,
