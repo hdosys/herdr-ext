@@ -83,7 +83,13 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         remote.provision,
     )?;
     if remote.provision {
-        let result = provision_remote(&remote_ssh, detected, remote.yes, override_binary)?;
+        let result = provision_remote(
+            &remote_ssh,
+            detected,
+            remote.yes,
+            remote.overwrite_config,
+            override_binary,
+        )?;
         print_remote_provision_result(&result, remote.json)?;
         return Ok(());
     }
@@ -234,7 +240,7 @@ impl SavedSshSetup {
                             session.running && crate::session::validate_name(&session.name).is_ok()
                         })
                         .map(|session| session.name)
-                        .collect())
+                        .collect());
                 }
                 Err(error) => failure = format!("invalid remote session list: {error}"),
             }
@@ -671,12 +677,7 @@ enum RemoteBinaryOutcome {
     Installed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum RemoteConfigOutcome {
-    Applied,
-    NoSource,
-}
+use crate::config::provision::ConfigOutcome as RemoteConfigOutcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -758,7 +759,10 @@ pub(crate) fn ssh_authentication_command(target: &str) -> io::Result<SshAuthenti
         ));
     }
     if !crate::platform::remote_ssh_config_paths().multiplexing {
-        return Err(io::Error::new(io::ErrorKind::Unsupported, "interactive SSH recovery requires Unix OpenSSH multiplexing; authenticate outside Herdr on this platform"));
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "interactive SSH recovery requires Unix OpenSSH multiplexing; authenticate outside Herdr on this platform",
+        ));
     }
     if !crate::config::Config::load()
         .config
@@ -1798,8 +1802,10 @@ pub(super) fn discover_remote_api_metadata(
             if !output.status.success()
                 || String::from_utf8_lossy(&output.stdout).trim() != "herdr-api-bridge-v1"
             {
-                return Err(io::Error::new(io::ErrorKind::Unsupported,
-                    "remote Herdr does not support machine API forwarding; update Herdr on this machine"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "remote Herdr does not support machine API forwarding; update Herdr on this machine",
+                ));
             }
             crate::client::endpoint::SshMachineMetadata {
                 os: "windows".into(),
@@ -2732,6 +2738,7 @@ fn provision_remote(
     ssh: &RemoteSsh,
     detected: DetectedRemoteHost,
     yes: bool,
+    overwrite_config: bool,
     override_binary: Option<PathBuf>,
 ) -> io::Result<RemoteProvisionResult> {
     if !yes && !io::stdin().is_terminal() {
@@ -2814,8 +2821,23 @@ fn provision_remote(
         .clone()
         .ok_or_else(|| io::Error::other("selected runtime executable is missing"))?;
     let config_outcome = if let Some(config) = &client_config {
-        deploy_remote_config(ssh, &prepared.remote_herdr, config)?;
-        RemoteConfigOutcome::Applied
+        let outcome = deploy_remote_config(ssh, &prepared.remote_herdr, config, overwrite_config)?;
+        if outcome == RemoteConfigOutcome::Preserved && io::stdin().is_terminal() {
+            eprint!(
+                "Apply client settings to {}? Existing server settings will be replaced; machine-local values stay unchanged. [y/N] ",
+                ssh.target()
+            );
+            io::stderr().flush()?;
+            let mut answer = String::new();
+            io::stdin().read_line(&mut answer)?;
+            if matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                deploy_remote_config(ssh, &prepared.remote_herdr, config, true)?
+            } else {
+                outcome
+            }
+        } else {
+            outcome
+        }
     } else {
         RemoteConfigOutcome::NoSource
     };
@@ -2859,16 +2881,22 @@ fn deploy_remote_config(
     ssh: &RemoteSsh,
     remote_herdr: &RemoteHerdr,
     config: &str,
-) -> io::Result<()> {
+    overwrite: bool,
+) -> io::Result<RemoteConfigOutcome> {
     ssh.progress(format_args!(
-        "Applying client configuration on {} (machine-local settings stay unchanged)...",
+        "Checking client configuration on {} (machine-local settings stay unchanged)...",
         ssh.target()
     ));
     let command = match remote_herdr.shell {
-        RemoteShell::Posix => format!("{} config provision-import", remote_herdr.shell_path),
+        RemoteShell::Posix => format!(
+            "{} config provision-import{}",
+            remote_herdr.shell_path,
+            if overwrite { " --overwrite" } else { "" }
+        ),
         RemoteShell::WindowsPowerShell => super::windows::powershell_config_import_command(
             &remote_herdr.shell_path,
             remote_herdr.remote_sidecar,
+            overwrite,
         ),
     };
     let mut child = ssh
@@ -2899,7 +2927,26 @@ fn deploy_remote_config(
             &output,
         ));
     }
-    write_result
+    write_result?;
+    let outcome: RemoteConfigOutcome = serde_json::from_slice(&output.stdout)
+        .map_err(|_| io::Error::other("invalid remote configuration result"))?;
+    if outcome == RemoteConfigOutcome::NoSource
+        || (overwrite && outcome == RemoteConfigOutcome::Preserved)
+    {
+        return Err(io::Error::other("unexpected remote configuration result"));
+    }
+    ssh.progress(format_args!(
+        "Configuration on {}: {}",
+        ssh.target(),
+        match outcome {
+            RemoteConfigOutcome::Applied => "applied",
+            RemoteConfigOutcome::Unchanged => "unchanged",
+            RemoteConfigOutcome::Preserved =>
+                "existing settings preserved (use --overwrite-config to replace them)",
+            RemoteConfigOutcome::NoSource => "no client configuration",
+        }
+    ));
+    Ok(outcome)
 }
 
 fn validate_remote_config(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<()> {
@@ -3861,7 +3908,9 @@ pub(super) fn cached_remote_api_command(
     let session = shell_quote(session);
     let script = format!(
         "if capability=$({path} --session {session} remote-api-bridge --check </dev/null 2>/dev/null) && [ \"$capability\" = herdr-api-bridge-v1 ]; then\n{}\nelse\n    printf '%s\\n' '{STALE_API_METADATA}' >&2\n    exit 78\nfi",
-        posix_remote_output_command(&format!("exec {path} --session {session} remote-api-bridge")),
+        posix_remote_output_command(&format!(
+            "exec {path} --session {session} remote-api-bridge"
+        )),
     );
     Ok(format!("/bin/sh -c {}", shell_quote(&script)))
 }
@@ -5661,7 +5710,30 @@ mod tests {
         assert!(remote.provision);
         assert!(remote.yes);
         assert!(remote.json);
+        assert!(!remote.overwrite_config);
         assert!(!remote.live_handoff);
+        let mut overwrite_args = args;
+        overwrite_args.push("--overwrite-config".into());
+        assert!(
+            extract_remote_args(&overwrite_args)
+                .unwrap()
+                .1
+                .unwrap()
+                .overwrite_config
+        );
+        for args in [
+            vec!["herdr".into(), "--overwrite-config".into()],
+            vec![
+                "herdr".into(),
+                "--remote=dev".into(),
+                "--overwrite-config".into(),
+            ],
+        ] {
+            assert_eq!(
+                extract_remote_args(&args).unwrap_err(),
+                "--overwrite-config requires --remote with --provision"
+            );
+        }
     }
 
     #[test]

@@ -106,11 +106,22 @@ herdr --remote workbox --provision --yes
 
 Explicit provisioning uses your existing local `config.toml` (or
 `HERDR_CONFIG_PATH`) as the configuration source. No separate per-host file is
-needed. It replaces the target's transferable settings with the client's settings,
-validates the result before writing it, and uses the existing server start or
-configuration-reload path. Settings omitted from the client return to their defaults
-on the target. If there is no local config file, the remote configuration is left
-unchanged. Ordinary attachment and saved-machine reconnect do not deploy config.
+needed. A missing target configuration is created automatically. If the resulting
+settings are unchanged, no file is rewritten and no question is asked. When an
+existing configuration would change, interactive provisioning asks once, defaulting
+to No. Declining preserves the settings and continues provisioning.
+
+For automation, explicitly add `--overwrite-config` to authorize replacing existing
+transferable settings. `--yes` approves runtime provisioning, not configuration
+replacement. Noninteractive provisioning without `--overwrite-config` preserves an
+existing differing configuration. There is no separate sync command or saved sync
+policy, and ordinary attachment and reconnect never transfer or ask about settings.
+
+An accepted transfer validates the result before writing and uses the existing
+server start or configuration-reload path. Settings omitted from the client return
+to their defaults on the target. If there is no local config file, the remote
+configuration is left unchanged. JSON `config_outcome` is `applied`, `unchanged`,
+`preserved`, or `no_source`.
 
 Only these machine-local values are excluded from transfer and preserved on the
 target; when absent there, the target defaults apply:
@@ -122,12 +133,14 @@ target; when absent there, the target defaults apply:
 | `worktrees.directory` | Machine-specific checkout root |
 | `agent.args` | Free-form arguments can contain local paths or credentials |
 | `keys.command` | Commands are written for the originating machine |
-| `ui.tab_bar_right` | The entry list can contain machine-specific shell commands |
 | `ui.sound.path`, `ui.sound.done_path`, `ui.sound.request_path` | Local sound files are not copied |
 
 All other configuration settings are transferred. New settings therefore transfer
 unless explicitly added to this exclusion list. Configuration is serialized as TOML;
-comments and formatting are not preserved on the target. Invalid input fails without
+comments and formatting are preserved when settings are unchanged, but rewritten
+when a transfer applies. Status-bar entries (`ui.tab_bar_right`) transfer as values;
+their referenced programs and scripts must already exist on the target.
+Invalid input fails without
 replacing the existing configuration. A transfer larger than 1 MiB is rejected.
 This copies configuration values only, not credentials, agent configuration files,
 SSH profiles, session state, or referenced files. Provisioning still requires the

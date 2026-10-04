@@ -657,7 +657,9 @@ fn main() -> io::Result<()> {
         println!("       herdr --session <name> [options]");
         println!("       herdr --machine <label-or-id> <command>");
         println!("       herdr --remote <ssh-target> [--session <name>] [--yes]");
-        println!("       herdr --remote <ssh-target> --provision [--yes] [--json]");
+        println!(
+            "       herdr --remote <ssh-target> --provision [--overwrite-config] [--yes] [--json]"
+        );
         println!("       herdr session attach <name>");
         println!("       herdr completion zsh");
         println!("       herdr update [--handoff]");
@@ -748,6 +750,9 @@ fn main() -> io::Result<()> {
         println!("  --machine <label-or-id>  Run an API command on a saved SSH machine");
         println!("  --remote <target>   Attach through SSH to a remote Herdr server");
         println!("  --provision         Provision and activate the matching remote Herdr");
+        println!(
+            "  --overwrite-config  Allow provisioning to replace existing transferable settings"
+        );
         println!("  --yes, -y           Approve unattended remote installation or restart");
         println!("  --json              Print remote provision result as JSON");
         println!("  --remote-keybindings <local|server>");
@@ -792,6 +797,7 @@ fn main() -> io::Result<()> {
         "--remote",
         "--remote-keybindings",
         "--provision",
+        "--overwrite-config",
         "--yes",
         "-y",
         "--json",
