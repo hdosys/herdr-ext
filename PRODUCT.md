@@ -189,7 +189,7 @@ tests remain the detailed implementation truth.
 ## Interaction and Status
 
 - Keyboard-first terminal operation remains complete end to end.
-- The unpublished development candidate accepts any number of OSC 8 HTTP(S) links
+- Script-generated status labels accept any number of OSC 8 HTTP(S) links
   around individual text sections within one command-produced tab-row status line.
   A single invocation can provide multiple independently clickable labels and plain
   separators. The whole output line remains bounded to 4096 bytes; the old
@@ -222,7 +222,7 @@ tests remain the detailed implementation truth.
   use their native command syntax on Windows; unknown Windows shells fail
   closed. Linux and macOS use shell-native argument quoting, including explicit
   external-command invocation for Nushell.
-- The development candidate binds `prefix+o` to immediate managed preferred-agent start
+- `prefix+o` starts the preferred agent through managed launch immediately
   in the selected existing shell pane and its current directory. Client-owned
   `[agent]` selects `kind` (default `opencode`) and an `args` list, independent of
   server keybinding profiles. The selected agent must be installed on the server.

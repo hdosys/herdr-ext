@@ -8,8 +8,7 @@ Herdr Extended is an unofficial, upstream-first distribution that makes practica
 
 Every published release contains matching Windows, Linux, and macOS binaries built from one reviewed stable Herdr release and one ordered patch queue. Releases are normal stable GitHub releases, and the integrated update paths reject prerelease feeds.
 
-> [!IMPORTANT]
-> GitHub's **ahead/behind** banner compares commit ancestry, not release-source freshness. This repository's `master` is a control branch for the patch queue and release automation, not a mirror of upstream `master`. Each build starts from the stable commit recorded in [`BASE`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/BASE) and applies the maintained patches. GitHub's **Sync fork** action is not this project's refresh mechanism.
+**Current release:** [2026.10.03.3](https://github.com/hdosys/herdr-ext/releases/tag/v2026.10.03.3), based on Herdr v0.9.3. See the [changelog](https://github.com/hdosys/herdr-ext/blob/master/CHANGELOG.md) for shipped changes.
 
 [What differs from upstream](#what-differs-from-upstream) · [Install](#install) · [First use](#first-use) · [Everyday use](#everyday-use) · [Troubleshooting](#troubleshooting) · [Project reference](#project-reference)
 
@@ -34,18 +33,22 @@ Detach from a Windows-hosted Herdr session, reconnect from another terminal, and
 ```mermaid
 flowchart TB
     S["Reviewed stable source<br/>Upstream Herdr v0.9.3 / BASE 7b116c05bfda"]
-    Q["Control branch: patches/delta/series<br/>0001 Terminal experience / 0003 Windows SSH / 0004 Managed distribution<br/>0005 OpenCode / 0006 Downloads / 0008 Worktree lifecycle<br/>0009 Agent start / 0010 Hook recovery / 0011 Metadata<br/>0012 Completion / 0016 Integration hints / Remaining fork corrections"]
-    B["Remaining corrections and extensions<br/>0019-0021, 0026 Reviewed upstream corrections<br/>0028-0029, 0031 Local fixes / 0036 Status links"]
-    D["Current maintained source<br/>Finalized queue reproduces the accepted source tree"]
-    V["Validated distribution<br/>Fresh replay → native + cross-platform gates<br/>→ Windows setup + ZIP, Linux/macOS binaries + digests"]
-    S --> Q --> B --> D --> V
+    Q["Maintained patch queue<br/>patches/delta/series"]
+    C["Validated candidate<br/>Fresh replay + native and cross-platform checks"]
+    R["Immutable release<br/>Windows setup + ZIP, Linux/macOS binaries"]
+    S --> Q --> C --> R
 ```
 
 [`patches/delta/BASE`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/BASE) records the exact reviewed upstream stable commit. [`series`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/series) is the only patch order. A manual build replays that source and retains one complete candidate; promotion publishes those exact bytes without rebuilding or repackaging them.
 
 ## What differs from upstream
 
-The table is intentionally capability-level. ✅ marks complete capabilities now provided by upstream. 🟡 **Partly upstream** marks a foundation already in v0.9.0 whose linked mailbox carries only the remaining extensions.
+The maintained extensions focus on Windows setup and SSH hosting, terminal appearance, OpenCode subagent panes, managed agent launch, completion controls, and clickable status labels. Equivalent upstream fixes replace fork patches rather than becoming a parallel implementation.
+
+<details>
+<summary><strong>Capability comparison and patch references</strong></summary>
+
+✅ marks capabilities now provided by upstream. 🟡 **Partly upstream** marks a foundation already in v0.9.0 whose linked mailbox carries only the remaining extensions.
 
 | Area | Status | What this repository contributes |
 | --- | --- | --- |
@@ -76,36 +79,21 @@ The maintained queue now uses v0.9.3 and retires equivalent upstreamed patches w
 retaining necessary fork adaptations and boundary checks. An upstream PR reference
 records provenance, not a separate release claim.
 
-**Unpublished development candidate:** the development line now incorporates
-Herdr v0.9.3, including the [Escape-prefixed shortcut hotfix](https://github.com/herdrdev/herdr/pull/4759)
-and upstream [cursor/rendering](https://github.com/herdrdev/herdr/pull/4554),
-[scrollback](https://github.com/herdrdev/herdr/pull/4553), and
-[SSH recovery](https://github.com/herdrdev/herdr/pull/4490) improvements. It retains
-the fork's Windows SSH adapter, managed installer, client-local appearance, and
-OpenCode V1 integration. The maintained release queue now targets the same v0.9.3
-base. Queue finalization and candidate builds do not publish a public release.
-
-The candidate's script-generated status labels can include
-multiple OSC 8 web links in one command output. Click an underlined text section
-to open it in the client's browser, even when the producer runs remotely. Existing
-plain-text commands still work. See the [producer contract](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx)
-before adapting scripts. This capability is included in the maintained release queue.
-The candidate also starts your preferred agent in the current available shell with
-**prefix+o**, including selected remote panes. Configure `[agent]` on the client;
-OpenCode is the default. **prefix+Shift+O** opens the notification target.
-No shell alias is needed; [keybinding configuration](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx#keybindings)
-remains client-owned by default.
+</details>
 
 ## Install
 
-### Choose an installation method
+### Requirements and installation choices
 
 Every release provides Windows, Linux, and macOS builds as one coherent distribution. Choose one installation method for each machine:
 
-- **Windows:** download the direct setup or use the portable ZIP.
-- **Linux and macOS:** download the executable for your platform and architecture.
+- **Windows x64:** use direct setup, WinGet, or the portable ZIP.
+- **Linux and macOS (amd64 or arm64):** download the executable for your architecture.
 
-Windows managed installations are per-user, require no administrator access, and need no separately installed Microsoft Visual C++ Redistributable. The Windows portable ZIP is a standalone alternative.
+Use an interactive terminal and install the coding agents you want to run separately. Windows managed installations are per-user, require no administrator access, and need no separately installed Microsoft Visual C++ Redistributable. Run setup or WinGet from a non-administrator terminal.
+
+> [!WARNING]
+> The executable and setup are currently unsigned, so Windows may show a SmartScreen warning. Download only from this repository and verify the SHA-256 digest before running the artifact.
 
 ### Windows direct setup
 
@@ -117,18 +105,23 @@ Download the Windows setup from the [latest Herdr Extended release](https://gith
 
 The managed install lives under `%LOCALAPPDATA%\Programs\Herdr`, registers **Herdr Extended** in Installed Apps, installs Herdr's canonical agent skill, and preserves customized skill copies.
 
+### Windows with WinGet
+
+```powershell
+winget install --id hdosys.herdr-win --exact --source winget
+```
+
+The package ID remains `hdosys.herdr-win`. WinGet receives new versions after Microsoft accepts the manifest into its catalog, so it can lag behind GitHub releases. Track the [2026.10.03.3 submission](https://github.com/microsoft/winget-pkgs/pull/446485), or use direct setup for the latest GitHub release.
+
 ### Windows portable
 
 The Windows release also includes a matching portable ZIP. Extract the complete archive into one directory and run `herdr.exe`; keep its ConPTY payload beside it.
 
 ### Linux and macOS
 
-Linux and macOS releases are raw `linux_amd64`, `linux_arm64`, `macos_amd64`, and `macos_arm64` executables. Clients negotiate endpoint generation and required codecs. Optional cursor-color support uses a named extension; exact provisioning still uses matching Herdr Extended release assets.
+Linux and macOS releases are raw `linux_amd64`, `linux_arm64`, `macos_amd64`, and `macos_arm64` executables.
 
 After downloading a Linux or macOS asset, mark it executable, rename it to `herdr`, and place it in a directory on `PATH`.
-
-> [!WARNING]
-> The executable and setup are currently unsigned, so Windows may show a SmartScreen warning. Download only from this repository and verify the SHA-256 digest before running the artifact.
 
 ## First use
 
@@ -141,7 +134,17 @@ herdr
 
 A published build reports `herdr-ext <CalVer> (Herdr <upstream-version>)`. The second command opens Herdr's normal keyboard-first terminal interface. General commands, configuration, keybindings, and integrations remain documented by the [official Herdr guide](https://herdr.dev/docs/).
 
+Herdr works with its defaults. To customize it, edit `%APPDATA%\herdr\config.toml` on Windows; `HERDR_CONFIG_PATH` can select another file. The optional settings below go in that file.
+
 ## Everyday use
+
+### Start an agent
+
+Press **prefix then o** to start your preferred installed agent in the selected available shell, including a selected remote pane. OpenCode is the default; client-owned `[agent]` settings select another agent. **prefix then Shift+O** opens the notification target. No shell alias is needed.
+
+### Clickable status labels
+
+Script-generated status labels can include multiple OSC 8 web links in one command output. Click an underlined section to open it in the client's browser, even when the producer runs remotely. Plain-text commands still work. See the [producer contract](https://github.com/hdosys/herdr-ext/blob/candidate/development/docs/next/website/src/content/docs/configuration.mdx) before adapting scripts.
 
 ### Mixed-platform sessions
 
@@ -156,7 +159,7 @@ herdr --remote workbox --provision --yes --json
 
 The Windows SSH user's OpenSSH default shell must be `cmd.exe` or PowerShell 7 (`pwsh.exe`), and persistent server launch requires exactly one active desktop session owned by that user. The first probe is reused for the complete decision, the portable payload transfers once, and visible progress reports every real preparation, validation, stop, activation, verification, and opening phase. Provisioning validates the complete payload before stopping or replacing a server and verifies the exact binary, version, and protocol afterward.
 
-Development builds also provision your existing client configuration to Windows or Unix targets, without a separate per-host file. Machine-local shell and directory paths, agent arguments, custom command bindings, the status-bar entry list, sound paths, and onboarding state stay on the target; other settings come from the client. The result is validated before writing. Ordinary attachment does not synchronize configuration. See the [configuration policy](https://github.com/hdosys/herdr-ext/blob/master/PRODUCT.md).
+Explicit provisioning also transfers your existing client configuration to Windows or Unix targets, without a separate per-host file. Machine-local shell and directory paths, agent arguments, custom command bindings, the status-bar entry list, sound paths, and onboarding state stay on the target; other settings come from the client. The result is validated before writing. Ordinary attachment does not synchronize configuration. See the [configuration policy](https://github.com/hdosys/herdr-ext/blob/master/PRODUCT.md).
 
 ### Fork-specific options
 
@@ -202,9 +205,9 @@ Direct updates accept only a newer stable CalVer from an immutable normal GitHub
 
 Uninstall from **Windows Settings > Apps > Installed apps**. Herdr first asks running managed sessions to stop through their graceful server API. If a session remains active, uninstall preserves the installation and reports the required action instead of force-terminating work.
 
-Configuration and sessions under `%APPDATA%\herdr` are preserved unless you explicitly choose to remove them. Profile `.herdr` worktrees, remote payloads and custom configuration locations remain untouched. Installer-owned skill files can also be removed explicitly; customized copies and unrelated directory content remain preserved.
+Configuration and sessions under `%APPDATA%\herdr` are preserved unless you explicitly choose to remove them. Profile `.herdr` worktrees, remote payloads and custom configuration locations remain untouched. Installer-known skill copies are selected for removal by default. Customized copies are preserved unless you explicitly select their removal; sibling files remain untouched.
 
-Older installers selected `%USERPROFILE%\.herdr` for settings removal instead. Leave that option unchecked when using an older installer, especially if that directory contains worktrees. The corrected cleanup is currently in the unpublished development installer, not the earlier release candidates.
+Installers before **2026.10.03.3** selected `%USERPROFILE%\.herdr` for settings removal instead. Leave that option unchecked when using an older uninstaller, especially if that directory contains worktrees. The current release uses the corrected `%APPDATA%\herdr` location.
 
 ## Troubleshooting
 
@@ -224,6 +227,8 @@ This README describes the maintained queue on `master`. The distribution [change
 
 <details>
 <summary><strong>Patch queue and upstream review</strong></summary>
+
+GitHub's **ahead/behind** banner compares commit ancestry, not release-source freshness. This repository's `master` is a control branch for the patch queue and release automation, not a mirror of upstream `master`. GitHub's **Sync fork** action is not this project's refresh mechanism.
 
 Upstream PR [#2329](https://github.com/herdrdev/herdr/pull/2329) ships in Herdr v0.8.2. Mailbox `0003` therefore contains only the remaining Windows target-host boundary. Shared client attach, image transport, and SSH bridge behavior come directly from upstream.
 
