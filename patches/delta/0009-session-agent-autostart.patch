@@ -1,4 +1,4 @@
-From 66d47ade55bed9dda2ae7a2d62786291fe1a7ab8 Mon Sep 17 00:00:00 2001
+From 946aec5f3427de65b9b00ead87fe81327645d1d1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 22 Aug 2026 18:22:00 +0200
 Subject: [PATCH 7/25] feat(session): auto-start configured agent
@@ -10,21 +10,21 @@ Refs herdrdev/herdr#321
  .../src/content/docs/configuration.mdx        |  51 +++
  .../website/src/data/config-reference.json    |  32 +-
  src/app/agent_resume.rs                       |  56 +--
- src/app/agents.rs                             | 338 +++++++++++++++++-
+ src/app/agents.rs                             | 412 +++++++++++++++++-
  src/app/api/panes.rs                          |  30 ++
  src/app/api/tabs.rs                           |  10 +-
  src/app/creation.rs                           |   2 +
  src/app/mod.rs                                |  31 +-
  src/app/runtime.rs                            |   1 +
- src/client/shell/actions.rs                   |  41 +++
+ src/client/shell/actions.rs                   |  41 ++
  src/client/shell/config.rs                    |   5 +
  src/client/shell/state.rs                     |   1 +
  .../tests/agents_worktrees_notifications.rs   |   7 +-
- .../shell/tests/keybindings_settings.rs       |  93 +++++
+ .../shell/tests/keybindings_settings.rs       |  93 ++++
  src/config.rs                                 |  23 +-
  src/config/io.rs                              |  28 ++
  src/config/keybinds.rs                        |   3 +
- src/config/model.rs                           |  87 ++++-
+ src/config/model.rs                           |  87 +++-
  src/input/keybind_help.rs                     |   4 +
  src/input/keybindings.rs                      |   2 +
  src/main.rs                                   |  13 +-
@@ -32,13 +32,13 @@ Refs herdrdev/herdr#321
  src/platform/fallback.rs                      |   4 -
  src/platform/linux.rs                         |   4 -
  src/platform/macos.rs                         |   4 -
- src/platform/mod.rs                           | 224 ++++++++++--
- src/platform/windows.rs                       | 205 ++++++-----
+ src/platform/mod.rs                           | 224 ++++++++--
+ src/platform/windows.rs                       | 205 +++++----
  src/server/client_commands.rs                 |   1 +
  src/server/headless.rs                        |   2 +-
  src/terminal/runtime.rs                       |   4 +
  tests/fixtures/endpoint-method-shapes-v1.json |   1 +
- 33 files changed, 1142 insertions(+), 199 deletions(-)
+ 33 files changed, 1214 insertions(+), 201 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
 index d885067dd32a7e296af433a679fb8ff2e7c4f3d7..19d867ce2f2ee5a02ba76f12783918d539970a03 100644
@@ -293,7 +293,7 @@ index f088138c7a9f16d979f1aa2fc773c83c58f4c2d7..36361cb6f418af1a16a1758f7b40748c
 -    }
  }
 diff --git a/src/app/agents.rs b/src/app/agents.rs
-index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e468a2d57d 100644
+index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d13cbca558 100644
 --- a/src/app/agents.rs
 +++ b/src/app/agents.rs
 @@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
@@ -335,7 +335,7 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
  impl App {
      pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
          self.state
-@@ -152,6 +166,191 @@ impl App {
+@@ -152,6 +166,226 @@ impl App {
              })
      }
  
@@ -415,6 +415,18 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
 +    }
 +
 +    pub(crate) fn try_start_tab_auto_start_agents(&mut self, now: Instant) -> bool {
++        self.try_start_tab_auto_start_agents_with(now, Self::start_agent)
++    }
++
++    fn try_start_tab_auto_start_agents_with(
++        &mut self,
++        now: Instant,
++        mut start: impl FnMut(
++            &mut Self,
++            AgentStartParams,
++        )
++            -> Result<(crate::api::schema::AgentInfo, Vec<String>), AgentStartError>,
++    ) -> bool {
 +        let mut changed = false;
 +        let pending_agents = std::mem::take(&mut self.pending_tab_auto_start_agents);
 +        for PendingTabAutoStartAgent {
@@ -465,6 +477,18 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
 +                );
 +                continue;
 +            };
++            // Another launch may have claimed this pane while autostart waited.
++            // Never keep an automatic restart pending behind that agent.
++            if self
++                .state
++                .terminals
++                .get(&terminal_id)
++                .is_none_or(|terminal| {
++                    terminal.is_agent_terminal() || terminal.managed_agent_kind().is_some()
++                })
++            {
++                continue;
++            }
 +            let Some(shell_name) = available_shell_name(runtime) else {
 +                self.pending_tab_auto_start_agents
 +                    .push(PendingTabAutoStartAgent {
@@ -505,10 +529,21 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
 +                timeout_ms: None,
 +            };
 +
-+            match self.start_agent(params) {
++            match start(self, params) {
 +                Ok((agent, _)) => {
 +                    tracing::info!(agent = label, pane_id = %agent.pane_id, "started configured agent in new tab");
 +                    changed = true;
++                }
++                Err(AgentStartError::ShellBusy(pane_id)) => {
++                    // The shell can start a child between the readiness probe
++                    // and managed launch. No input was sent: retain this request
++                    // under its original deadline, just as for the first probe.
++                    self.pending_tab_auto_start_agents
++                        .push(PendingTabAutoStartAgent {
++                            kind,
++                            pane_id,
++                            deadline,
++                        });
 +                }
 +                Err(err) => {
 +                    let error = self.agent_start_error_body(err);
@@ -527,7 +562,33 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
      pub(super) fn start_agent(
          &mut self,
          params: AgentStartParams,
-@@ -483,7 +682,8 @@ pub(super) enum AgentRenameError {
+@@ -202,7 +436,7 @@ impl App {
+             .get(&terminal_id)
+             .ok_or_else(|| AgentStartError::TargetUnavailable(params.pane_id.clone()))?;
+         let shell_name = available_shell_name(runtime)
+-            .ok_or_else(|| AgentStartError::TargetBusy(params.pane_id.clone()))?;
++            .ok_or_else(|| AgentStartError::ShellBusy(params.pane_id.clone()))?;
+ 
+         let argv = agent_launch_argv(kind, params.args);
+         let command = crate::platform::interactive_shell_command(&argv, &shell_name)
+@@ -265,7 +499,7 @@ impl App {
+                 code: "agent_pane_not_found".into(),
+                 message: format!("agent target pane {target} not found"),
+             },
+-            AgentStartError::TargetBusy(target) => crate::api::schema::ErrorBody {
++            AgentStartError::TargetBusy(target) | AgentStartError::ShellBusy(target) => crate::api::schema::ErrorBody {
+                 code: "agent_pane_busy".into(),
+                 message: format!("agent target pane {target} is not an available shell"),
+             },
+@@ -462,6 +696,7 @@ pub(super) enum AgentStartError {
+     InvalidTimeout,
+     TargetNotFound(String),
+     TargetBusy(String),
++    ShellBusy(String),
+     TargetUnavailable(String),
+     InputFailed(String),
+     DuplicateName {
+@@ -483,7 +718,8 @@ pub(super) enum AgentRenameError {
  
  #[cfg(test)]
  mod tests {
@@ -537,7 +598,7 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
  
      #[test]
      fn agent_names_use_a_small_cli_safe_grammar() {
-@@ -503,4 +703,136 @@ mod tests {
+@@ -503,4 +739,170 @@ mod tests {
              assert!(!valid_agent_name(name), "expected {name:?} to be invalid");
          }
      }
@@ -605,6 +666,31 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
 +                .unwrap()
 +                .test_process_pty_bytes(b"$ ");
 +        }
++        // A shell becoming busy between the two probes must not consume an
++        // unsent launch or extend its deadline. Exercise the queue transition
++        // without depending on process scheduling or sleeps.
++        let deadlines: Vec<_> = app
++            .pending_tab_auto_start_agents
++            .iter()
++            .map(|pending| pending.deadline)
++            .collect();
++        assert!(
++            !app.try_start_tab_auto_start_agents_with(Instant::now(), |_, params| {
++                Err(super::AgentStartError::ShellBusy(params.pane_id))
++            })
++        );
++        assert_eq!(
++            app.pending_tab_auto_start_agents
++                .iter()
++                .map(|pending| pending.deadline)
++                .collect::<Vec<_>>(),
++            deadlines
++        );
++        assert!(first_receiver.try_recv().is_err());
++        assert!(second_receiver.try_recv().is_err());
++        assert!(app.state.terminals[&first_terminal]
++            .managed_agent_kind()
++            .is_none());
 +        assert!(app.try_start_tab_auto_start_agents(Instant::now()));
 +        assert!(app.pending_tab_auto_start_agents.is_empty());
 +        assert_eq!(
@@ -631,7 +717,16 @@ index a65d7493690269b300655f00698253057b2a8a30..bc99ff89ee59fc204c8dcfa684c4b3e4
 +        });
 +        assert!(matches!(busy, Err(super::AgentStartError::TargetBusy(_))));
 +
++        // A queued request must not survive another agent taking the pane.
++        app.pending_tab_auto_start_agents
++            .push(super::PendingTabAutoStartAgent {
++                kind: crate::detect::Agent::OpenCode,
++                pane_id: app.public_pane_id(0, first_root).unwrap(),
++                deadline: Instant::now() + super::DEFAULT_AGENT_START_TIMEOUT,
++            });
++
 +        assert!(!app.try_start_tab_auto_start_agents(Instant::now()));
++        assert!(app.pending_tab_auto_start_agents.is_empty());
 +        assert!(first_receiver.try_recv().is_err());
 +        assert!(second_receiver.try_recv().is_err());
 +
@@ -1572,10 +1667,10 @@ index b29629de1078563603e035b3ecd7531230775ca5..5925b7d6a16d3deddd84512f282bed44
      if !value.is_empty()
          && value.chars().all(|ch| {
 diff --git a/src/platform/mod.rs b/src/platform/mod.rs
-index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd89642638784b31 100644
+index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b72321a6deb5d 100644
 --- a/src/platform/mod.rs
 +++ b/src/platform/mod.rs
-@@ -415,7 +415,6 @@ fn normalized_process_name(name: &str) -> String {
+@@ -416,7 +416,6 @@ fn normalized_process_name(name: &str) -> String {
          .to_ascii_lowercase()
  }
  
@@ -1583,7 +1678,7 @@ index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd896426
  pub(crate) fn is_powershell_process_name(name: &str) -> bool {
      matches!(
          normalized_process_name(name).as_str(),
-@@ -423,19 +422,80 @@ pub(crate) fn is_powershell_process_name(name: &str) -> bool {
+@@ -424,19 +423,80 @@ pub(crate) fn is_powershell_process_name(name: &str) -> bool {
      )
  }
  
@@ -1674,7 +1769,7 @@ index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd896426
      for part in parts {
          command.push(' ');
          command.push_str(&quote(part));
-@@ -443,6 +503,64 @@ pub(crate) fn interactive_unix_shell_command(
+@@ -444,6 +504,64 @@ pub(crate) fn interactive_unix_shell_command(
      Some(command)
  }
  
@@ -1739,7 +1834,7 @@ index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd896426
  pub(crate) fn quote_powershell_arg(value: &str) -> String {
      if !value.is_empty()
          && !value.starts_with('-')
-@@ -487,8 +605,13 @@ pub(crate) fn quote_windows_command_line_arg(value: &str) -> String {
+@@ -488,8 +606,13 @@ pub(crate) fn quote_windows_command_line_arg(value: &str) -> String {
  
  pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
      let normalized = normalized_process_name(name);
@@ -1754,7 +1849,7 @@ index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd896426
          "sh" | "bash"
              | "dash"
              | "zsh"
-@@ -499,10 +622,6 @@ pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
+@@ -500,10 +623,6 @@ pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
              | "tcsh"
              | "elvish"
              | "xonsh"
@@ -1765,7 +1860,7 @@ index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd896426
      )
  }
  
-@@ -571,6 +690,57 @@ impl PrefixInputSource for RealPrefixInputSource {
+@@ -572,6 +691,57 @@ impl PrefixInputSource for RealPrefixInputSource {
      }
  }
  
@@ -1823,7 +1918,7 @@ index a4476fd71671cc57a62761bea1092b7691b9163f..e1d720f98f429bb34588a135bd896426
  #[cfg(all(test, any(unix, windows)))]
  #[test]
  fn child_exit_classification_only_checkpoints_interruptions() {
-@@ -660,28 +830,6 @@ mod tests {
+@@ -661,28 +831,6 @@ mod tests {
          assert_eq!(parse_agent_env_hint(b"HERDR_AGENT=not-an-agent\0"), None);
      }
  
