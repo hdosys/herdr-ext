@@ -242,6 +242,18 @@ impl App {
     }
 
     pub(crate) fn try_start_tab_auto_start_agents(&mut self, now: Instant) -> bool {
+        self.try_start_tab_auto_start_agents_with(now, Self::start_agent)
+    }
+
+    fn try_start_tab_auto_start_agents_with(
+        &mut self,
+        now: Instant,
+        mut start: impl FnMut(
+            &mut Self,
+            AgentStartParams,
+        )
+            -> Result<(crate::api::schema::AgentInfo, Vec<String>), AgentStartError>,
+    ) -> bool {
         let mut changed = false;
         let pending_agents = std::mem::take(&mut self.pending_tab_auto_start_agents);
         for PendingTabAutoStartAgent {
@@ -292,6 +304,18 @@ impl App {
                 );
                 continue;
             };
+            // Another launch may have claimed this pane while autostart waited.
+            // Never keep an automatic restart pending behind that agent.
+            if self
+                .state
+                .terminals
+                .get(&terminal_id)
+                .is_none_or(|terminal| {
+                    terminal.is_agent_terminal() || terminal.managed_agent_kind().is_some()
+                })
+            {
+                continue;
+            }
             let Some(shell_name) = available_shell_name(runtime) else {
                 self.pending_tab_auto_start_agents
                     .push(PendingTabAutoStartAgent {
@@ -332,10 +356,21 @@ impl App {
                 timeout_ms: None,
             };
 
-            match self.start_agent(params) {
+            match start(self, params) {
                 Ok((agent, _)) => {
                     tracing::info!(agent = label, pane_id = %agent.pane_id, "started configured agent in new tab");
                     changed = true;
+                }
+                Err(AgentStartError::ShellBusy(pane_id)) => {
+                    // The shell can start a child between the readiness probe
+                    // and managed launch. No input was sent: retain this request
+                    // under its original deadline, just as for the first probe.
+                    self.pending_tab_auto_start_agents
+                        .push(PendingTabAutoStartAgent {
+                            kind,
+                            pane_id,
+                            deadline,
+                        });
                 }
                 Err(err) => {
                     let error = self.agent_start_error_body(err);
@@ -401,7 +436,7 @@ impl App {
             .get(&terminal_id)
             .ok_or_else(|| AgentStartError::TargetUnavailable(params.pane_id.clone()))?;
         let shell_name = available_shell_name(runtime)
-            .ok_or_else(|| AgentStartError::TargetBusy(params.pane_id.clone()))?;
+            .ok_or_else(|| AgentStartError::ShellBusy(params.pane_id.clone()))?;
 
         let argv = agent_launch_argv(kind, params.args);
         let command = crate::platform::interactive_shell_command(&argv, &shell_name)
@@ -464,7 +499,7 @@ impl App {
                 code: "agent_pane_not_found".into(),
                 message: format!("agent target pane {target} not found"),
             },
-            AgentStartError::TargetBusy(target) => crate::api::schema::ErrorBody {
+            AgentStartError::TargetBusy(target) | AgentStartError::ShellBusy(target) => crate::api::schema::ErrorBody {
                 code: "agent_pane_busy".into(),
                 message: format!("agent target pane {target} is not an available shell"),
             },
@@ -661,6 +696,7 @@ pub(super) enum AgentStartError {
     InvalidTimeout,
     TargetNotFound(String),
     TargetBusy(String),
+    ShellBusy(String),
     TargetUnavailable(String),
     InputFailed(String),
     DuplicateName {
@@ -767,6 +803,31 @@ mod tests {
                 .unwrap()
                 .test_process_pty_bytes(b"$ ");
         }
+        // A shell becoming busy between the two probes must not consume an
+        // unsent launch or extend its deadline. Exercise the queue transition
+        // without depending on process scheduling or sleeps.
+        let deadlines: Vec<_> = app
+            .pending_tab_auto_start_agents
+            .iter()
+            .map(|pending| pending.deadline)
+            .collect();
+        assert!(
+            !app.try_start_tab_auto_start_agents_with(Instant::now(), |_, params| {
+                Err(super::AgentStartError::ShellBusy(params.pane_id))
+            })
+        );
+        assert_eq!(
+            app.pending_tab_auto_start_agents
+                .iter()
+                .map(|pending| pending.deadline)
+                .collect::<Vec<_>>(),
+            deadlines
+        );
+        assert!(first_receiver.try_recv().is_err());
+        assert!(second_receiver.try_recv().is_err());
+        assert!(app.state.terminals[&first_terminal]
+            .managed_agent_kind()
+            .is_none());
         assert!(app.try_start_tab_auto_start_agents(Instant::now()));
         assert!(app.pending_tab_auto_start_agents.is_empty());
         assert_eq!(
@@ -793,7 +854,16 @@ mod tests {
         });
         assert!(matches!(busy, Err(super::AgentStartError::TargetBusy(_))));
 
+        // A queued request must not survive another agent taking the pane.
+        app.pending_tab_auto_start_agents
+            .push(super::PendingTabAutoStartAgent {
+                kind: crate::detect::Agent::OpenCode,
+                pane_id: app.public_pane_id(0, first_root).unwrap(),
+                deadline: Instant::now() + super::DEFAULT_AGENT_START_TIMEOUT,
+            });
+
         assert!(!app.try_start_tab_auto_start_agents(Instant::now()));
+        assert!(app.pending_tab_auto_start_agents.is_empty());
         assert!(first_receiver.try_recv().is_err());
         assert!(second_receiver.try_recv().is_err());
 
