@@ -190,6 +190,7 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
+    remove_hook_commands(hooks, "Interrupt", &hook_path, Some("idle"))?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, Some("session"))?;
     ensure_command_hook(
         hooks,
@@ -618,6 +619,7 @@ pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
             updated_hooks |=
                 remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
             updated_hooks |= remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
+            updated_hooks |= remove_hook_commands(hooks, "Interrupt", &hook_path, Some("idle"))?;
         }
 
         if updated_hooks {

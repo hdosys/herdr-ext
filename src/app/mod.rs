@@ -5,6 +5,8 @@
 
 pub(crate) mod actions;
 mod agent_resume;
+#[cfg(test)]
+mod agent_suspend_tests;
 pub(crate) mod agent_view;
 mod agents;
 pub(crate) use agents::{unused_agent_name, AGENT_START_SETTLE_DELAY, MAX_AGENT_START_TIMEOUT};
@@ -34,7 +36,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const MIN_RENDER_INTERVAL: Duration = Duration::from_millis(16);
+pub(crate) const MIN_RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
 const GIT_REPO_DISCOVERY_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
@@ -130,6 +132,11 @@ pub struct App {
     pub(crate) git_refresh_in_flight: bool,
     pub(crate) git_refresh_due_after_in_flight: bool,
     pub(crate) git_identity_refresh_requested: bool,
+    /// A refresh worker failed to start; retry it even without a client.
+    pub(crate) git_refresh_spawn_retry_pending: bool,
+    pub(crate) pending_restored_worktree_spaces:
+        Vec<(String, crate::workspace::WorktreeSpaceMembership)>,
+    pub(crate) restored_worktree_validation_retry_at: Option<Instant>,
     pub(crate) git_status_cache: HashMap<std::path::PathBuf, crate::workspace::GitStatusCacheEntry>,
     pub(crate) pending_api_worktree_creates: HashMap<std::path::PathBuf, u64>,
     pub(crate) worktree_read_slots: std::sync::Arc<tokio::sync::Semaphore>,
@@ -173,6 +180,14 @@ pub struct App {
     pub(crate) config_reloaded_from_disk: bool,
     client_shell_keybindings_profile: Option<String>,
     endpoint_commands: custom_commands::EndpointCommandRegistry,
+    // Drop after terminal runtimes have shut down their processes. Command
+    // workers retain their own references until completion.
+    // ponytail: server-lifetime pins defer reclamation until restart; use
+    // per-pane leases only if reclamation during long-running sessions matters.
+    pub(crate) plugin_installation_leases: crate::plugin_installations::Leases,
+    // False when startup could not pin every installation; cleanup could
+    // otherwise reclaim files a restored consumer still uses.
+    pub(crate) plugin_installation_cleanup_allowed: bool,
 }
 
 pub(crate) const APP_EVENT_CHANNEL_CAPACITY: usize = 256;
@@ -188,11 +203,15 @@ fn background_update_check_enabled(background_updates: bool, check_enabled: bool
 
 fn load_plugin_registry(
     persist_plugin_registry: bool,
+    leases: &mut crate::plugin_installations::Leases,
 ) -> crate::app::state::InstalledPluginRegistry {
     if !persist_plugin_registry {
         return std::collections::HashMap::new();
     }
-    let entries = crate::persist::plugin_registry::load();
+    let entries = crate::plugin_installations::load(leases).unwrap_or_else(|err| {
+        tracing::warn!(%err, "failed to load plugin installations");
+        Vec::new()
+    });
     let entries = crate::persist::plugin_registry::reload_manifests(entries, |path, enabled| {
         crate::app::api::plugins::load_plugin_manifest(path, enabled).map_err(|(_, msg)| msg)
     });
@@ -377,6 +396,7 @@ pub(crate) fn client_palette_for_appearance(
 }
 
 impl App {
+    #[cfg(test)]
     pub fn new(
         config: &Config,
         policy: AppPolicy,
@@ -384,6 +404,17 @@ impl App {
         api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
         event_hub: crate::api::EventHub,
     ) -> Self {
+        Self::try_new(config, policy, config_diagnostic, api_rx, event_hub)
+            .expect("test app startup")
+    }
+
+    pub fn try_new(
+        config: &Config,
+        policy: AppPolicy,
+        config_diagnostic: Option<String>,
+        api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
+        event_hub: crate::api::EventHub,
+    ) -> std::io::Result<Self> {
         let prefix_keys = config.prefix_keys();
         crate::kitty_graphics::set_enabled(config.kitty_graphics_enabled());
         let (event_tx, event_rx) = mpsc::channel::<AppEvent>(APP_EVENT_CHANNEL_CAPACITY);
@@ -394,6 +425,23 @@ impl App {
         let mut restored_terminals = std::collections::HashMap::new();
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let snapshot = policy.restore_session.then(crate::persist::load).flatten();
+        let mut plugin_installation_leases = crate::plugin_installations::Leases::new();
+        let mut plugin_installation_cleanup_allowed = true;
+        if policy.persist_plugin_registry {
+            let restored_cwds = snapshot
+                .as_ref()
+                .into_iter()
+                .flat_map(|snapshot| &snapshot.workspaces)
+                .flat_map(|workspace| &workspace.tabs)
+                .flat_map(|tab| tab.panes.values())
+                .map(|pane| pane.cwd.clone())
+                .collect::<Vec<_>>();
+            plugin_installation_cleanup_allowed = crate::plugin_installations::retain_startup(
+                &mut plugin_installation_leases,
+                &restored_cwds,
+                false,
+            );
+        }
         let session_writer = Arc::new(std::sync::Mutex::new(crate::persist::SessionWriter::new(
             policy.restore_session && snapshot.is_none(),
         )));
@@ -537,7 +585,10 @@ impl App {
             integration_recommendations: crate::integration::integration_recommendations(),
             agent_manifest_summaries,
             agent_manifest_update_status: crate::detect::manifest_update::load_status(),
-            installed_plugins: load_plugin_registry(policy.persist_plugin_registry),
+            installed_plugins: load_plugin_registry(
+                policy.persist_plugin_registry,
+                &mut plugin_installation_leases,
+            ),
             plugin_panes: std::collections::HashMap::new(),
             popup_pane: None,
             plugin_command_logs: Vec::new(),
@@ -551,13 +602,6 @@ impl App {
 
         state.terminals = restored_terminals;
 
-        for ws_idx in 0..state.workspaces.len() {
-            let cwd = state.workspaces[ws_idx]
-                .resolved_identity_cwd_from(&state.terminals, &restored_terminal_runtimes);
-            state.workspaces[ws_idx].cached_git_branch =
-                cwd.as_deref().and_then(crate::workspace::git_branch);
-        }
-
         // Background auto-update is disabled for non-persistent test apps
         // and in debug/test builds so local development never mutates the
         // running binary out from under spawned test processes.
@@ -569,13 +613,19 @@ impl App {
         );
         if version_check_enabled {
             let update_tx = event_tx.clone();
-            std::thread::spawn(move || crate::update::auto_update(update_tx));
+            if let Err(err) = crate::thread_spawn::spawn_named("herdr-update-check", move || {
+                crate::update::auto_update(update_tx)
+            }) {
+                tracing::warn!(err = %err, "failed to spawn update check thread");
+            }
         }
         if manifest_check_enabled {
             let manifest_update_tx = event_tx.clone();
-            std::thread::spawn(move || {
+            if let Err(err) = crate::thread_spawn::spawn_named("herdr-manifest-check", move || {
                 crate::detect::manifest_update::auto_update(manifest_update_tx)
-            });
+            }) {
+                tracing::warn!(err = %err, "failed to spawn agent manifest check thread");
+            }
         }
 
         let last_focus = state.active.and_then(|idx| {
@@ -589,6 +639,8 @@ impl App {
             custom_commands::EndpointCommandRegistry::new(&state.keybinds.custom_commands);
 
         let mut app = Self {
+            plugin_installation_leases,
+            plugin_installation_cleanup_allowed,
             config_diagnostic_deadline: None,
             toast_deadline: None,
             last_api_notification_at: None,
@@ -602,6 +654,9 @@ impl App {
             git_refresh_in_flight: false,
             git_refresh_due_after_in_flight: false,
             git_identity_refresh_requested: false,
+            git_refresh_spawn_retry_pending: false,
+            pending_restored_worktree_spaces: Vec::new(),
+            restored_worktree_validation_retry_at: None,
             git_status_cache: HashMap::new(),
             pending_api_worktree_creates: HashMap::new(),
             worktree_read_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
@@ -656,7 +711,8 @@ impl App {
         };
         app.configure_tab_bar_status(&config.ui.tab_bar_right, &config.ui.tab_bar_right_separator);
         app.configure_window_title(&config.ui.window_title);
-        app
+        app.refresh_restored_workspace_git_metadata();
+        Ok(app)
     }
 
     #[cfg(unix)]
@@ -671,13 +727,20 @@ impl App {
             crate::handoff_runtime::ImportedHandoffRuntime,
         >,
     ) -> io::Result<Self> {
-        let mut app = Self::new(
+        let mut app = Self::try_new(
             config,
             AppPolicy::HANDOFF_REPLACEMENT,
             config_diagnostic,
             api_rx,
             event_hub,
-        );
+        )?;
+        if !crate::plugin_installations::retain_startup(
+            &mut app.plugin_installation_leases,
+            &[],
+            true,
+        ) {
+            app.plugin_installation_cleanup_allowed = false;
+        }
         let (workspaces, terminals, runtimes) = crate::persist::restore_handoff(
             snapshot,
             config.advanced.scrollback_limit_bytes,
@@ -711,6 +774,7 @@ impl App {
                 .get(idx)
                 .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
         });
+        app.refresh_restored_workspace_git_metadata();
         Ok(app)
     }
 
@@ -2751,6 +2815,83 @@ mod tests {
         match original_shell {
             Some(value) => std::env::set_var("SHELL", value),
             None => std::env::remove_var("SHELL"),
+        }
+    }
+
+    #[tokio::test]
+    async fn hidden_panes_start_at_the_size_their_tab_layout_gives_them() {
+        let mut app = test_app();
+        let mut visible = Workspace::test_new("visible-with-tiny-first-pane");
+        let first = visible.tabs[0].root_pane;
+        for _ in 0..4 {
+            visible.tabs[0].layout.focus_pane(first);
+            visible.test_split(ratatui::layout::Direction::Vertical);
+        }
+        app.state.workspaces = vec![visible];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        let area = Rect::new(0, 0, 120, 40);
+        crate::ui::compute_view_without_resizing_panes(
+            &mut app.state,
+            &app.terminal_runtimes,
+            area,
+        );
+        assert!(app.state.view.pane_infos[0].rect.height <= 3);
+
+        let size_of = |app: &App, ws_idx: usize, pane_id| {
+            app.state
+                .runtime_for_pane_in_workspace(&app.terminal_runtimes, ws_idx, pane_id)
+                .unwrap()
+                .current_size()
+        };
+        let relayout = |app: &App, ws_idx: usize| {
+            crate::ui::resize_tab_surface(
+                &app.state,
+                &app.terminal_runtimes,
+                ws_idx,
+                0,
+                area,
+                crate::kitty_graphics::HostCellSize::default(),
+            );
+        };
+
+        let ws_idx = app
+            .create_workspace_with_options(std::env::temp_dir(), false)
+            .unwrap();
+        assert_eq!(app.state.active, Some(0));
+        let root = app.state.workspaces[ws_idx].tabs[0].root_pane;
+        let spawned = size_of(&app, ws_idx, root);
+        relayout(&app, ws_idx);
+        assert_eq!(size_of(&app, ws_idx, root), spawned);
+        assert!(spawned.0 > 30, "hidden root spawned at {spawned:?}");
+
+        let response =
+            app.handle_api_request_after_internal_events_drained(crate::api::schema::Request {
+                id: "req_hidden_split_size".into(),
+                method: crate::api::schema::Method::PaneSplit(
+                    crate::api::schema::PaneSplitParams {
+                        workspace_id: None,
+                        target_pane_id: Some(app.pane_info(ws_idx, root).unwrap().pane_id),
+                        direction: crate::api::schema::SplitDirection::Down,
+                        ratio: Some(0.3),
+                        cwd: None,
+                        focus: false,
+                        right_click: Default::default(),
+                        env: Default::default(),
+                    },
+                ),
+            });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let (_, new_pane) = app
+            .parse_pane_id(response["result"]["pane"]["pane_id"].as_str().unwrap())
+            .unwrap();
+        let spawned = size_of(&app, ws_idx, new_pane);
+        relayout(&app, ws_idx);
+        assert_eq!(size_of(&app, ws_idx, new_pane), spawned);
+
+        for (_terminal_id, runtime) in app.terminal_runtimes.drain().collect::<Vec<_>>() {
+            runtime.shutdown();
         }
     }
 

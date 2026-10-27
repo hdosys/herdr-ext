@@ -13,6 +13,8 @@ Herdr 让窗格在后台服务器中持续运行。你的终端客户端可以�
 
 在服务器完全停止后再次启动时,Herdr 会恢复保存的会话形态。关于分离、服务器重启、屏幕历史回放、智能体原生会话恢复和实时交接各自能保留什么,参见[会话状态与恢复](/zh-cn/docs/session-state/)。
 
+在 Linux 和 macOS 上,服务器忽略 `SIGHUP`,因此启动它的 shell 挂断不会停止窗格。要主动停止服务器,请使用 `herdr server stop` 或 `SIGTERM`;原先使用 `SIGHUP` 的脚本需要修改。关闭日志会记录停止原因。
+
 ## 命名会话
 
 需要相互独立的 Herdr 服务器时,使用命名会话。
@@ -50,6 +52,8 @@ herdr --remote workbox
 herdr --remote ssh://you@server:2222
 ```
 
+侧栏宽度、分区比例、折叠分组和代理排序会按远程目标与会话保存在本地。重新连接同一目标和会话时会恢复这些偏好；不同 SSH 别名或会话的偏好相互独立。
+
 这种模式下，远程服务器保持窗格运行，并通过 SSH 发送终端内容和会话状态。本地 Herdr 负责绘制 UI，包括侧边栏、菜单和主题。因为客户端在本地运行,Herdr 可以把图像剪贴板粘贴等本地桌面功能桥接到远程会话: 把图像复制到远程临时文件,再粘贴该路径。
 
 默认情况下,`herdr --remote` 在这次连接中使用你本地的 Herdr 按键绑定。即使远程服务器的配置不同,也能保持本地的肌肉记忆。编辑本地按键绑定后，可通过 UI 中的 `reload config` 应用更改，无需分离重连。想改用远程服务器配置时,使用 `--remote-keybindings server`。本地的自定义命令按键绑定不会被发送,因为那些命令会在远程主机上执行。
@@ -69,7 +73,7 @@ Host workbox
 herdr --remote workbox
 ```
 
-远程连接和已保存的 SSH 机器支持 Linux、macOS 和 Windows 客户端，目标可以是 x86_64 或 aarch64 的 Linux/macOS 主机，也可以是 x86_64 的 Windows 主机。只要两端支持稳定端点代数，版本就不必一致。Linux/macOS 上优先使用远程 `PATH` 中兼容的 `herdr`，再检查常见的直接安装、Homebrew、mise 和 Nix profile 路径。Windows 上检查 `PATH` 和当前有效的托管版本。如果没有兼容的二进制文件，交互式运行会询问是否安装或更新；非交互式运行直接失败，不修改主机。Linux/macOS 安装到 `~/.local/bin/herdr`，Windows 安装包含应用本地 ConPTY 运行时的完整软件包。如果 `~/.local/bin` 不在远程 `PATH` 中，Herdr 会发出警告。
+远程连接和已保存的 SSH 机器支持 Linux、macOS 和 Windows 客户端，目标可以是 x86_64 或 aarch64 的 Linux/macOS 主机，也可以是 x86_64 的 Windows 主机。Windows ARM64 主机通过 Windows 的 x64 模拟运行 x64 构建，仅提供尽力而为的支持，可能存在错误和其他问题。当主机报告 ARM64 时，显式远程连接和已保存机器的设置过程会显示模拟运行提示。只要两端支持稳定端点代数，版本就不必一致。Linux/macOS 上优先使用远程 `PATH` 中兼容的 `herdr`，再检查常见的直接安装、Homebrew、mise 和 Nix profile 路径。Windows 上检查 `PATH` 和当前有效的托管版本。如果没有兼容的二进制文件，交互式运行会询问是否安装或更新；非交互式运行直接失败，不修改主机。Linux/macOS 安装到 `~/.local/bin/herdr`，Windows 安装包含应用本地 ConPTY 运行时的完整软件包。如果 `~/.local/bin` 不在远程 `PATH` 中，Herdr 会发出警告。
 
 默认情况下,`herdr --remote` 通过一个临时 SSH 配置运行远程设置和桥接: 先包含你的 SSH 配置,再补充兜底的保活设置。已有的用户保活设置优先。Linux 和 macOS 客户端还会添加一个私有的单次连接 control socket 来复用连接;Windows OpenSSH 不使用此方式。设置 `[remote].manage_ssh_config = false` 可以不用 Herdr 生成的配置或 control socket,而使用普通 `ssh`。
 

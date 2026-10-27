@@ -47,10 +47,13 @@ Herdr はこれらのエージェントを認識し、画面の表示から状�
 
 これらのエージェントは自分の状態を Herdr に報告します。インストールするものはありません。Herdr のペインで実行するだけです。
 
-- [Crush](https://github.com/charmbracelet/crush)
-- Command Code
-- Muse
-- [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
+<ul class="agent-logos">
+  <li><a href="https://commandcode.ai"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/command-code.svg')" }} aria-hidden="true"></span>Command Code</a></li>
+  <li><a href="https://github.com/charmbracelet/crush"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/crush.svg')" }} aria-hidden="true"></span>Crush</a></li>
+  <li><a href="https://kiro.dev/cli/"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/kiro-mask.svg')" }} aria-hidden="true"></span>Kiro CLI</a></li>
+  <li><a href="https://dev.meta.ai/products/muse-code"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/muse-code.svg')" }} aria-hidden="true"></span>Muse Code</a></li>
+  <li><a href="https://github.com/PrimeIntellect-ai/prime-agent"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/prime-agent.svg')" }} aria-hidden="true"></span>Prime Agent</a></li>
+</ul>
 
 resume コマンドも報告するエージェントは、Herdr サーバーの再起動後に同じセッションで戻ります。
 
@@ -70,11 +73,13 @@ Linux と macOS では、ホストから見えるラッパーが実際のエー�
 
 ## blocked 状態
 
-スクリーンマニフェスト方式のエージェントでは、blocked の検出は意図的に厳格です。Herdr が `blocked` と判定するのは、ライブの下部バッファスナップショットが既知の承認・質問・許可 UI にマッチしたときだけです。Codex 以外の既知エージェントでどのマニフェストルールにもマッチしない場合、Herdr は `idle` にフォールバックし、explain の出力ではそのフォールバックに `default_known_agent_idle_fallback` というラベルを付けます。Codex は、タイトルとコンポーザーがアクティブなターン中と応答後で同じに見える場合があるため、`unknown` にフォールバックします。
+スクリーンマニフェスト方式のエージェントでは、blocked の検出は意図的に厳格です。Herdr が `blocked` と判定するのは、ライブの下部バッファスナップショットが既知の承認・質問・許可 UI にマッチしたときだけです。既知のエージェントでどのマニフェストルールにもマッチしない場合、Herdr は `idle` にフォールバックし、explain の出力ではそのフォールバックに `default_known_agent_idle_fallback` というラベルを付けます。
 
-それら Codex 以外のエージェントでは、見慣れない新しいプロンプトが、Herdr がその画面の形を学習するまで、最初は `blocked` ではなく `idle` と表示されることがあります。誤分類の影響は表示上の状態と wait だけです。これによって Herdr が入力を送ったり破壊的な操作をしたりすることはありません。
+見慣れない新しいエージェントプロンプトは、Herdr がその画面の形を学習するまで、`blocked` ではなく `idle` と表示されることがあります。検出自体は入力を送りませんが、誤った idle 状態を信頼する自動処理は承認ダイアログへ入力してしまう可能性があります。予期しないプロンプトでは次の入力を送る前に画面を確認してください。idle は操作を承認する許可ではありません。
 
-Codex では、表示中のスピナーや稼働中のアクティビティタイマーから `working` を、表示中の承認プロンプトから `blocked` を判定できます。通常のタイトルやコンポーザー、スピナーがないことだけでは、ターンの終了を判定できません。そのため、Codex は応答後も `unknown` のままになることがあり、`idle` または完了を待つ処理はタイムアウトする場合があります。管理対象の起動では、初期コンポーザーをプロンプト受付可能になったかの判定にのみ使います。この観測によってターン状態は変わりません。
+Antigravity と Grok は、バックグラウンドのタスク、モニター、サブエージェントが動いていても、プロンプトに戻ると idle と判定されます。`agent wait` と `agent prompt --wait` はエージェントの状態を監視し、それらのジョブの完了は待ちません。
+
+Ctrl+Z でエージェントを中断しても、同じプロセスがシェルやエージェント以外のコマンドの背後で生きている間は、名前、セッション参照、フックの権限を保持します。`fg` で戻ると同じ識別情報を使えます。別の認識済みエージェントがフォアグラウンドを引き継ぐ場合は対象外です。識別情報が残っていても、中断中のエージェントが入力を受け取れるとは限りません。送信前にペインを確認してください。
 
 ## 検出マニフェスト
 

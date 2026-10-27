@@ -664,11 +664,15 @@ impl AppState {
     }
 
     pub fn close_selected_workspace(&mut self) {
+        let close_indices = self.workspace_close_indices(self.selected);
+        self.close_workspaces(close_indices);
+    }
+
+    pub(crate) fn close_workspaces(&mut self, close_indices: Vec<usize>) {
         if self.workspaces.is_empty() {
             return;
         }
         self.mark_session_dirty();
-        let close_indices = self.workspace_close_indices(self.selected);
 
         let mut terminal_ids = Vec::new();
         let mut pane_ids = Vec::new();
@@ -879,6 +883,20 @@ impl AppState {
     }
 
     pub(crate) fn workspace_close_indices(&self, ws_idx: usize) -> Vec<usize> {
+        let group = self.workspace_group_close_indices(ws_idx);
+        if group.iter().any(|index| {
+            *index != ws_idx
+                && self.workspaces[*index]
+                    .worktree_space()
+                    .is_some_and(|space| !space.is_linked_worktree)
+        }) {
+            vec![ws_idx]
+        } else {
+            group
+        }
+    }
+
+    pub(crate) fn workspace_group_close_indices(&self, ws_idx: usize) -> Vec<usize> {
         self.workspaces
             .get(ws_idx)
             .and_then(|ws| ws.worktree_space())
@@ -1633,6 +1651,22 @@ impl AppState {
             } => {
                 let _ = results;
                 let _ = cache_updates;
+                Vec::new()
+            }
+            AppEvent::RestoredWorktreeSpaceChecked {
+                workspace_id,
+                expected,
+                valid,
+            } => {
+                if !valid {
+                    if let Some(workspace) = self.workspaces.iter_mut().find(|workspace| {
+                        workspace.id == workspace_id
+                            && workspace.worktree_space.as_ref() == Some(&expected)
+                    }) {
+                        workspace.worktree_space = None;
+                        self.session_dirty = true;
+                    }
+                }
                 Vec::new()
             }
             AppEvent::WorktreeAddFinished(_) => Vec::new(),
@@ -2565,6 +2599,46 @@ mod tests {
         assert_eq!(state.workspaces[0].git_ahead_behind(), Some((2, 1)));
         assert_eq!(state.workspaces[1].id, second_id);
         assert_eq!(state.workspaces[1].git_ahead_behind(), None);
+    }
+
+    #[test]
+    fn restored_worktree_rejection_preserves_changed_and_missing_workspaces() {
+        let mut state = AppState::test_with_adversarial_identity_state();
+        let workspace_id = state.workspaces[0].id.clone();
+        let expected = crate::workspace::WorktreeSpaceMembership {
+            key: "saved-repo".into(),
+            label: "saved".into(),
+            repo_root: "/repo".into(),
+            checkout_path: "/checkout".into(),
+            is_linked_worktree: true,
+        };
+        let current = crate::workspace::WorktreeSpaceMembership {
+            key: "new-repo".into(),
+            ..expected.clone()
+        };
+        state.workspaces[0].worktree_space = Some(current.clone());
+        state.session_dirty = false;
+        state.assert_invariants_for_test();
+
+        for id in [workspace_id.clone(), "closed-workspace".into()] {
+            state.handle_app_event(AppEvent::RestoredWorktreeSpaceChecked {
+                workspace_id: id,
+                expected: expected.clone(),
+                valid: false,
+            });
+        }
+        assert_eq!(state.workspaces[0].worktree_space, Some(current.clone()));
+        assert!(!state.session_dirty);
+        state.assert_invariants_for_test();
+
+        state.handle_app_event(AppEvent::RestoredWorktreeSpaceChecked {
+            workspace_id,
+            expected: current,
+            valid: false,
+        });
+        assert!(state.workspaces[0].worktree_space.is_none());
+        assert!(state.session_dirty);
+        state.assert_invariants_for_test();
     }
 
     #[test]

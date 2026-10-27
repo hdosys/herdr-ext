@@ -7,6 +7,8 @@ description: 在一个 Herdr 窗口中使用 Local 和已保存的 SSH 机器，
 
 每台机器保留自己的 Herdr 服务器、会话和进程。一台机器断线不会影响其他连接。
 
+Herdr 会请求 SSH 压缩，以减少受限连接上的屏幕更新流量。这适用于较旧的兼容 Herdr 服务器，也不会改变按键或其他输入的传送方式。Herdr 的 `-C` 选项会覆盖 SSH 配置中的 `Compression no`。如果 SSH 通过外部 ControlMaster 复用现有连接，该连接会保留原来的压缩设置。
+
 ### 恢复 SSH 认证
 
 在 Linux 和 macOS 上，启用 `remote.manage_ssh_config=true` 后，添加机器、侧边栏和 API 操作共享已批准的 OpenSSH 连接。运行 `herdr machine status [<label-or-id>] [--json]` 可进行新的非交互式检查。**reachable** 表示远程 Herdr 当前可用，不代表每个 TUI 都已连接。在终端运行 `herdr machine reconnect <label-or-id>` 完成原生 SSH 认证并验证已保存的机器；该命令不会安装或更新 Herdr。已打开的客户端会在 30 秒内重试，无需重启。点击 **`! auth`**、**`! error`** 或失败后的重连状态，会显示包含最新错误及 CLI 命令的通知，不会打开认证弹窗。机器行其余部分仍用于展开或折叠。
@@ -30,16 +32,22 @@ ssh workbox
 请在交互式终端中运行，以便 Herdr 在安装或替换内容之前询问：
 
 ```bash
-herdr machine add workbox --label "Build machine"
+herdr machine add workbox
 ```
 
-这会使用远程默认会话。一个机器配置只对应一个远程会话，不会汇总该主机的所有会话。
+在交互式终端中，Herdr 会发现运行中的会话：只有一个会话运行时自动选择；有多个时，可用 Up/Down 选择并按 Enter 确认。按 Esc 或 Ctrl+C 取消。查询成功但没有运行中的会话时，设置使用 `default`。未找到 Herdr 安装时，设置会提议为 `default` 安装。如果已安装的二进制文件无法报告会话，设置会报告错误；可传入 `--remote-session <name>` 明确选择会话。
 
-如需命名会话，再添加可选的 `--remote-session`：
+默认会话在侧边栏中显示为 `workbox`，即去掉所有 `user@` 前缀的 SSH 主机名。添加 `--label "Build machine"` 可选择其他名称。一个机器配置只对应一个远程会话，不会汇总该主机的所有会话。非交互式命令使用 `default`，除非提供 `--remote-session`。
+
+要跳过发现并使用指定会话，请添加 `--remote-session`：
 
 ```bash
-herdr machine add workbox --label "Build machine" --remote-session agents
+herdr machine add workbox --remote-session agents
 ```
+
+未提供 `--label` 时，这台机器显示为 `workbox/agents`。如果默认名称已被占用，`machine add` 会要求你传入 `--label`。
+
+在 Windows 服务器上，设置还会检查 SSH 用户拥有的 Herdr 进程所使用的可执行文件。它会先验证其能力再复用，因此即使 SSH 的 `PATH` 指向较旧的安装，也能使用兼容的运行中构建。
 
 Herdr 分别检查已安装的二进制文件和运行中的服务器，并在保存配置之前启动目标后台服务器。客户端和服务器版本只要兼容，就不必一致。未安装或不兼容时会进入需要批准的设置流程。如果必须替换运行中的服务器，会先询问是否停止它及其窗格进程，再启动兼容的服务器。默认回答为 No；同时需要安装和替换时，一次确认涵盖两项操作。`machine add` 不使用实验性的实时交接。取消或设置失败时，不会保存配置。
 
@@ -95,6 +103,10 @@ herdr --remote workbox
 
 认证失败时，先检查普通 SSH。对于有口令的私钥，请在启动 Herdr 的非交互式后台连接前用 `ssh-add` 加载。
 
+如需在远程窗格中进行 Git 认证或 SSH 签名，请在 SSH 配置中为可信主机启用 `ForwardAgent yes`。Herdr 不会替你启用转发。如果会话启动时带有智能体，更新后的 Linux 和 macOS 服务器会为窗格提供稳定的智能体地址，因此在 `--remote` 或已保存机器重新连接后，现有窗格和新窗格都能使用转发的智能体。可用的继承智能体或较早的连接优先于后续客户端和临时设置检查；如果它消失，另一个实时连接可以提供智能体。
+
+这需要更新远程服务器，而不只是本地客户端。未带智能体启动的本地会话不会更改 `SSH_AUTH_SOCK`。在服务器更新前或会话首次获得智能体前创建的窗格会保留原来的环境，需要重新创建一次才能继承稳定地址。较旧的兼容服务器和未转发智能体的连接仍可正常连接。
+
 ## 设置与自动化
 
 UI 默认使用客户端本地的主题、侧边栏设置和按键绑定。选中服务器公布的自定义命令和插件仍在那里运行。Herdr 不会将本地插件、配置、可执行文件或机密复制到 SSH 主机。远程缺少命令时会明确报错。编辑客户端设置后，使用 UI 中的 `reload config`；参见[配置](/zh-cn/docs/configuration/)。
@@ -106,6 +118,8 @@ UI 默认使用客户端本地的主题、侧边栏设置和按键绑定。选�
 ## 更新与保存的数据
 
 配置只保存不透明 ID、标签、SSH 目标、明确的远程会话名和启用状态。Herdr 不会将密码、私钥、智能体票据或 SSH 控制套接字存入机器目录。认证仍由 OpenSSH 处理。
+
+Herdr 会另外记住每台机器的远程操作系统和解析后的可执行文件路径，让重复的 `--machine` 命令可以跳过发现。现有配置会在首次使用时补充缺失信息。该缓存是可选的：缓存文件缺失、无效或不可写都不会妨碍命令运行。命令仍会检查实时服务器兼容性。如果缓存的可执行文件不存在或不再支持 API 转发，Herdr 会在最初的只读检查期间重新发现它；对于可能已经更改远程状态的命令，Herdr 绝不会自动重试。
 
 客户端与服务器协商兼容性，不要求版本完全相同。保存机器的连接还需要服务器支持 `surface_interest` 和 `health_check` 能力。缺少这些能力的旧服务器，即使能独立连接，也会显示 Attention，直到明确更新。其他缺失的方法只禁用对应操作。
 

@@ -47,10 +47,13 @@ Herdr 能识别这些智能体,并从它们在屏幕上绘制的内容读取状�
 
 这些智能体会自己向 Herdr 上报状态。无需安装任何东西,在 Herdr 窗格中运行即可。
 
-- [Crush](https://github.com/charmbracelet/crush)
-- Command Code
-- Muse
-- [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
+<ul class="agent-logos">
+  <li><a href="https://commandcode.ai"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/command-code.svg')" }} aria-hidden="true"></span>Command Code</a></li>
+  <li><a href="https://github.com/charmbracelet/crush"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/crush.svg')" }} aria-hidden="true"></span>Crush</a></li>
+  <li><a href="https://kiro.dev/cli/"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/kiro-mask.svg')" }} aria-hidden="true"></span>Kiro CLI</a></li>
+  <li><a href="https://dev.meta.ai/products/muse-code"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/muse-code.svg')" }} aria-hidden="true"></span>Muse Code</a></li>
+  <li><a href="https://github.com/PrimeIntellect-ai/prime-agent"><span class="agent-logo" style={{ '--logo': "url('/assets/agent-icons/prime-agent.svg')" }} aria-hidden="true"></span>Prime Agent</a></li>
+</ul>
 
 同时上报恢复命令的智能体,会在 Herdr 服务器重启后回到同一个会话。
 
@@ -70,11 +73,13 @@ Herdr 能识别这些智能体,并从它们在屏幕上绘制的内容读取状�
 
 ## blocked 状态
 
-对屏幕清单类智能体,blocked 检测刻意从严。只有当实时底部缓冲区快照匹配已知可见的审批、提问或权限 UI 时,Herdr 才标记 `blocked`。对于 Codex 以外的已知智能体,如果没有任何清单规则匹配,Herdr 会回退到 `idle`,并在 explain 输出中把该回退标记为 `default_known_agent_idle_fallback`。Codex 会回退到 `unknown`,因为在活跃轮次期间和响应结束后,它的标题和输入框可能看起来相同。
+对屏幕清单类智能体,blocked 检测刻意从严。只有当实时底部缓冲区快照匹配已知可见的审批、提问或权限 UI 时,Herdr 才标记 `blocked`。对已知智能体,如果没有任何清单规则匹配,Herdr 会回退到 `idle`,并在 explain 输出中把该回退标记为 `default_known_agent_idle_fallback`。
 
-对于其他智能体,不常见的新提示可能一开始显示为 `idle` 而不是 `blocked`,直到 Herdr 学会那种屏幕形态。误判只影响可见状态和等待,不会让 Herdr 发送输入或执行破坏性操作。
+不常见的新智能体提示可能显示为 `idle` 而不是 `blocked`,直到 Herdr 学会那种屏幕形态。检测本身不会发送输入,但信任错误 idle 状态的自动化可能向审批对话框输入内容。遇到意外提示时,请先检查再继续发送输入;idle 状态不代表获准批准操作。
 
-对于 Codex,可见的旋转指示符或实时活动计时器可以确定 `working`,可见的审批提示可以确定 `blocked`。普通标题、输入框或没有旋转指示符都不能确定一个轮次已经结束。因此,Codex 在响应后可能继续保持 `unknown`,等待 `idle` 或完成也可能超时。托管启动仅使用初始输入框来判断它何时可以接收提示,该观察不会改变轮次状态。
+Antigravity 和 Grok 回到提示符时即被视为 idle,即使后台任务、监视器或子智能体仍在运行。`agent wait` 和 `agent prompt --wait` 观察的是智能体状态,不是这些任务是否完成。
+
+用 Ctrl+Z 挂起智能体后,只要同一个进程仍在 shell 或其他非智能体命令后面存活,其名称、会话引用和钩子权限就会保留。用 `fg` 返回后继续使用该身份。另一个被识别的智能体接管前台的情况不在此范围内。保留身份不代表挂起的智能体能接收输入;发送提示前请检查窗格。
 
 ## 检测清单
 

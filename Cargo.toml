@@ -1,6 +1,6 @@
 [package]
 name = "herdr"
-version = "0.9.3"
+version = "0.9.5"
 edition = "2021"
 build = "build.rs"
 default-run = "herdr"
@@ -53,7 +53,7 @@ serde_ignored = "0.1.14"
 serde_json = "1"
 sha2 = "0.10"
 time = { version = "0.3.47", features = ["formatting"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "signal"] }
 toml = "0.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -72,10 +72,13 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 [target.'cfg(windows)'.dependencies]
 # UTF-16 SDDL input for interprocess security descriptors.
 widestring = "1.2"
+# Native Notification Center delivery for unpackaged Windows installs.
+windows = { version = "0.62.2", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_System_Com"] }
 windows-sys = { version = "0.61.2", features = [
     "Wdk_System_Threading",
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_DataExchange",
@@ -86,6 +89,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_JobObjects",
     "Win32_System_Kernel",
     "Win32_System_Memory",
+    "Win32_System_LibraryLoader",
     "Win32_System_Ole",
     "Win32_System_Pipes",
     "Win32_System_Registry",

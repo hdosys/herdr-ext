@@ -525,7 +525,7 @@ Search the [Config reference](/docs/config-reference/) for scrollback limits, ne
 
 Applications and plugins integrate through the standard Kitty graphics protocol emitted in pane terminal output. Herdr renders these images by default in compatible outer terminals. The external socket pane-overlay API has been removed; there is no replacement socket image API.
 
-Popups, menus, and notifications temporarily hide only the image placements they overlap. Uncovered images stay visible, and hidden placements return when uncovered. Images do not dim with dialog backgrounds.
+Popups, menus, and notifications crop images around the area they cover; the rest of each image stays visible and the covered part returns when the overlay closes. Images do not dim with dialog backgrounds.
 
 Herdr automatically chooses eligible file transports, with no application changes or environment switches. On local Unix Ghostty clients, it can send image data through temporary files instead of encoding it into terminal output. A small file-consumption probe checks support first. Other terminals, SSH-launched clients, and nested multiplexers retain inline output for this last-hop optimization.
 

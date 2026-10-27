@@ -265,7 +265,11 @@ fn panel(
     Some(Rect::new(a.x + 1, a.y + 1, a.width - 2, a.height - 2))
 }
 fn popup(a: Rect, w: u16, h: u16) -> Option<Rect> {
-    let w = w.min(a.width.saturating_sub(4));
+    popup_with_width_cap(a, w, h, 4)
+}
+
+fn popup_with_width_cap(a: Rect, w: u16, h: u16, width_cap: u16) -> Option<Rect> {
+    let w = w.min(a.width.saturating_sub(width_cap));
     let h = h.min(a.height.saturating_sub(2));
     if w < 4 || h < 4 {
         return None;
@@ -541,7 +545,13 @@ fn render_onboarding_overlay(
     k: &LiveKeybindConfig,
     p: &Palette,
 ) -> Option<OverlayRender> {
-    let outer = popup(b.area, 64, 16)?;
+    let prefix = k.primary_prefix_label();
+    let hint_width = display_width("  ")
+        + display_width(&prefix)
+        + display_width(crate::ui::ONBOARDING_PREFIX_SUFFIX)
+        + display_width(crate::ui::ONBOARDING_HELP_LABEL)
+        + display_width(crate::ui::ONBOARDING_HELP_SUFFIX);
+    let outer = popup_with_width_cap(b.area, (hint_width + 5).max(64), 16, 3)?;
     let inner = panel(b, outer, p.accent, p.panel_bg)?;
     if inner.height < 11 {
         return Some(OverlayRender {
@@ -589,7 +599,6 @@ fn render_onboarding_overlay(
 
     let key_y = content.y.saturating_add(4);
     let mut key_x = content.x;
-    let prefix = k.primary_prefix_label();
     for (value, style) in [
         ("  ", base),
         (prefix.as_str(), accent),

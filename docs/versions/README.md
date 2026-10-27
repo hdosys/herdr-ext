@@ -2,7 +2,7 @@
 
 This directory contains the published documentation for stable Herdr releases.
 
-Release CI creates each version from the tagged `docs/next` tree after the GitHub Release succeeds. Maintainers can correct published documentation in its version directory afterward. When a correction also applies to future releases, make the same focused change under `docs/next`; do not replace a published tree with the current draft.
+Release CI creates each version from the tagged `docs/next` tree after the GitHub Release succeeds. Maintainers can make corrections and improvements in a published version directory afterward, without another Herdr release. Keep those edits accurate for that version; do not add unreleased behavior. When a change also applies to future releases, make the same focused change under `docs/next`; do not replace a published tree with the current draft. Pushing changes under `docs/versions/` to `master` automatically triggers the private website deployment.
 
 Validate every published version with:
 

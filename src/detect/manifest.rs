@@ -540,14 +540,14 @@ fn fallback_explain(
             )
         })
         .unwrap_or((None, Vec::new(), None, None, None, false));
-    let assume_idle = agent.is_some_and(|agent| agent != Agent::Codex);
+    let known_agent = agent.is_some();
     let remote_update_status = include_update_status
         .then(|| agent.and_then(remote_update_status))
         .flatten();
 
     DetectionExplain {
         agent: agent.map(|agent| agent_label(agent).to_string()),
-        state: if assume_idle {
+        state: if known_agent {
             AgentState::Idle
         } else {
             AgentState::Unknown
@@ -560,11 +560,7 @@ fn fallback_explain(
         visible_working: false,
         skip_state_update: false,
         skipped_update_reason: None,
-        fallback_reason: match agent {
-            Some(Agent::Codex) => Some("codex_state_ambiguous".to_string()),
-            Some(_) => Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK.to_string()),
-            None => None,
-        },
+        fallback_reason: known_agent.then(|| DEFAULT_KNOWN_AGENT_IDLE_FALLBACK.to_string()),
         evaluated_rules,
         warning,
         manifest_version,

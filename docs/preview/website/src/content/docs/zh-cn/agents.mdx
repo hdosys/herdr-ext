@@ -1,6 +1,6 @@
 ---
 title: 智能体
-description: 了解 Herdr 能检测什么、智能体状态如何工作,以及集成如何改进它。
+description: 了解哪些编程智能体可以配合 Herdr 使用(由 Herdr 支持,或自身支持 Herdr),以及智能体状态如何工作。
 ---
 
 Herdr 为同时运行多个编程智能体而生。每个智能体都待在一个真实的终端窗格里,shell、日志、提示符和运行中的进程都完好无损。Herdr 跟踪哪些窗格里有智能体,把它们的状态汇总到标签页和工作区,让你直接跳到需要关注的窗格,而不是手动轮询每个终端。
@@ -9,46 +9,58 @@ Herdr 为同时运行多个编程智能体而生。每个智能体都待在一�
 
 ## 受支持的智能体
 
-常见编程智能体开箱即用地支持自动检测。重要的区别不在于 Herdr 能不能看到某个智能体,而在于允许哪个信号来决定 `idle`、`working` 和 `blocked`。
+智能体获得 Herdr 支持有两种方式:由 Herdr 支持它,或由它自己支持 Herdr。无论哪种方式,你都能看到每个智能体的 `idle`、`working` 和 `blocked` 状态,在它完成或需要你处理时收到通知,并能在脚本中等待它。
 
-| 智能体 | 状态权威 | 集成角色 |
+其他智能体在 Herdr 窗格中照常运行,只是显示为普通终端。
+
+### 由 Herdr 支持
+
+Herdr 能识别这些智能体,并从它们在屏幕上绘制的内容读取状态。要在 Herdr 服务器重启后回到同一个会话,请用 `herdr integration install <name>` 安装该智能体的集成。每个集成会安装什么,见[集成](/zh-cn/docs/integrations/)。
+
+| 智能体 | 集成 | 说明 |
 | --- | --- | --- |
-| Pi | 安装后为生命周期钩子;否则为屏幕清单 | 状态与会话 |
-| OMP | 安装后为生命周期钩子 | 状态与会话 |
-| GitHub Copilot CLI | 屏幕清单 | 会话 |
-| Devin CLI | 屏幕清单 | 会话 |
-| Kimi Code CLI | 安装后为生命周期钩子;否则为屏幕清单 | 状态与会话 |
-| Hermes Agent | 屏幕清单 | 会话 |
-| Qoder CLI | 屏幕清单 | 会话 |
-| Qwen Code | 屏幕清单 | 会话 |
-| Letta Code | 屏幕清单 | 会话 |
-| Droid | 屏幕清单 | 会话 |
-| OpenCode | 安装后为生命周期插件;否则为屏幕清单 | 状态与会话 |
-| Kilo Code CLI | 安装后为生命周期插件;否则为屏幕清单 | 状态与会话 |
-| MastraCode | 安装后为生命周期钩子 | 状态与会话 |
-| Claude Code | 屏幕清单 | 会话 |
-| Codex | 屏幕清单 | 会话 |
-| Cursor Agent CLI | 屏幕清单 | 会话 |
-| Amp | 屏幕清单 | 无 |
-| Grok CLI | 屏幕清单 | 会话 |
-| Antigravity CLI | 屏幕清单 | 会话 |
-| Kiro CLI | 屏幕清单 | 无 |
-| Maki | 屏幕清单 | 无 |
-| Muse | 屏幕清单 | 无 |
+| Claude Code | `claude` | |
+| Codex | `codex` | |
+| GitHub Copilot CLI | `copilot` | |
+| Cursor Agent CLI | `cursor` | |
+| OpenCode | `opencode` | 也上报状态 |
+| Pi | `pi` | 也上报状态 |
+| OMP | `omp` | 状态需要集成 |
+| Droid | `droid` | |
+| Devin CLI | `devin` | |
+| Kimi Code CLI | `kimi` | 也上报状态 |
+| Kilo Code CLI | `kilo` | 也上报状态 |
+| Hermes Agent | `hermes` | |
+| Qoder CLI | `qodercli` | |
+| Qwen Code | `qwen` | |
+| Letta Code | `letta` | 仅支持 CLI 安装 |
+| MastraCode | `mastracode` | 状态需要集成 |
+| Grok CLI | `grok` | |
+| Antigravity CLI | `antigravity-cli` | |
+| Amp | 无 | 仅状态 |
+| Kiro CLI | 无 | 仅状态 |
+| Maki | 无 | 仅状态 |
+| Gemini CLI | 无 | 仅状态,测试较少 |
+| Cline | 无 | 仅状态,测试较少 |
 
-可检测但测试较少: Gemini CLI 和 Cline。不受支持的智能体仍然可以作为普通终端进程正常运行,只是在你添加集成或通过 socket API 上报状态之前,可能得不到丰富的状态。
+### 由智能体自身支持
 
-## 状态权威
+这些智能体会自己向 Herdr 上报状态。无需安装任何东西,在 Herdr 窗格中运行即可。
 
-Herdr 首先检测每个窗格的前台进程。之后,每个窗格有且只有一个状态权威。
+- [Crush](https://github.com/charmbracelet/crush)
+- Command Code
+- Muse
+- [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
 
-对于具备完整生命周期钩子的智能体,当集成已安装并在为运行中的窗格主动上报时,集成就是权威。Herdr 用这些钩子上报来决定 `idle`、`working`、`blocked` 和会话身份。对同一个生命周期权威,它不会再并行运行屏幕清单兜底。这样可以避免出现两个相互竞争的事实来源。
+同时上报恢复命令的智能体,会在 Herdr 服务器重启后回到同一个会话。
 
-对于没有完整生命周期钩子的智能体,Herdr 识别前台进程,并读取实时的底部缓冲区屏幕快照。它对该快照评估 TOML 清单,来判定 `idle`、`working` 和 `blocked`。对于会发出这些信号的智能体,清单也可以把终端标题和进度 (OSC) 序列作为检测证据;当这些证据不存在时,屏幕规则独自承担检测。
+如果你在开发编程智能体,[为你的智能体添加 Herdr 支持](/zh-cn/docs/add-herdr-support/)介绍了如何加入这个列表。只需调用几次 Herdr 的 CLI 或 socket,不需要修改 Herdr。
 
-屏幕快照来自窗格缓冲区最近的底部,而不是滚动后的视口。即使你在 Herdr 里向上翻页,检测仍然跟随底部的实时智能体 UI。
+## 状态如何判定
 
-上表中标为“会话”的集成有意不作为生命周期权威。它们为恢复提供原生会话身份,但它们的钩子并不覆盖整个生命周期,可能漏掉权限审批结果、Esc 中断或其他状态转换。对这些智能体,Herdr 仍然使用屏幕清单检测。
+对于由 Herdr 支持的智能体,Herdr 在每个窗格中找到智能体进程,并读取窗格的实时底部,而不是你滚动到的位置。检测清单中的规则决定该屏幕表示 `idle`、`working` 还是 `blocked`。如果集成也上报状态,Herdr 会使用这些上报,而不是读取屏幕。
+
+对于自身支持 Herdr 的智能体,由智能体自己的上报决定状态。
 
 ## 虚拟机与沙箱包装器
 
@@ -58,9 +70,11 @@ Herdr 首先检测每个窗格的前台进程。之后,每个窗格有且只有�
 
 ## blocked 状态
 
-对屏幕清单类智能体,blocked 检测刻意从严。只有当实时底部缓冲区快照匹配已知可见的审批、提问或权限 UI 时,Herdr 才标记 `blocked`。对已知智能体,如果没有任何清单规则匹配,Herdr 会回退到 `idle`,并在 explain 输出中把该回退标记为 `default_known_agent_idle_fallback`。
+对屏幕清单类智能体,blocked 检测刻意从严。只有当实时底部缓冲区快照匹配已知可见的审批、提问或权限 UI 时,Herdr 才标记 `blocked`。对于 Codex 以外的已知智能体,如果没有任何清单规则匹配,Herdr 会回退到 `idle`,并在 explain 输出中把该回退标记为 `default_known_agent_idle_fallback`。Codex 会回退到 `unknown`,因为在活跃轮次期间和响应结束后,它的标题和输入框可能看起来相同。
 
-这意味着不常见的新智能体提示可能一开始显示为 `idle` 而不是 `blocked`,直到 Herdr 学会那种屏幕形态。这些交互不会让 Herdr 发送输入或执行破坏性操作;它们只影响可见状态和等待。
+对于其他智能体,不常见的新提示可能一开始显示为 `idle` 而不是 `blocked`,直到 Herdr 学会那种屏幕形态。误判只影响可见状态和等待,不会让 Herdr 发送输入或执行破坏性操作。
+
+对于 Codex,可见的旋转指示符或实时活动计时器可以确定 `working`,可见的审批提示可以确定 `blocked`。普通标题、输入框或没有旋转指示符都不能确定一个轮次已经结束。因此,Codex 在响应后可能继续保持 `unknown`,等待 `idle` 或完成也可能超时。托管启动仅使用初始输入框来判断它何时可以接收提示,该观察不会改变轮次状态。
 
 ## 检测清单
 
@@ -104,17 +118,6 @@ fi
 一个 blocked 的智能体会让它的窗格、标签页和工作区看起来是 blocked。一个 working 的智能体会让工作区看起来处于活跃状态。一个 done 的智能体在你查看之前会一直保持可见。
 
 这就是 Herdr 的主要工作流: 启动多个智能体,让它们并行工作,用侧边栏看哪个项目需要决策、哪个还在运行、哪个已经可以审阅。
-
-## 直接集成
-
-为你使用的每个智能体安装集成;它让 Herdr 获得钩子或插件上报,而不是只靠屏幕检测:
-
-```bash
-herdr integration install claude
-herdr integration status
-```
-
-每个受支持的智能体都有自己的集成名称和行为。按智能体的细节和完整安装列表见[集成](/zh-cn/docs/integrations/)。如果你正在构建智能体,[为你的智能体添加 Herdr 支持](/zh-cn/docs/add-herdr-support/)介绍了如何在不为 Herdr 添加原生支持的情况下上报生命周期状态和恢复命令。
 
 ## 自定义智能体标签
 

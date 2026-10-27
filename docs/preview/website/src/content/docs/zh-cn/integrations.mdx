@@ -3,7 +3,7 @@ title: 集成
 description: 为 Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Qwen Code、Letta Code、Cursor Agent CLI、MastraCode、Antigravity CLI 和 Grok CLI 安装 Herdr 集成。
 ---
 
-Herdr 自动检测受支持的智能体。官方集成可以额外提供用于恢复的原生会话身份、生命周期状态上报,或两者兼有。
+Herdr 会自动检测它支持的智能体。安装智能体的集成后,Herdr 可以在服务器重启后恢复同一个会话。部分集成还会直接上报智能体的状态。哪些智能体由 Herdr 支持、哪些智能体自己支持 Herdr,见[智能体](/zh-cn/docs/agents/)。
 
 当你想要智能体原生会话恢复、直接生命周期上报,或两者都要时,使用集成。完整的状态权威模型见[智能体](/zh-cn/docs/agents/)。
 
@@ -59,16 +59,9 @@ Herdr 对 Linux/macOS 上的集成配置和所有平台的新文件使用原子�
 
 ## Herdr 如何使用集成
 
-Herdr 以两种不同方式使用集成:
+每个集成都会告诉 Herdr 智能体当前所在的会话,这样 Herdr 就能在服务器重启后恢复它。用 `[session] resume_agents_on_restore = false` 可以关闭。
 
-| 集成类型 | 智能体 | 效果 |
-| --- | --- | --- |
-| 生命周期权威 | Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI、MastraCode | 已安装且在为该窗格主动上报时,由钩子或插件事件决定 `idle`、`working` 和 `blocked`。对同一个生命周期权威,Herdr 不再使用屏幕清单兜底。 |
-| 会话身份 | Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Qoder CLI、Qwen Code、Letta Code、Cursor Agent CLI、Hermes Agent、Antigravity CLI、Grok CLI | 集成上报用于恢复的原生会话引用。状态仍来自 Herdr 的屏幕清单检测。 |
-
-自定义集成在定义了原生终端 UI 中不可见的状态时,也可以上报状态。它们不需要内置到 Herdr 中,也不要求 Herdr 识别智能体的可执行文件。
-
-一些集成会上报智能体的原生会话引用。除非被 `[session] resume_agents_on_restore = false` 禁用,Herdr 会在服务器重启后使用官方会话引用恢复 Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Qwen Code、Letta Code、Cursor Agent CLI、Grok CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode 和 Antigravity CLI 的窗格。
+Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI 和 MastraCode 的集成还会上报智能体的状态。在它们上报期间,Herdr 使用这些上报,而不是读取屏幕。其他集成则把状态交给屏幕检测。
 
 原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `5`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Qwen Code 版本 `1`、Letta Code 版本 `1`、Cursor Agent CLI 版本 `1`、Grok CLI 版本 `2`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `5`、MastraCode 版本 `1`、Antigravity CLI 版本 `1`。用 `herdr integration status` 查看已安装版本。
 
@@ -202,7 +195,7 @@ herdr integration install opencode
 
 该集成支持 OpenCode V1 `1.18.29` 及更高版本，以及 OpenCode V2（已验证 beta `19242`）。OpenCode 配置目录必须已经存在。Herdr 将服务端入口安装到 `~/.config/opencode/plugins/herdr-agent-state.js`，并在该配置目录安装共享 TUI 插件 `herdr-tui-session.js` 和 V2 TUI 入口 `herdr-opencode/tui.js`。
 
-安装会在 `tui.jsonc` 中注册 V1 TUI 插件，并在 `cli.json` 中注册 V2 TUI 插件，同时保留其他设置和插件。如果 OpenCode 仍有 V1 TUI 偏好需要迁移(`tui.json` 或 `kv.json`),Herdr 会推迟注册，以便首次启动时执行迁移；此时请先启动一次 `opencode2`，然后重新安装集成。否则 Herdr 会创建 `cli.json` 并注册插件。安装后请重启 OpenCode TUI。卸载会删除受管理的插件文件及其配置条目。
+安装会在 `tui.jsonc` 中注册 V1 TUI 插件，并在 `cli.json` 中注册 V2 TUI 插件，同时保留其他设置和插件。`tui.json` 中已有的 V1 注册也视为已安装,会直接复用而不创建 `tui.jsonc`。卸载会从两个 TUI 配置文件中移除 Herdr 注册,同时保留文件和其他设置。如果 OpenCode 仍有 V1 TUI 偏好需要迁移(`tui.json` 或 `kv.json`),Herdr 会推迟注册，以便首次启动时执行迁移；此时请先启动一次 `opencode2`，然后重新安装集成。否则 Herdr 会创建 `cli.json` 并注册插件。安装后请重启 OpenCode TUI。卸载会删除受管理的插件文件及其配置条目。
 
 V2 生命周期上报在窗格本地的 TUI 中运行。即使多个窗格共享同一个 OpenCode 服务端，事件也只归属于该 TUI 选中的根会话。完成和中断会清除工作状态；待处理的权限请求、表单以及执行失败会使窗格保持阻塞。V2 Mini 和无界面客户端不运行 TUI 插件，因此不提供此生命周期上报。
 

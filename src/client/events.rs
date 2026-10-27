@@ -11,6 +11,8 @@ pub(super) enum ClientLoopEvent {
     #[cfg(windows)]
     StdinEvents(Vec<crate::protocol::ClientInputEvent>),
     #[cfg(windows)]
+    NotificationActivated(shell::ClientSystemNotificationTarget),
+    #[cfg(windows)]
     HostThemeObservation(Vec<crate::raw_input::RawInputEvent>),
     Resize(u16, u16, u32, u32, bool),
     TerminalUnavailable(io::Error),

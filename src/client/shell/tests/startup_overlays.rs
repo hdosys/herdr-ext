@@ -289,23 +289,6 @@ fn onboarding_has_priority_over_endpoint_product_announcement() {
 }
 
 #[test]
-fn startup_onboarding_displays_the_configured_prefix() {
-    let config: Config = toml::from_str("[keys]\nprefix = 'ctrl+a'").unwrap();
-    let config = ClientShellConfig::from_config(&config).with_startup_onboarding(true);
-    let mut state = ClientShellState::new(config);
-    state.set_snapshot(Box::new(snapshot()));
-    state.set_pane_surface(surface());
-    let frame = state.compose(106, 20).expect("onboarding frame");
-    let text: String = frame
-        .cells
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect();
-    assert!(text.contains("ctrl+a enters prefix mode"));
-    assert!(!text.contains("ctrl+b enters prefix mode"));
-}
-
-#[test]
 fn startup_onboarding_is_client_rendered_and_modal() {
     let config = ClientShellConfig::from_config(&Config::default()).with_startup_onboarding(true);
     let mut state = ClientShellState::new(config);
@@ -364,6 +347,26 @@ fn startup_onboarding_is_client_rendered_and_modal() {
     assert!(popup_input.requests.is_empty());
     let popup_paste = state.handle_raw_events(vec![RawInputEvent::Paste("secret".into())]);
     assert!(popup_paste.requests.is_empty());
+}
+
+#[test]
+fn startup_onboarding_shows_configured_prefix() {
+    let mut config = Config::default();
+    config.keys.prefix = crate::config::BindingConfig::one("ctrl+shift+b");
+    let config = ClientShellConfig::from_config(&config).with_startup_onboarding(true);
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+
+    let frame = state.compose(70, 20).expect("onboarding frame");
+    let text = frame
+        .cells
+        .iter()
+        .map(|cell| cell.symbol.as_str())
+        .collect::<String>();
+    assert!(text.contains("ctrl+shift+b enters prefix mode"));
+    assert!(text.contains("shows keybinds and settings"));
+    assert!(!text.contains("ctrl+b enters prefix mode"));
 }
 
 #[test]

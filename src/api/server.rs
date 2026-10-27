@@ -23,6 +23,7 @@ use crate::ipc::{
     poll_local_stream_read, remove_socket_file_if_owned, set_local_stream_polling,
     socket_file_identity, LocalStream, LocalStreamRead, SocketFileIdentity,
 };
+use crate::server::shutdown::{ServerStop, ShutdownReason};
 
 #[cfg(test)]
 mod subscription_socket_tests;
@@ -63,7 +64,7 @@ impl ServerHandle {
 pub(crate) fn start_server_with_stop_control(
     api_tx: ApiRequestSender,
     event_hub: EventHub,
-    server_stop: Arc<AtomicBool>,
+    server_stop: ServerStop,
 ) -> std::io::Result<ServerHandle> {
     start_server_inner(api_tx, event_hub, default_capabilities(), Some(server_stop))
 }
@@ -83,7 +84,7 @@ fn start_server_inner(
     api_tx: ApiRequestSender,
     event_hub: EventHub,
     mut capabilities: Option<ServerCapabilities>,
-    server_stop: Option<Arc<AtomicBool>>,
+    server_stop: Option<ServerStop>,
 ) -> std::io::Result<ServerHandle> {
     let path = socket_path();
     prepare_socket_path(&path)?;
@@ -120,7 +121,7 @@ fn start_server_inner(
 
     let running = Arc::new(AtomicBool::new(true));
     let listener_running = Arc::clone(&running);
-    let thread = std::thread::spawn(move || {
+    let spawned = crate::thread_spawn::spawn_named("herdr-api-accept", move || {
         run_accept_loop(
             listener.incoming(),
             &listener_running,
@@ -133,7 +134,7 @@ fn start_server_inner(
                 let connection_running = Arc::clone(&listener_running);
                 #[cfg(unix)]
                 let ssh_agents = ssh_agents.clone();
-                std::thread::spawn(move || {
+                spawn_connection_handler(move || {
                     if let Err(err) = handle_connection_with_stop(
                         stream,
                         &api_tx,
@@ -151,6 +152,14 @@ fn start_server_inner(
         );
         debug!("api server thread exiting");
     });
+    let thread = match spawned {
+        Ok(thread) => thread,
+        Err(err) => {
+            // No ServerHandle owns the socket yet, so its Drop cleanup won't run.
+            let _ = remove_socket_file_if_owned(&path, &identity);
+            return Err(err);
+        }
+    };
 
     Ok(ServerHandle {
         _thread: thread,
@@ -158,6 +167,14 @@ fn start_server_inner(
         identity,
         running,
     })
+}
+
+/// Starts one connection's worker. When the OS refuses a thread, only this
+/// connection is dropped; the accept loop keeps serving.
+fn spawn_connection_handler(work: impl FnOnce() + Send + 'static) {
+    if let Err(err) = crate::thread_spawn::spawn_named("herdr-api-conn", work) {
+        warn!(err = %err, "failed to spawn api connection thread; dropping connection");
+    }
 }
 
 fn run_accept_loop<S>(
@@ -216,6 +233,21 @@ mod accept_loop_tests {
         );
 
         assert_eq!(handled, vec![1, 2]);
+    }
+
+    #[test]
+    fn keeps_serving_after_connection_thread_spawn_fails() {
+        let running = AtomicBool::new(true);
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        crate::thread_spawn::test_hook::fail_next_spawns(1);
+        run_accept_loop([Ok(1), Ok(2)], &running, Duration::ZERO, |stream| {
+            let tx = tx.clone();
+            spawn_connection_handler(move || tx.send(stream).unwrap());
+        });
+        drop(tx);
+
+        assert_eq!(rx.iter().collect::<Vec<_>>(), vec![2]);
     }
 
     #[test]
@@ -301,7 +333,7 @@ fn handle_connection_with_stop(
     event_hub: &EventHub,
     running: &Arc<AtomicBool>,
     capabilities: Option<ServerCapabilities>,
-    server_stop: Option<&Arc<AtomicBool>>,
+    server_stop: Option<&ServerStop>,
     #[cfg(unix)] ssh_agents: Option<&crate::platform::ssh_agent::SshAgentRegistry>,
 ) -> std::io::Result<()> {
     if let Err(err) = stream.set_send_timeout(Some(STREAM_WRITE_TIMEOUT)) {
@@ -457,6 +489,9 @@ fn handle_connection_with_stop(
         }
         method_body => {
             let (response_write_tx, response_write_rx) = std::sync::mpsc::channel();
+            let stop_caller = matches!(method_body, Method::ServerStop(_))
+                .then(|| crate::platform::local_stream_peer_description(&stream))
+                .flatten();
             let response = handle_request(
                 Request {
                     id: request_id.clone(),
@@ -465,6 +500,7 @@ fn handle_connection_with_stop(
                 api_tx,
                 capabilities,
                 server_stop,
+                stop_caller,
                 Some(response_write_rx),
             );
             let result = write_text_line_allow_disconnect(&mut stream, &response);
@@ -518,7 +554,8 @@ fn handle_request(
     request: Request,
     api_tx: &ApiRequestSender,
     capabilities: Option<ServerCapabilities>,
-    server_stop: Option<&Arc<AtomicBool>>,
+    server_stop: Option<&ServerStop>,
+    stop_caller: Option<String>,
     response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
 ) -> String {
     if matches!(&request.method, Method::Ping(_)) {
@@ -549,14 +586,16 @@ fn handle_request(
 
     if matches!(&request.method, Method::ServerStop(_)) {
         if let Some(server_stop) = server_stop {
-            server_stop.store(true, Ordering::Release);
+            server_stop.request(ShutdownReason::ApiStop {
+                caller: stop_caller,
+            });
             return serde_json::to_string(&SuccessResponse {
                 id: request.id,
                 result: ResponseResult::Ok {},
             })
             .unwrap_or_else(|_| "{}".to_string());
         }
-    } else if server_stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
+    } else if server_stop.is_some_and(ServerStop::is_requested) {
         return error_response_json(
             request.id,
             "server_unavailable",
@@ -1263,6 +1302,24 @@ mod tests {
     }
 
     #[test]
+    fn api_accept_thread_spawn_failure_removes_bound_socket() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = unique_test_path("api-accept-spawn-failure");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("herdr.sock");
+        std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &path);
+        let (api_tx, _api_rx) = mpsc::unbounded_channel();
+
+        crate::thread_spawn::test_hook::fail_next_spawns(1);
+        let result = start_server_inner(api_tx, EventHub::default(), None, None);
+        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+
+        assert!(result.is_err());
+        assert!(!path.exists(), "bound socket must be removed");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn socket_path_prefers_explicit_env_override() {
         let _guard = env_lock().lock().unwrap();
         let unique = format!("/tmp/herdr-test-{}.sock", std::process::id());
@@ -1451,6 +1508,7 @@ mod tests {
             }),
             None,
             None,
+            None,
         );
 
         let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
@@ -1469,7 +1527,7 @@ mod tests {
     #[test]
     fn server_stop_control_bypasses_app_channel() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = ServerStop::default();
         let response = handle_request(
             Request {
                 id: "priority_stop".into(),
@@ -1478,13 +1536,20 @@ mod tests {
             &tx,
             None,
             Some(&stop),
+            Some("pid 42 (herdr)".into()),
             None,
         );
 
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(response["id"], "priority_stop");
         assert_eq!(response["result"]["type"], "ok");
-        assert!(stop.load(Ordering::Acquire));
+        assert!(stop.is_requested());
+        assert_eq!(
+            stop.take_reason(),
+            Some(ShutdownReason::ApiStop {
+                caller: Some("pid 42 (herdr)".into())
+            })
+        );
 
         let rejected = handle_request(
             Request {
@@ -1494,6 +1559,7 @@ mod tests {
             &tx,
             None,
             Some(&stop),
+            None,
             None,
         );
         let rejected: serde_json::Value = serde_json::from_str(&rejected).unwrap();
@@ -1510,8 +1576,9 @@ mod tests {
         };
 
         let request_for_thread = request.clone();
-        let thread =
-            std::thread::spawn(move || handle_request(request_for_thread, &tx, None, None, None));
+        let thread = std::thread::spawn(move || {
+            handle_request(request_for_thread, &tx, None, None, None, None)
+        });
 
         let msg = rx.blocking_recv().unwrap();
         assert_eq!(msg.request.id, "req_2");

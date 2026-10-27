@@ -575,13 +575,17 @@ fn new_tab_overlay_owns_text_cursor_and_submits_public_api_request() {
 }
 
 #[test]
-fn close_confirmation_error_becomes_client_owned_overlay_and_stable_group_close() {
+fn close_confirmation_error_becomes_client_owned_overlay_and_stable_workspace_close() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     let mut close = ClientShellInput::default();
-    state.record_binding(
-        crate::input::KeybindMatch::Action(crate::input::KeybindAction::ClosePane),
+    // Exercise the server error fallback directly: last-pane keybindings now
+    // confirm locally before issuing a request.
+    state.push_endpoint_method(
+        crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
+            pane_id: "pane_1".into(),
+        }),
         &mut close,
     );
     let [ClientShellAction::Endpoint { request, .. }] = &close.actions[..] else {
@@ -621,6 +625,6 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_group_close(
     assert!(matches!(
         &request.method,
         crate::api::schema::Method::WorkspaceClose(params)
-            if params.workspace_id == "ws_1" && params.close_group
+            if params.workspace_id == "ws_1" && !params.close_group
     ));
 }

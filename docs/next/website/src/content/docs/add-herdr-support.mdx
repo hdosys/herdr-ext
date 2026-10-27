@@ -48,6 +48,8 @@ Only report when `HERDR_ENV=1` and the other variables are set. Outside Herdr, y
 - `--source` identifies your integration. Keep it stable and unique. Don't start it with `herdr:`, because Herdr's own integrations use that prefix.
 - `--seq` is optional but recommended. It must increase with every report from your source, including across sessions and restarts of your agent. A timestamp works well. Herdr ignores reports whose number is not higher than the last one it accepted, so late or out-of-order reports can't overwrite newer state.
 
+To change how your agent appears without changing its state, such as a title or custom status text, see [Custom status labels](/docs/integrations/#custom-status-labels).
+
 ## Report the resume command
 
 Put the command that resumes the current session after `--`. Include the options that session needs, such as the model or permission mode, so the resumed session behaves the same:
@@ -90,7 +92,7 @@ If your agent exits without releasing, Herdr notices once the pane is back at it
 
 - Don't let Herdr slow your agent down. Send reports in the background or with a short timeout, and ignore failures.
 - Send only the latest state. If several changes queue up while a report is in flight, drop the older ones.
-- Resume commands need Herdr 0.10.0 or later. Older versions ignore them, so state reports and release keep working there.
+- Resume commands need Herdr 0.9.2 or later. Older versions ignore them, so state reports and release keep working there.
 
 ## Use the socket directly
 
@@ -110,9 +112,3 @@ To test restore without touching your normal session, use a separate named sessi
 1. Start `herdr --session my-agent-test`, then run your agent in a pane.
 2. Stop that session with `herdr session stop my-agent-test`.
 3. Start `herdr --session my-agent-test` again. The pane should run your resume command and your agent should report again.
-
-## Example
-
-[Prime Agent's built-in Herdr reporter](https://github.com/PrimeIntellect-ai/prime-agent/blob/main/packages/coding-agent/src/core/extensions/builtin/herdr-agent-state.ts) is a real-world integration. It activates only inside Herdr, maps agent events to `working`, `idle`, and `blocked`, keeps its report order across sessions, and releases the pane on exit.
-
-To change how your agent appears without changing its state, such as a title or custom status text, see [Custom status labels](/docs/integrations/#custom-status-labels).

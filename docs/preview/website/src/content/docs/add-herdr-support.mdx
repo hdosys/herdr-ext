@@ -67,10 +67,11 @@ You can attach the command to any state report, or send it with `pane report-age
 After a Herdr server restart, Herdr opens the pane in the same directory and runs that command there. The command must follow these rules:
 
 - The first word is a plain command name on the user's `PATH`, such as `my-agent`, not a path.
-- No argument contains an apostrophe.
+- No argument contains an apostrophe or a control character.
+- At most 64 arguments and 8 KiB in total.
 - Your source must hold the pane first, so send a state report with `report-agent` before or along with the command. Otherwise Herdr answers with `resume_not_accepted`.
 
-Herdr rejects a command that breaks the first two rules with `invalid_resume_argv` and does not apply that report. Users can turn off resume with `[session] resume_agents_on_restore = false`.
+Herdr rejects a command that breaks the first three rules with `invalid_resume_argv` and does not apply that report. Users can turn off resume with `[session] resume_agents_on_restore = false`.
 
 ## Release on exit
 
@@ -89,7 +90,7 @@ If your agent exits without releasing, Herdr notices once the pane is back at it
 
 - Don't let Herdr slow your agent down. Send reports in the background or with a short timeout, and ignore failures.
 - Send only the latest state. If several changes queue up while a report is in flight, drop the older ones.
-- Older Herdr versions ignore the resume command, so everything else keeps working there.
+- Resume commands need Herdr 0.10.0 or later. Older versions ignore them, so state reports and release keep working there.
 
 ## Use the socket directly
 

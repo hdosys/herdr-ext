@@ -518,14 +518,27 @@ impl ClientShellState {
         {
             return None;
         }
+        let snapshot = self.snapshot.as_deref()?;
         let mut slots = self
             .hits
             .workspaces
             .iter()
             .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.indented)
+            .filter(|hit| {
+                hit.group_toggle.as_ref().is_none_or(|(_, key)| {
+                    snapshot
+                        .workspaces
+                        .iter()
+                        .find(|workspace| {
+                            workspace.worktree.as_ref().is_some_and(|worktree| {
+                                worktree.key == *key && !worktree.is_linked_worktree
+                            })
+                        })
+                        .is_some_and(|workspace| workspace.workspace_id == hit.workspace_id)
+                })
+            })
             .map(|hit| (Some(hit.workspace_id.clone()), hit.rect.y.saturating_sub(1)))
             .collect::<Vec<_>>();
-        let snapshot = self.snapshot.as_deref()?;
         let empty_collapsed_groups = HashSet::new();
         let collapsed_groups = self
             .collapsed_groups_for_endpoint(&self.active_endpoint_id)
@@ -544,7 +557,15 @@ impl ClientShellState {
                 .is_some_and(|workspace| workspace.workspace_id == last_hit.workspace_id)
         })?;
         let next = entries.get(last_position + 1);
-        if !next.is_some_and(|entry| entry.indented) {
+        if !next.is_some_and(|entry| {
+            entry.indented
+                || last_hit.group_toggle.as_ref().is_some_and(|(_, key)| {
+                    snapshot.workspaces[entry.index]
+                        .worktree
+                        .as_ref()
+                        .is_some_and(|worktree| worktree.key == *key)
+                })
+        }) {
             let before = next.and_then(|entry| {
                 snapshot
                     .workspaces
@@ -607,7 +628,7 @@ impl ClientShellState {
                 .position(|workspace| workspace.workspace_id == target)?,
             None => remaining.len(),
         };
-        if insert_position == source_position {
+        if source.worktree.is_none() && insert_position == source_position {
             return None;
         }
 
@@ -626,7 +647,11 @@ impl ClientShellState {
                         })
                         .map(|workspace| workspace.workspace_id.clone()),
                 )
-                .collect();
+                .collect::<Vec<_>>();
+            if before_workspace_id.is_some_and(|target| workspace_ids.iter().any(|id| id == target))
+            {
+                return None;
+            }
             Some(crate::api::schema::Method::WorkspaceMoveBlock(
                 crate::api::schema::WorkspaceMoveBlockParams {
                     workspace_ids,
@@ -651,6 +676,10 @@ impl ClientShellState {
         }
     }
 
+    /// Routes mouse input through overlays, shell controls, and pane interactions.
+    ///
+    /// Hit-test order determines which overlapping control receives the event;
+    /// the sidebar toggle takes precedence over the agent scrollbar beneath it.
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, outcome: &mut ClientShellInput) {
         self.update_link_hover(mouse, outcome);
         let point = (mouse.column, mouse.row);
@@ -916,7 +945,8 @@ impl ClientShellState {
         if self.popup_terminal_id.is_some() {
             return;
         }
-        if !self.replaying_url_click
+        if self.config.mouse_capture
+            && !self.replaying_url_click
             && self.overlay.is_none()
             && self.mode == ClientShellMode::Terminal
             && mouse.kind == MouseEventKind::Down(MouseButton::Left)
@@ -1910,9 +1940,17 @@ impl ClientShellState {
                 self.workspace_press = None;
                 self.tab_press = None;
                 self.chrome_drag = None;
-                if super::contains(self.hits.sidebar_divider, point)
-                    && !super::contains(self.hits.sidebar_toggle, point)
-                {
+                // The toggle is painted over the agent scrollbar's last cell.
+                if super::contains(self.hits.sidebar_toggle, point) {
+                    self.sidebar_collapsed = !self.sidebar_collapsed;
+                    self.sidebar_collapsed_manual = true;
+                    self.invalidate_pane_surface();
+                    outcome.repaint = true;
+                    outcome.resize = true;
+                    self.persist_chrome_preferences(outcome);
+                    return;
+                }
+                if super::contains(self.hits.sidebar_divider, point) {
                     let now = std::time::Instant::now();
                     let double_click = self.last_sidebar_divider_click.is_some_and(|last| {
                         now.duration_since(last) <= std::time::Duration::from_millis(350)
@@ -2061,15 +2099,6 @@ impl ClientShellState {
                         .saturating_add(1)
                         .min(tab_count.saturating_sub(1));
                     outcome.repaint = true;
-                    return;
-                }
-                if super::contains(self.hits.sidebar_toggle, point) {
-                    self.sidebar_collapsed = !self.sidebar_collapsed;
-                    self.sidebar_collapsed_manual = true;
-                    self.invalidate_pane_surface();
-                    outcome.repaint = true;
-                    outcome.resize = true;
-                    self.persist_chrome_preferences(outcome);
                     return;
                 }
                 let group_toggle = self.hits.workspaces.iter().find_map(|hit| {

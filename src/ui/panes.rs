@@ -1,6 +1,6 @@
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Direction, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
@@ -13,7 +13,7 @@ use super::text::truncate_end;
 use super::widgets::panel_contrast_fg;
 use crate::app::state::Palette;
 use crate::app::AppState;
-use crate::layout::PaneInfo;
+use crate::layout::{PaneId, PaneInfo};
 use crate::popup_size::resolve_popup_geometry;
 use crate::terminal::{TerminalRuntime, TerminalRuntimeRegistry};
 
@@ -38,10 +38,14 @@ fn terminal_inner_rect(
     pane_inner: Rect,
     pane_scrollbars: bool,
 ) -> Rect {
-    if !pane_scrollbars
-        || pane_inner.width <= 4
-        || rt.is_some_and(TerminalRuntime::alternate_screen_active)
-    {
+    terminal_inner_rect_for(
+        pane_inner,
+        pane_scrollbars && !rt.is_some_and(TerminalRuntime::alternate_screen_active),
+    )
+}
+
+fn terminal_inner_rect_for(pane_inner: Rect, scrollbar_gutter: bool) -> Rect {
+    if !scrollbar_gutter || pane_inner.width <= 4 {
         return pane_inner;
     }
 
@@ -50,6 +54,108 @@ fn terminal_inner_rect(
         pane_inner.y,
         pane_inner.width.saturating_sub(1),
         pane_inner.height,
+    )
+}
+
+fn zoomed_pane_borders(app: &AppState, multi_pane: bool) -> Borders {
+    if app.pane_borders.shows_borders(multi_pane) && app.pane_outer_borders {
+        Borders::ALL
+    } else {
+        Borders::NONE
+    }
+}
+
+/// Where a pane that is about to be created will sit in its tab.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum NewPanePlacement {
+    /// The only pane of a new tab or workspace.
+    Alone,
+    /// The pane created by splitting `target` in workspace `ws_idx`.
+    Split {
+        ws_idx: usize,
+        target: PaneId,
+        direction: Direction,
+        ratio: f32,
+    },
+    /// A pane split off and immediately zoomed over its tab.
+    ZoomedOverlay,
+    /// An existing pane in workspace `ws_idx` getting a new terminal.
+    Existing { ws_idx: usize, pane: PaneId },
+}
+
+/// Terminal rows and columns a new pane gets once its tab is laid out in
+/// `area`, so its program starts at that size instead of being resized.
+pub(crate) fn new_pane_terminal_size(
+    app: &AppState,
+    area: Rect,
+    placement: NewPanePlacement,
+) -> (u16, u16) {
+    let laid_out = |panes: Vec<PaneInfo>, index: usize| {
+        let infos = apply_pane_chrome(
+            panes,
+            app.pane_borders,
+            app.pane_gaps,
+            app.pane_outer_borders,
+        );
+        pane_inner_rect(infos[index].rect, infos[index].borders)
+    };
+    // A lone pane has no neighbors, so its chrome matches a zoomed single pane.
+    let alone = || pane_inner_rect(area, zoomed_pane_borders(app, false));
+    let tab_for = |ws_idx: usize, pane: PaneId| {
+        let ws = app.workspaces.get(ws_idx)?;
+        ws.tabs.get(ws.find_tab_index_for_pane(pane)?)
+    };
+    let pane_inner = match placement {
+        NewPanePlacement::Alone => alone(),
+        NewPanePlacement::Existing { ws_idx, pane } => tab_for(ws_idx, pane)
+            .and_then(|tab| {
+                if tab.zoomed && tab.layout.focused() == pane {
+                    let multi_pane = tab.layout.pane_count() > 1;
+                    return Some(pane_inner_rect(area, zoomed_pane_borders(app, multi_pane)));
+                }
+                let panes = tab.layout.panes(area);
+                let index = panes.iter().position(|info| info.id == pane)?;
+                Some(laid_out(panes, index))
+            })
+            .unwrap_or_else(alone),
+        NewPanePlacement::ZoomedOverlay => pane_inner_rect(area, zoomed_pane_borders(app, true)),
+        NewPanePlacement::Split {
+            ws_idx,
+            target,
+            direction,
+            ratio,
+        } => tab_for(ws_idx, target)
+            .and_then(|tab| tab.layout.panes_after_split(area, target, direction, ratio))
+            .map(|(panes, new_index)| laid_out(panes, new_index))
+            .unwrap_or_else(alone),
+    };
+    new_terminal_size(app, pane_inner)
+}
+
+/// Terminal rows and columns for every pane of `layout` laid out in `area`, in
+/// pane order, so a multi-pane layout can start each program at its final size.
+pub(crate) fn new_layout_terminal_sizes(
+    app: &AppState,
+    area: Rect,
+    layout: &crate::layout::TileLayout,
+) -> Vec<(u16, u16)> {
+    apply_pane_chrome(
+        layout.panes(area),
+        app.pane_borders,
+        app.pane_gaps,
+        app.pane_outer_borders,
+    )
+    .into_iter()
+    .map(|info| new_terminal_size(app, pane_inner_rect(info.rect, info.borders)))
+    .collect()
+}
+
+fn new_terminal_size(app: &AppState, pane_inner: Rect) -> (u16, u16) {
+    // A new program starts on the primary screen, which reserves the gutter.
+    let inner = terminal_inner_rect_for(pane_inner, app.pane_scrollbars);
+    (
+        inner.height.max(crate::pane::MIN_PANE_ROWS),
+        inner.width.max(crate::pane::MIN_PANE_COLS),
     )
 }
 
@@ -227,12 +333,7 @@ pub(super) fn resize_tab_panes(
         if let Some((terminal_id, rt)) =
             runtime_for_tab_pane(app, terminal_runtimes, workspace_index, tab, focused_id)
         {
-            let borders = if app.pane_borders.shows_borders(multi_pane) && app.pane_outer_borders {
-                Borders::ALL
-            } else {
-                Borders::NONE
-            };
-            let pane_inner = pane_inner_rect(area, borders);
+            let pane_inner = pane_inner_rect(area, zoomed_pane_borders(app, multi_pane));
             let inner_rect = terminal_inner_rect(Some(rt), pane_inner, app.pane_scrollbars);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
                 rt.resize(
@@ -292,11 +393,7 @@ pub(super) fn compute_pane_infos_for_tab(
 
     if tab.zoomed {
         let focused_id = tab.layout.focused();
-        let borders = if app.pane_borders.shows_borders(multi_pane) && app.pane_outer_borders {
-            Borders::ALL
-        } else {
-            Borders::NONE
-        };
+        let borders = zoomed_pane_borders(app, multi_pane);
         let pane_inner = pane_inner_rect(area, borders);
         let mut inner_rect = terminal_inner_rect(None, pane_inner, app.pane_scrollbars);
         let mut scrollbar_rect = None;

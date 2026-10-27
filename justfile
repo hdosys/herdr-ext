@@ -87,8 +87,13 @@ install-hooks:
     @echo "installed git hooks from .githooks"
 
 # Build release binary
+[unix]
 build:
     cargo build --release --locked
+
+[windows]
+build:
+    python scripts/package_windows_conpty.py build-local
 
 # Non-gating full-render scaling profile for background workspaces and active panes
 bench-render-scale:
@@ -97,6 +102,11 @@ bench-render-scale:
 # Profile terminal target name resolution at increasing pane counts.
 bench-terminal-targets:
     cargo test --release --locked --bin herdr terminal_target_lookup_profile -- --ignored --nocapture --test-threads=1
+
+# Profile Windows foreground inspection of isolated idle shells, without a server.
+[windows]
+bench-process-inspection:
+    cargo test --release --locked --bin herdr windows_process_inspection_profile -- --ignored --nocapture --test-threads=1
 
 # Profile BSP split collection and construction with balanced and skewed trees.
 bench-bsp-layout:

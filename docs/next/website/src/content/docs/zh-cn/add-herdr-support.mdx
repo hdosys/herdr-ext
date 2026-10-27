@@ -48,6 +48,8 @@ Herdr 窗格中的每个进程都会继承这些环境变量:
 - `--source` 用于标识你的集成。保持稳定且唯一。不要以 `herdr:` 开头,这个前缀由 Herdr 自己的集成使用。
 - `--seq` 可以省略,但建议加上。它必须随来自你的来源的每次上报递增,跨会话和智能体重启也要继续递增。时间戳就很合适。Herdr 会忽略编号不大于上次已接受编号的上报,所以迟到或乱序的上报不会覆盖更新的状态。
 
+如果想在不改变状态的情况下改变智能体的显示方式,例如标题或自定义状态文字,请参阅[自定义状态标签](/zh-cn/docs/integrations/#自定义状态标签)。
+
 ## 上报恢复命令
 
 把恢复当前会话的命令放在 `--` 之后。带上该会话需要的选项,例如模型或权限模式,这样恢复后的会话行为一致:
@@ -90,7 +92,7 @@ Herdr 服务器重启后,Herdr 会在同一目录中打开该窗格并在其中�
 
 - 不要让 Herdr 拖慢你的智能体。在后台或用较短的超时发送上报,并忽略失败。
 - 只发送最新状态。如果一次上报正在发送时积累了多个变化,丢弃较旧的那些。
-- 恢复命令需要 Herdr 0.10.0 或更高版本。旧版会忽略它,状态上报和释放照常工作。
+- 恢复命令需要 Herdr 0.9.2 或更高版本。旧版会忽略它,状态上报和释放照常工作。
 
 ## 直接使用套接字
 
@@ -110,9 +112,3 @@ herdr agent list
 1. 启动 `herdr --session my-agent-test`,然后在一个窗格中运行你的智能体。
 2. 用 `herdr session stop my-agent-test` 停止该会话。
 3. 再次启动 `herdr --session my-agent-test`。窗格应当运行你的恢复命令,智能体应当再次上报。
-
-## 示例
-
-[Prime Agent 内置的 Herdr 上报器](https://github.com/PrimeIntellect-ai/prime-agent/blob/main/packages/coding-agent/src/core/extensions/builtin/herdr-agent-state.ts)是一个真实的集成。它只在 Herdr 中启用,将智能体事件映射为 `working`、`idle` 和 `blocked`,跨会话保持上报顺序,并在退出时释放窗格。
-
-如果想在不改变状态的情况下改变智能体的显示方式,例如标题或自定义状态文字,请参阅[自定义状态标签](/zh-cn/docs/integrations/#自定义状态标签)。

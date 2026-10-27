@@ -49,6 +49,7 @@ herdr api schema --output herdr-api.schema.json
 
 ```bash
 herdr machine list
+herdr machine add workbox
 herdr machine add workbox --label "Build machine"
 herdr machine rename <profile-id> --label "New name"
 herdr machine disable <profile-id>
@@ -56,7 +57,7 @@ herdr machine enable <profile-id>
 herdr machine remove <profile-id>
 ```
 
-`machine add` はリモートのデフォルトセッションを使います。名前付きセッションを使う場合だけ `--remote-session <name>` を追加します。スクリプトでは `machine list` に `--json` を追加できます。詳しくは[マシンへの接続](/ja/docs/connecting-machines/)を参照してください。
+対話型ターミナルでは、`machine add` は実行中のセッションを検出し、複数あれば選択できます。実行中のセッションがない場合や Herdr がインストールされていない場合は `default` を使います。インストール済みバイナリへの問い合わせに失敗した場合は、明示的な選択が必要です。検出を省略するには `--remote-session <name>` を追加します。非対話型コマンドでは、このフラグがない限り `default` を使います。スクリプトでは `machine list` に `--json` を追加できます。詳しくは[マシンへの接続](/ja/docs/connecting-machines/)を参照してください。
 
 `machine add` はリモート側の Herdr が必要な機能を備えているか確認し、必要な場合だけ承認を得てインストールまたは更新します。指定したセッションのバックグラウンドサーバーを起動してからプロファイルを保存します。互換性があればリリースバージョンは一致しなくてもかまいません。インストールや再起動の承認が必要な場合は、対話型ターミナルで実行してください。セットアップが失敗またはキャンセルされた場合、プロファイルは保存されません。実行中サーバーの置き換えには明示的な承認が必要で、デフォルトの回答は No です。停止するとペインのプロセスも終了します。`machine add` は実験的なハンドオフを暗黙に有効にしません。
 
@@ -472,6 +473,8 @@ herdr plugin pane close <pane_id>
 ```
 
 `plugin pane open` は、プラグインがリンクされ、有効で、現在のプラットフォームと互換であることを要求します。マニフェストで宣言された `[[panes]]` コマンドを Herdr 管理のターミナルペインとして起動します。マニフェストのデフォルトは `overlay` で、アクティブなペインの上に一時的なズームオーバーレイを開きます。分割、新しいタブ、ズームされたペイン、またはタブレイアウトを変更しないセッションモーダルな `popup` として開くこともできます。`--width` と `--height` は、外側のポップアップ寸法をターミナルセル数または `80%` のような割合で指定します。省略した寸法はデフォルトでターミナルの半分になり、小さすぎる値はポップアップの最小サイズに制限されます。ポップアップは Herdr ペインではなく、`HERDR_PANE_ID` を受け取らず、pane API やエージェント API に参加しません。ターミナル以外のネイティブなプラグインペインは今後の対応面です。
+
+新しいペインでは `TERM_PROGRAM=herdr` として識別され、`TERM_PROGRAM_VERSION` には Herdr のバージョンが設定されます。`TERM=xterm-256color` と `COLORTERM=truecolor` は維持されます。Herdr は、明示的な起動環境の値を適用する前に、継承した外側のターミナルのセッションマーカー（iTerm2、WezTerm、Kitty、Windows Terminal、tmux、screen、Zellij）、iTerm2 の `LC_TERMINAL` 識別子、既知の Claude Code、Codex、OMP セッションマーカーを削除します。これにより、新しいペインがサーバーを最初に起動したターミナルやエージェントのセッションを名乗ることを防ぎます。API キーやディスプレイ設定を含む通常の環境変数は、アタッチ中クライアントの環境に置き換えられず、引き続き継承されます。SSH エージェント転送には独自の再接続処理があります。このクリーンアップによって既存ペインのプロセスは変更されません。
 
 `--env KEY=VALUE` はプロセスを起動するコマンドで繰り返し指定できます。新しく起動されるプロセスにのみ適用されます。`HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ENV`、`HERDR_WORKSPACE_ID`、`HERDR_TAB_ID`、`HERDR_PANE_ID`、`HERDR_PLUGIN_ID`、`HERDR_PLUGIN_ROOT`、`HERDR_PLUGIN_CONFIG_DIR`、`HERDR_PLUGIN_STATE_DIR`、`HERDR_PLUGIN_ENTRYPOINT_ID`、`HERDR_PLUGIN_CONTEXT_JSON` のような Herdr 管理の変数は、呼び出し側が与えた環境変数と衝突した場合も権威を保ちます。
 

@@ -40,6 +40,7 @@ use ghostty_vt::pane_graphics_files;
 mod persist;
 mod platform;
 mod plugin_command;
+mod plugin_installations;
 mod plugin_paths;
 mod popup_size;
 mod product_announcements;
@@ -59,6 +60,7 @@ mod terminal_effects;
 mod terminal_modes;
 mod terminal_notify;
 mod terminal_theme;
+mod thread_spawn;
 mod ui;
 mod update;
 mod workspace;
@@ -230,6 +232,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Size of the virtual terminal used when no client is attached.
 # Attached clients always use their own terminal size.
 [server]
+# Windows only: allow ordinary same-account clients to control an elevated server.
+# Requires a server restart.
+# allow_unelevated_clients = false
 # headless_cols = 120
 # headless_rows = 40
 
@@ -537,6 +542,10 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     };
+    #[cfg(windows)]
+    if let Some(result) = platform::maybe_activate_desktop_notification(&raw_args) {
+        return result;
+    }
     let raw_args = platform::prepare_interactive_server_bootstrap(raw_args)?;
     #[cfg(windows)]
     match installer_stop_sessions_requested(&raw_args) {

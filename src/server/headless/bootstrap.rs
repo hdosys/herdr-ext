@@ -2,6 +2,7 @@ use super::*;
 
 /// Run the headless server. This is the entry point called from main.rs.
 pub fn run_server() -> io::Result<()> {
+    crate::platform::ignore_server_hangup();
     let args: Vec<String> = std::env::args().collect();
     let handoff_import = args.get(2).map(String::as_str) == Some("--handoff-import");
     let process_context = crate::platform::prepare_server_process(handoff_import);
@@ -27,15 +28,19 @@ pub fn run_server() -> io::Result<()> {
     }
 
     let loaded_config = config::Config::load();
+    #[cfg(windows)]
+    if loaded_config.config.server.allow_unelevated_clients {
+        crate::platform::allow_unelevated_clients();
+    }
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
     let event_hub = api::EventHub::default();
-    let should_quit = Arc::new(AtomicBool::new(false));
+    let server_stop = crate::server::shutdown::ServerStop::default();
 
     // Start the JSON API socket server.
     let _api_server = match api::start_server_with_stop_control(
         api_tx.clone(),
         event_hub.clone(),
-        should_quit.clone(),
+        server_stop.clone(),
     ) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
@@ -53,13 +58,13 @@ pub fn run_server() -> io::Result<()> {
 
     let result = rt.block_on(async {
         // Create the App (with AppState, event channels, etc.).
-        let app = app::App::new(
+        let app = app::App::try_new(
             &loaded_config.config,
             app::AppPolicy::PRODUCTION,
             config::config_diagnostic_summary(&loaded_config.diagnostics),
             api_rx,
             event_hub,
-        );
+        )?;
         let startup_cwd = take_startup_cwd();
 
         // Create the headless server.
@@ -68,7 +73,7 @@ pub fn run_server() -> io::Result<()> {
             &loaded_config.diagnostics,
             Some(api_tx.clone()),
             Some(_api_server),
-            should_quit,
+            server_stop,
         ) {
             Ok(server) => server,
             Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
@@ -144,7 +149,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
 
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
     let event_hub = api::EventHub::default();
-    let should_quit = Arc::new(AtomicBool::new(false));
+    let server_stop = crate::server::shutdown::ServerStop::default();
 
     let mut imports = HashMap::new();
     for (pane, fd) in received.manifest.panes.into_iter().zip(received.fds) {
@@ -183,18 +188,22 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
         let api_server = api::start_server_with_stop_control(
             api_tx.clone(),
             event_hub.clone(),
-            should_quit.clone(),
+            server_stop.clone(),
         )?;
         let mut server = HeadlessServer::new(
             app,
             &loaded_config.diagnostics,
             Some(api_tx.clone()),
             Some(api_server),
-            should_quit,
+            server_stop,
         )?;
         // Carried across before any client attaches, so the first title sent is
         // the override rather than the configured one it replaced.
         server.api_window_title = received.manifest.api_window_title.take();
+        // A restart announced before the handoff still commits after it.
+        server
+            .host_shutdown_intent
+            .set(received.manifest.host_shutdown_intent);
         crate::server::handoff::report_ready(&mut received.stream)?;
         crate::server::handoff::wait_committed(&mut received.stream)?;
         server.app.assume_handoff_ownership();
@@ -220,16 +229,20 @@ fn run_handoff_import_server(_socket_path: &Path, _token: &str) -> io::Result<()
 }
 
 fn print_ready_message(api_socket: &Path, client_socket: &Path) {
-    eprintln!("herdr server running; you can use any herdr CLI command in another terminal.");
-    eprintln!("api socket: {}", api_socket.display());
-    eprintln!("client socket: {}", client_socket.display());
-    eprintln!(
-        "logs: {}",
+    let message = format!(
+        "herdr server running; you can use any herdr CLI command in another terminal.\n\
+         api socket: {}\n\
+         client socket: {}\n\
+         logs: {}\n\
+         did you mean to open the Herdr TUI? run `herdr`; you do not need `herdr server`.\n",
+        api_socket.display(),
+        client_socket.display(),
         crate::session::data_dir()
             .join("herdr-server.log")
             .display()
     );
-    eprintln!("did you mean to open the Herdr TUI? run `herdr`; you do not need `herdr server`.");
+    // The launching terminal may already be gone; the server keeps running.
+    let _ = io::Write::write_all(&mut io::stderr(), message.as_bytes());
 }
 
 /// Initialize logging for the server process.

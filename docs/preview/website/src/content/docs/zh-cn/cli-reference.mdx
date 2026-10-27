@@ -49,6 +49,7 @@ herdr api schema --output herdr-api.schema.json
 
 ```bash
 herdr machine list
+herdr machine add workbox
 herdr machine add workbox --label "Build machine"
 herdr machine rename <profile-id> --label "New name"
 herdr machine disable <profile-id>
@@ -56,7 +57,7 @@ herdr machine enable <profile-id>
 herdr machine remove <profile-id>
 ```
 
-`machine add` 默认使用远程默认会话。只有需要命名会话时才添加 `--remote-session <name>`。`machine list` 支持可选的 `--json` 供脚本使用。完整流程见[连接机器](/zh-cn/docs/connecting-machines/)。
+在交互式终端中，`machine add` 会发现运行中的会话，并在有多个会话运行时让你选择。没有运行中的会话或未安装 Herdr 时使用 `default`；如果查询已安装的二进制文件失败，则需要明确选择。添加 `--remote-session <name>` 可跳过发现。非交互式命令会使用 `default`，除非提供该选项。`machine list` 支持可选的 `--json` 供脚本使用。完整流程见[连接机器](/zh-cn/docs/connecting-machines/)。
 
 `machine add` 会检查远程 Herdr 是否具备所需能力，仅在必要时征得批准后安装或更新，并在保存配置前启动指定会话的后台服务器。只要兼容，发行版本不必一致。需要批准安装或重启时，请在交互式终端中运行；设置失败或取消时不会保存配置。替换运行中的服务器需要明确批准，默认回答为 No；停止服务器会结束其窗格进程。`machine add` 不会隐式启用实验性实时交接。
 
@@ -472,6 +473,8 @@ herdr plugin pane close <pane_id>
 ```
 
 `plugin pane open` 要求插件已链接、已启用并与当前平台兼容。它把清单声明的 `[[panes]]` 命令作为 Herdr 管理的终端窗格启动。清单的默认值是 `overlay`,在活动窗格上方打开一个临时的缩放覆盖层。它也可以作为分割、新标签页、缩放窗格,或不改变标签页布局的会话级模态 `popup` 打开。`--width` 和 `--height` 以终端单元格数或 `80%` 这样的百分比设置弹窗外层尺寸;省略时默认为终端大小的一半,过小的值会限制为弹窗最小尺寸。弹窗不是 Herdr 窗格,不会收到 `HERDR_PANE_ID`,也不参与 pane 或智能体 API。非终端的原生插件窗格是之后的能力面。
+
+新窗格使用 `TERM_PROGRAM=herdr` 标识自身，并将 `TERM_PROGRAM_VERSION` 设为 Herdr 的版本。它们保留 `TERM=xterm-256color` 和 `COLORTERM=truecolor`。应用显式的启动环境值之前，Herdr 会移除继承的外层终端会话标记（iTerm2、WezTerm、Kitty、Windows Terminal、tmux、screen 和 Zellij）、iTerm2 的 `LC_TERMINAL` 身份，以及已知的 Claude Code、Codex 和 OMP 会话标记。这可防止新窗格冒充最初启动服务器的终端或智能体会话。API 密钥和显示设置等普通环境变量仍会继承，而不会被连接客户端的环境替换。SSH 智能体转发有自己的重连处理。现有窗格进程不受此清理影响。
 
 `--env KEY=VALUE` 可以在启动进程的命令上重复使用,只作用于新启动的进程。当与调用方提供的环境变量冲突时,`HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ENV`、`HERDR_WORKSPACE_ID`、`HERDR_TAB_ID`、`HERDR_PANE_ID`、`HERDR_PLUGIN_ID`、`HERDR_PLUGIN_ROOT`、`HERDR_PLUGIN_CONFIG_DIR`、`HERDR_PLUGIN_STATE_DIR`、`HERDR_PLUGIN_ENTRYPOINT_ID` 和 `HERDR_PLUGIN_CONTEXT_JSON` 等 Herdr 管理的变量保持权威。
 

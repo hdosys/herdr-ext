@@ -73,7 +73,7 @@ headless_rows = 50
 default_shell = "nu"
 ```
 
-未设置或值为空时，Herdr 会依次使用 `$SHELL`、Unix 上的 `/bin/sh` 或 Windows 上的 PowerShell。该值是可执行文件名或路径，而不是 shell 命令行。现有窗格会保留当前 shell，直到重新创建。自定义命令按键绑定中的字符串在 Unix 上通过 `/bin/sh -c` 执行窗格命令，通过 `/bin/sh -lc` 执行分离式命令；在 Windows 上则通过 `cmd.exe /d /c` 执行。
+未设置或值为空时，Herdr 会在 Unix 上依次使用 `$SHELL` 和 `/bin/sh`。在 Windows 上，如果能从 `PATH` 解析到 `pwsh.exe`（PowerShell 7），则使用它，否则使用系统自带的 `powershell.exe`（Windows PowerShell 5.1）。该值是可执行文件名或路径，而不是 shell 命令行。现有窗格会保留当前 shell，直到重新创建。自定义命令按键绑定中的字符串在 Unix 上通过 `/bin/sh -c` 执行窗格命令，通过 `/bin/sh -lc` 执行分离式命令；在 Windows 上则通过 `cmd.exe /d /c` 执行。
 
 设置 Herdr 如何启动新建交互式窗格的 shell：
 
@@ -141,6 +141,15 @@ navigate_workspace_down = "j"
 navigate_pane_down = "ctrl+j"
 split_horizontal = "prefix+minus"
 ```
+
+需要通过多个按键进入前缀模式时，`keys.prefix` 也接受数组。例如，可让 macOS 和远程 Linux 机器共享同一份配置：
+
+```toml
+[keys]
+prefix = ["ctrl+space", "ctrl+s"]
+```
+
+配置的每个前缀都会进入同一个前缀模式，并可触发所有 `prefix+...` 动作。第一项是状态栏中显示的主前缀；应用内 `prefix+?` 帮助面板会列出全部前缀。
 
 默认键位以前缀为主，因此 Herdr 不会抢占 shell、编辑器、tmux 或终端应用的输入。在[配置参考](/docs/config-reference/)中搜索 `keys.` 可查看每个动作及其默认绑定。应用内帮助面板可通过 `prefix+?` 打开，其中会显示当前生效的绑定。
 
@@ -243,6 +252,8 @@ name = "catppuccin"
 ```
 
 在[配置参考](/docs/config-reference/)中搜索 `theme.name` 可查看所有内置主题。如果想让 Herdr UI 颜色跟随宿主终端的 ANSI 调色板，请使用 `terminal`。
+
+在 Unix 上，Herdr 还会在调整大小或收到 `SIGWINCH` 后重绘时重新读取宿主终端的颜色。如果主题切换器通过 OSC 更改终端颜色却不发送明暗通知，请在应用新调色板后执行 `kill -WINCH <client-pid>`。目标应是已连接的 Herdr 客户端，而不是服务器；现有窗格会继续运行。直接通过 `herdr terminal attach` 连接的会话会把调色板查询交给所连接的应用。
 
 要让 Herdr 在宿主终端报告明暗外观变化时自动切换自身的 UI 主题，请启用主题自动切换：
 
@@ -508,9 +519,19 @@ claude = "on"
 
 ## Kitty graphics
 
-Herdr 默认在兼容的外层终端中渲染窗格图像。图像放置区域与弹窗、菜单或通知重叠时，Herdr 会暂时隐藏整个图像放置区域，而不是只裁剪重叠部分。未被遮挡的图像保持可见，被隐藏的图像放置区域在遮挡消失后恢复显示。图像不会随对话框背景一起变暗。
+应用和插件通过窗格终端输出中发出的标准 Kitty graphics 协议进行集成。Herdr 默认在兼容的外层终端中渲染这些图像。外部 socket 窗格覆盖层 API 已被移除，也没有替代的 socket 图像 API。
 
-要禁用图形渲染和窗格图形 API，请设置：
+弹窗、菜单和通知会在其覆盖区域周围裁剪图像；每幅图像的其余部分仍然可见，覆盖层关闭后，被遮挡的部分会恢复显示。图像不会随对话框背景一起变暗。
+
+Herdr 会自动选择符合条件的文件传输方式，无需更改应用或切换环境变量。在本地 Unix Ghostty 客户端上，它可以通过临时文件发送图像数据，而不是将其编码到终端输出中。系统会先用一个小型文件读取探测来检查支持情况。其他终端、通过 SSH 启动的客户端和嵌套多路复用器仍使用内联输出进行最后一跳优化。
+
+对于符合条件的本地客户端，原生 RGBA 图像从服务器传到客户端时使用 Herdr 所有的快照路径，而不是像素字节。不支持的客户端和失败的传输会回退到内联传送。远程服务器路径绝不会转发到本地终端。图像放置、裁剪和可见性仍由 Herdr 控制。
+
+在 Linux 上，Herdr 读取整文件、未压缩 RGBA 上传的像素前，可以使用写时复制快照。这要求文件系统支持克隆到 Herdr 的私有 `/var/tmp` 存储。不支持的文件系统、临时文件上传、共享内存和其他格式会使用普通加载器。每个快照上限为 16 MiB，总上限为 64 MiB；动画和不受支持的客户端会在需要时读取像素。Herdr 接受图像后绝不会依赖可变的生产者路径。
+
+PNG 上传仍会进行完整解码和验证。Herdr 不会把损坏图像的验证推迟到外层终端。
+
+要禁用 Kitty graphics 渲染，请设置：
 
 ```toml
 [terminal]
@@ -519,7 +540,7 @@ kitty_graphics = false
 
 为兼容现有配置，旧的 `experimental.kitty_graphics` 设置仍然可用。若两者同时设置，`terminal.kitty_graphics` 优先。
 
-更改此设置后，需要重启受影响的 Herdr 服务器或重新连接客户端。在远程会话中，服务器端设置控制窗格图形解析和 API 可用性，本地客户端设置控制向外层终端输出图形。
+更改此设置后，需要重启受影响的 Herdr 服务器或重新连接客户端。在远程会话中，服务器端设置控制 Kitty graphics 解析，本地客户端设置控制向外层终端输出图形。
 
 ## 智能体会话恢复
 

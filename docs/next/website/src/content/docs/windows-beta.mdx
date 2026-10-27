@@ -35,6 +35,19 @@ The installed Windows distribution owns its fork CalVer update feed and cannot b
 
 Local persistent sessions continue running after the client detaches or its terminal window closes. Servers and pane processes launched through Windows OpenSSH also survive logout; run `herdr` again to reconnect.
 
+Elevated Windows servers require an administrator client by default, including servers started through an elevated SSH login. Ordinary servers accept clients from ordinary and administrator terminals belonging to the same account; attaching never changes the server's privileges.
+
+To deliberately share elevated sessions with ordinary clients, set:
+
+```toml
+[server]
+allow_unelevated_clients = true
+```
+
+This Windows-only setting is off by default and applies when a new server starts, including automatic startup. Reloading config does not change a running server's access policy. You can instead enable sharing for one server process from an administrator terminal with `herdr server --allow-unelevated-clients` (or `herdr --session <name> server --allow-unelevated-clients` for a named session). The flag enables sharing even when the config setting is false.
+
+Either option allows ordinary local processes belonging to that account to control administrator panes; other accounts remain excluded. The flag must be supplied again after a restart unless sharing is enabled in config. Existing servers retain their previous access policy until stopped and restarted with the updated build; stopping closes their panes. Config and recovery files retain their account-based permissions.
+
 Windows agent process detection scans descendants of the pane shell and recognizes direct agents plus common command wrappers, including npm/Node and Git Bash process chains. It follows Git Bash-launched agents across emulated `exec` boundaries, but it is not the same as Unix foreground process-group detection.
 
 Windows integration installation currently supports Pi, OMP, Claude Code, Codex, GitHub Copilot CLI, Devin CLI, OpenCode, Kilo Code CLI, Droid, Kimi Code CLI, Qoder CLI, and Antigravity CLI. Availability is narrower than on Unix; Herdr hides or rejects integrations whose install format is not supported on Windows.
@@ -98,6 +111,8 @@ Windows packages include Microsoft's current app-local ConPTY runtime because th
 Herdr's pane text copy works on Windows. Drag-select text inside a pane to copy through Herdr.
 
 For text paste, use `ctrl+shift+v` in Windows Terminal. Multiline text paste is bracketed so shells and agent prompts receive it as one paste instead of submitting each line separately. Hold `shift` and right-click to use the outer terminal paste action instead of sending the click through Herdr.
+
+Windows clients also recover text when WezTerm wraps a complete sequence of Win32 character press/release pairs in raw paste markers. Mixed text and incomplete reports are not decoded by this compatibility rule. Literal clipboard text consisting entirely of matching Win32 reports is indistinguishable from this encoding and is decoded too.
 
 ## Not supported on Windows
 
