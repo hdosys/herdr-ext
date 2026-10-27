@@ -1,27 +1,30 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Package")]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$StageDir,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$LauncherExe,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$InstallerHelperExe,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$BuildId,
 
     [string]$BuildFreshness,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$ReleaseVersion,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$BaseVersion,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
     [string]$OutputPath,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "ValidateSources")]
+    [switch]$ValidateSourcesOnly,
 
     [string]$ProductName = "Herdr",
 
@@ -412,26 +415,28 @@ function Get-VerifiedNsisArchive {
     return $archivePath
 }
 
-if ($BuildId -cnotmatch $BuildIdPattern) {
-    throw "Invalid build ID '$BuildId'. Expected 12 lowercase hex characters, a dot, and 12 lowercase hex characters."
-}
-if ($ProductName -cnotmatch $ProductNamePattern) {
-    throw "Invalid product name '$ProductName'."
-}
-if (-not [string]::IsNullOrWhiteSpace($TestUserProfileRoot)) {
-    $TestUserProfileRoot = (Resolve-Path -LiteralPath $TestUserProfileRoot).Path
-    if (-not (Test-Path -LiteralPath $TestUserProfileRoot -PathType Container) -or
-        (Get-Item -LiteralPath $TestUserProfileRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint -or
-        $TestUserProfileRoot -match '[\r\n"$]') {
-        throw "TestUserProfileRoot must be a regular NSIS-safe directory: $TestUserProfileRoot"
+if (-not $ValidateSourcesOnly) {
+    if ($BuildId -cnotmatch $BuildIdPattern) {
+        throw "Invalid build ID '$BuildId'. Expected 12 lowercase hex characters, a dot, and 12 lowercase hex characters."
     }
+    if ($ProductName -cnotmatch $ProductNamePattern) {
+        throw "Invalid product name '$ProductName'."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($TestUserProfileRoot)) {
+        $TestUserProfileRoot = (Resolve-Path -LiteralPath $TestUserProfileRoot).Path
+        if (-not (Test-Path -LiteralPath $TestUserProfileRoot -PathType Container) -or
+            (Get-Item -LiteralPath $TestUserProfileRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint -or
+            $TestUserProfileRoot -match '[\r\n"$]') {
+            throw "TestUserProfileRoot must be a regular NSIS-safe directory: $TestUserProfileRoot"
+        }
+    }
+    $versionIdentity = Get-VersionIdentity
+    $BuildFreshness = [string]$versionIdentity.Freshness
+    $DisplayVersion = [string]$versionIdentity.Display
+    $NumericVersion = [string]$versionIdentity.Numeric
+    $UiVersion = [string]$versionIdentity.Ui
+    $ExpectedCliVersion = [string]$versionIdentity.ExpectedCli
 }
-$versionIdentity = Get-VersionIdentity
-$BuildFreshness = [string]$versionIdentity.Freshness
-$DisplayVersion = [string]$versionIdentity.Display
-$NumericVersion = [string]$versionIdentity.Numeric
-$UiVersion = [string]$versionIdentity.Ui
-$ExpectedCliVersion = [string]$versionIdentity.ExpectedCli
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $packager = Join-Path $PSScriptRoot "package_windows_conpty.py"
@@ -447,21 +452,23 @@ $artworkFiles = @(
     "installer-welcome-finish-287x550.bmp",
     "installer-welcome-finish-328x628.bmp"
 )
-$StageDir = (Resolve-Path -LiteralPath $StageDir).Path
-$LauncherExe = (Resolve-Path -LiteralPath $LauncherExe).Path
-$InstallerHelperExe = (Resolve-Path -LiteralPath $InstallerHelperExe).Path
-$OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
-$InstallerOriginalFilename = [System.IO.Path]::GetFileName($OutputPath)
+if (-not $ValidateSourcesOnly) {
+    $StageDir = (Resolve-Path -LiteralPath $StageDir).Path
+    $LauncherExe = (Resolve-Path -LiteralPath $LauncherExe).Path
+    $InstallerHelperExe = (Resolve-Path -LiteralPath $InstallerHelperExe).Path
+    $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+    $InstallerOriginalFilename = [System.IO.Path]::GetFileName($OutputPath)
 
-if (-not (Test-Path -LiteralPath $StageDir -PathType Container) -or
-    (Get-Item -LiteralPath $StageDir -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-    throw "Stage must be a regular directory: $StageDir"
-}
-if (Test-Path -LiteralPath $OutputPath) {
-    $existingOutput = Get-Item -LiteralPath $OutputPath -Force
-    if ($existingOutput.PSIsContainer -or
-        ($existingOutput.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw "Installer output is not a replaceable regular file: $OutputPath"
+    if (-not (Test-Path -LiteralPath $StageDir -PathType Container) -or
+        (Get-Item -LiteralPath $StageDir -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw "Stage must be a regular directory: $StageDir"
+    }
+    if (Test-Path -LiteralPath $OutputPath) {
+        $existingOutput = Get-Item -LiteralPath $OutputPath -Force
+        if ($existingOutput.PSIsContainer -or
+            ($existingOutput.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Installer output is not a replaceable regular file: $OutputPath"
+        }
     }
 }
 $requiredSources = @(
@@ -519,6 +526,10 @@ foreach ($managedSkillHash in $managedSkillHashes) {
 }
 if ($managedSkillHashes -cnotcontains $canonicalSkillHash) {
     throw "Canonical skills/herdr/SKILL.md hash is absent from the managed skill hash manifest."
+}
+if ($ValidateSourcesOnly) {
+    Write-Output "Herdr Extended installer sources validated successfully."
+    return
 }
 Assert-X64Pe -Path $LauncherExe
 Assert-X64Pe -Path $InstallerHelperExe
