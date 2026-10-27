@@ -1,7 +1,7 @@
 From c9ba7c82f85ac008540a06b5bf171a3154310ea0 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 18:24:37 +0200
-Subject: [PATCH 19/25] feat(distribution): rename fork to Herdr Extended
+Subject: [PATCH] feat(distribution): rename fork to Herdr Extended
 
 ---
  CHANGELOG.md                                  |  2 +-
@@ -642,4 +642,3 @@ index 32a79be192f20caf50a99e3428f54c36c670905f..dec3ec46a207d21c4c69db0f337afcfe
  
 -- 
 2.55.0.windows.5
-

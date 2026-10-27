@@ -1,7 +1,7 @@
 From 4e8877a68f585adef765cd5fe4360943657feb52 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Tue, 15 Sep 2026 22:35:19 +0200
-Subject: [PATCH 22/25] feat(distribution): publish Herdr Extended asset names
+Subject: [PATCH] feat(distribution): publish Herdr Extended asset names
 
 ---
  scripts/preview.py                            | 20 +++++++-------
@@ -162,4 +162,3 @@ index 0b889677f06849f174dd8cb9f573dd0296a8c774..d4dde7a6fbf8b0e6368d0b5b89f2c56b
          || uninstall != format!("\"{}\"", expected_uninstaller.display())
 -- 
 2.55.0.windows.5
-

@@ -1,7 +1,7 @@
 From a90edfc8de064cbd9a4a841397d48d9973d356e6 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 10 Sep 2026 16:13:05 +0200
-Subject: [PATCH 18/25] feat(client): surface machine setup in menu
+Subject: [PATCH] feat(client): surface machine setup in menu
 
 ---
  src/client/shell/global_menu.rs            |  7 +++++++
@@ -94,4 +94,3 @@ index 7107aa713db59876189d6b3195477ce5bdfdf235..9fc3008a51a374ced117701ec941d009
      let bottom_row = notes.cells[bottom_row_start..]
 -- 
 2.55.0.windows.5
-

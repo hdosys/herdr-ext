@@ -1,7 +1,7 @@
 From f35867fe91864843228a0a95b3bfe6b0c6cb5df0 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
-Subject: [PATCH 3/25] feat(windows): manage fork distribution
+Subject: [PATCH] feat(windows): manage fork distribution
 
 ---
  .gitattributes                                |    4 +
@@ -68922,4 +68922,3 @@ index cc29afe9a99acb3bbf922d87a2255e92c0014fb0..7a5c90077554f1e663e68fc4e349806f
  pub const SERVER_MESSAGE_SERVER_SHUTDOWN: u32 = 3;
 -- 
 2.55.0.windows.5
-

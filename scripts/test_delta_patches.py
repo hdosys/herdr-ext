@@ -70,12 +70,12 @@ class DeltaPatchTests(unittest.TestCase):
     def test_mailboxes_are_full_git_patches_without_control_plane_files(self) -> None:
         entries = series_entries()
         commits = []
-        for position, entry in enumerate(entries, start=1):
+        for entry in entries:
             text = (DELTA_ROOT / entry).read_text(encoding="utf-8")
             first_line = text.splitlines()[0]
             self.assertRegex(first_line, MAILBOX_FROM, entry)
             commits.append(first_line.split()[1])
-            self.assertIn(f"\nSubject: [PATCH {position}/{len(entries)}] ", text, entry)
+            self.assertIn("\nSubject: [PATCH] ", text, entry)
             paths = {
                 path
                 for before, after in DIFF_PATH.findall(text)

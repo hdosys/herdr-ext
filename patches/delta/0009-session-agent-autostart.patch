@@ -1,7 +1,7 @@
 From 946aec5f3427de65b9b00ead87fe81327645d1d1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 22 Aug 2026 18:22:00 +0200
-Subject: [PATCH 7/25] feat(session): auto-start configured agent
+Subject: [PATCH] feat(session): auto-start configured agent
 
 Refs herdrdev/herdr#321
 ---
@@ -2271,4 +2271,3 @@ index f8ea6444494da17abaf7ef2211613beb7c868b86..08d5c80ded6ec56ac82f6a7ba1a7df7c
    "integration.install": "913055b838166650fee6713332c1cc436efd4f8fae9a2064d8f9b6616a7a66f8",
 -- 
 2.55.0.windows.5
-

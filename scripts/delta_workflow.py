@@ -663,9 +663,9 @@ def issue_reference_report(
 
     mailboxes = _read_series(project_root)
     rows: list[dict[str, object]] = []
-    for position, mailbox in enumerate(mailboxes, start=1):
+    for mailbox in mailboxes:
         path = project_root / "patches" / "delta" / mailbox
-        metadata = _read_mailbox_metadata(path, position, len(mailboxes))
+        metadata = _read_mailbox_metadata(path)
         content = path.read_bytes()
         text = content.decode("utf-8").replace("\r\n", "\n")
         source = re.match(r"From ([0-9a-f]{40}) ", text)
@@ -735,7 +735,7 @@ def refresh_delta(
     }
     candidates: dict[Path, bytes] = {}
     parent = base
-    for position, (entry, commit) in enumerate(zip(retained, commits), start=1):
+    for entry, commit in zip(retained, commits):
         parents = _run_git(project_root, ["show", "-s", "--format=%P", commit]).stdout.strip()
         if parents != parent:
             raise DeltaWorkflowError(f"logical refresh stack is not linear at {entry}")
@@ -747,9 +747,7 @@ def refresh_delta(
             for path in changed
         ):
             raise DeltaWorkflowError(f"empty or control-plane responsibility in {entry}")
-        metadata = _read_mailbox_metadata(
-            delta_root / entry, entries.index(entry) + 1, len(entries)
-        )
+        metadata = _read_mailbox_metadata(delta_root / entry)
         current_metadata = _read_commit_metadata(project_root, commit)
         # Git normalizes the author date's spelling, not its instant.
         if (metadata.author_name, metadata.author_email, metadata.commit_message) != (
@@ -762,7 +760,7 @@ def refresh_delta(
             raise DeltaWorkflowError(f"retained mailbox metadata differs in {entry}")
         candidates[delta_root / entry] = _run_git(project_root, [
             "format-patch", "--stdout", "--full-index", "--binary",
-            f"--subject-prefix=PATCH {position}/{len(retained)}", "-1", commit,
+            "--subject-prefix=PATCH", "-1", commit,
         ]).stdout.encode("utf-8")
         parent = commit
     candidates[delta_root / "series"] = ("\n".join(retained) + "\n").encode()
@@ -996,8 +994,6 @@ def _require_source_worktree(
 
 def _read_mailbox_metadata(
     path: Path,
-    position: int,
-    mailbox_count: int,
 ) -> MailboxMetadata:
     try:
         message = BytesParser(policy=policy.default).parsebytes(path.read_bytes())
@@ -1005,7 +1001,7 @@ def _read_mailbox_metadata(
         raise DeltaWorkflowError(f"could not parse mailbox {path}: {error}") from error
 
     subject = str(message.get("Subject", "")).strip()
-    expected_prefix = f"[PATCH {position}/{mailbox_count}] "
+    expected_prefix = "[PATCH] "
     if not subject.startswith(expected_prefix):
         raise DeltaWorkflowError(
             f"{path} subject must start with {expected_prefix!r}, found {subject!r}"
@@ -1077,8 +1073,6 @@ def _candidate_mailbox(
     prefix_tree: str,
     owner_tree: str,
     metadata: MailboxMetadata,
-    position: int,
-    mailbox_count: int,
 ) -> str:
     replay_identity = {
         "GIT_AUTHOR_NAME": "Herdr Extended replay",
@@ -1113,7 +1107,7 @@ def _candidate_mailbox(
             "--stdout",
             "--full-index",
             "--binary",
-            f"--subject-prefix=PATCH {position}/{mailbox_count}",
+            "--subject-prefix=PATCH",
             "-1",
             owner_commit,
         ],
@@ -1133,25 +1127,6 @@ def _atomic_replace(path: Path, content: bytes) -> None:
         os.replace(temporary_path, path)
     finally:
         temporary_path.unlink(missing_ok=True)
-
-
-def _renumber_mailbox_subject(
-    path: Path,
-    content: bytes,
-    position: int,
-    old_count: int,
-    new_count: int,
-) -> bytes:
-    old = f"Subject: [PATCH {position}/{old_count}] ".encode()
-    if content.count(old) != 1:
-        raise DeltaWorkflowError(
-            f"{path} must contain exactly one {old.decode()!r} header"
-        )
-    return content.replace(
-        old,
-        f"Subject: [PATCH {position}/{new_count}] ".encode(),
-        1,
-    )
 
 
 def _finalize_new_delta_mailbox(
@@ -1200,32 +1175,19 @@ def _finalize_new_delta_mailbox(
     if not wip_commits:
         raise DeltaWorkflowError("new mailbox source must contain committed WIP changes")
 
-    old_count = len(replay.mailboxes)
-    new_count = old_count + 1
     metadata = _read_commit_metadata(worktree, wip_commits[0])
     candidate = _candidate_mailbox(
         project_root,
         replay.tree,
         expected_tree,
         metadata,
-        new_count,
-        new_count,
     ).encode("utf-8")
 
     original_mailboxes: dict[Path, bytes] = {}
-    renumbered_mailboxes: dict[Path, bytes] = {}
-    for position, entry in enumerate(replay.mailboxes, start=1):
+    for entry in replay.mailboxes:
         path = delta_root / entry
-        original = path.read_bytes()
-        _read_mailbox_metadata(path, position, old_count)
-        original_mailboxes[path] = original
-        renumbered_mailboxes[path] = _renumber_mailbox_subject(
-            path,
-            original,
-            position,
-            old_count,
-            new_count,
-        )
+        _read_mailbox_metadata(path)
+        original_mailboxes[path] = path.read_bytes()
 
     series_path = delta_root / "series"
     original_series = series_path.read_bytes()
@@ -1236,7 +1198,7 @@ def _finalize_new_delta_mailbox(
         candidate_paths: list[Path] = []
         for path in original_mailboxes:
             candidate_path = Path(temp_dir) / path.name
-            candidate_path.write_bytes(renumbered_mailboxes[path])
+            candidate_path.write_bytes(original_mailboxes[path])
             candidate_paths.append(candidate_path)
         candidate_path = Path(temp_dir) / mailbox
         candidate_path.write_bytes(candidate)
@@ -1266,15 +1228,11 @@ def _finalize_new_delta_mailbox(
         raise DeltaWorkflowError("delta series changed concurrently")
 
     try:
-        for path, content in renumbered_mailboxes.items():
-            _atomic_replace(path, content)
         _atomic_replace(mailbox_path, candidate)
         _atomic_replace(series_path, candidate_series)
         verified = verify_replay_tree(expected_tree, project_root)
     except (DeltaWorkflowError, OSError) as error:
         _atomic_replace(series_path, original_series)
-        for path, content in original_mailboxes.items():
-            _atomic_replace(path, content)
         mailbox_path.unlink(missing_ok=True)
         raise DeltaWorkflowError(
             f"restored delta after new mailbox finalization failed: {error}"
@@ -1325,11 +1283,7 @@ def finalize_delta_mailbox(
     position = replay.mailboxes.index(mailbox) + 1
     mailbox_path = delta_root / mailbox
     original_mailbox = mailbox_path.read_bytes()
-    metadata = _read_mailbox_metadata(
-        mailbox_path,
-        position,
-        len(replay.mailboxes),
-    )
+    metadata = _read_mailbox_metadata(mailbox_path)
 
     prefix_paths = [
         delta_root / entry for entry in replay.mailboxes[: position - 1]
@@ -1359,8 +1313,6 @@ def finalize_delta_mailbox(
         prefix_tree,
         owner_tree,
         metadata,
-        position,
-        len(replay.mailboxes),
     ).encode("utf-8")
 
     with tempfile.TemporaryDirectory(prefix="herdr-delta-finalize-") as temp_dir:
@@ -1410,13 +1362,18 @@ def finalize_delta_mailbox(
 def materialize_delta_worktree(
     worktree: Path,
     project_root: Path = PROJECT_ROOT,
+    *,
+    base: str | None = None,
 ) -> WorktreeResult:
-    """Replay the queue into an existing clean task worktree at recorded BASE."""
+    """Start one Git-owned replay sequence at BASE or an explicitly selected base."""
 
     project_root = project_root.resolve()
     _require_control_master(project_root)
     _require_clean_delta(project_root)
-    base = _read_base(project_root)
+    base = _read_base(project_root) if base is None else base
+    if BASE_RE.fullmatch(base) is None:
+        raise DeltaWorkflowError("materialize requires one full lowercase base commit ID")
+    _run_git(project_root, ["cat-file", "-e", f"{base}^{{commit}}"])
     mailboxes = _read_series(project_root)
     worktree, branch = _require_clean_delta_worktree(project_root, worktree)
 
@@ -1425,7 +1382,7 @@ def materialize_delta_worktree(
     ).stdout.strip()
     if initial_head != base:
         raise DeltaWorkflowError(
-            "source worktree must start at the exact commit recorded in BASE: "
+            "source worktree must start at the exact selected base commit: "
             f"expected {base}, found {initial_head}"
         )
 
@@ -1434,21 +1391,22 @@ def materialize_delta_worktree(
         "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
     }
     try:
-        for mailbox in mailboxes:
-            _run_git(
-                project_root,
-                [
-                    "am",
-                    "--3way",
-                    str(project_root / "patches" / "delta" / mailbox),
-                ],
-                cwd=worktree,
-                environment=replay_environment,
-            )
+        _run_git(
+            project_root,
+            [
+                "am",
+                "--3way",
+                "--no-rerere-autoupdate",
+                *(str(project_root / "patches" / "delta" / mailbox) for mailbox in mailboxes),
+            ],
+            cwd=worktree,
+            environment=replay_environment,
+        )
         _run_git(worktree, ["diff", "--check", f"{base}..HEAD"], cwd=worktree)
     except DeltaWorkflowError as error:
         raise DeltaWorkflowError(
-            f"delta replay stopped in {worktree}; preserve and inspect that worktree: {error}"
+            f"delta replay stopped in {worktree}; resolve and stage the current patch, "
+            f"then run git am --continue there to resume the remaining series: {error}"
         ) from error
 
     head = _run_git(worktree, ["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
@@ -1635,6 +1593,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="absolute path to an existing delta worktree at BASE",
     )
+    materialize.add_argument(
+        "--base",
+        help="explicit full stable commit for an authorized upstream refresh; defaults to recorded BASE",
+    )
 
     integrate_development = commands.add_parser(
         "integrate-development",
@@ -1657,7 +1619,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     prefixes = commands.add_parser(
         "compile-prefixes",
-        help="refresh-only replay and compile of every ordered mailbox prefix",
+        help="explicit queue-structure audit: replay and compile every ordered mailbox prefix",
     )
     prefixes.add_argument("--target-dir", type=Path, help="task-owned shared Cargo cache")
     prefixes.add_argument("--work-dir", type=Path, help="caller-owned checkout and compiler caches for one refresh")
@@ -1708,7 +1670,7 @@ def _build_parser() -> argparse.ArgumentParser:
     finalize.add_argument(
         "--new-mailbox",
         action="store_true",
-        help="append one higher-numbered mailbox from exactly one WIP commit",
+        help="append one higher-numbered mailbox from one or more linear WIP commits",
     )
     return parser
 
@@ -1736,7 +1698,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return 0
 
         if options.command == "materialize":
-            result = materialize_delta_worktree(options.worktree)
+            result = materialize_delta_worktree(options.worktree, base=options.base)
             print(f"worktree: {result.path}")
             print(f"branch: {result.branch}")
             print(f"base: {result.base}")

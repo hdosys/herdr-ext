@@ -31,6 +31,11 @@ behavior; code and tests remain the detailed implementation truth.
   responsibility refreshes its mailbox rather than appending development history.
   A new mailbox requires an independent owner, verification plan, and upstream
   integration path.
+- `series` alone owns mailbox order; subjects use unnumbered `[PATCH]` headers.
+  Adaptation uses one native Git application sequence, including conflict continuation.
+  Exact final-tree replay and final-product verification are the normal refresh
+  contract. Independently compiling every intermediate prefix is a separately selected
+  decomposition audit, not an additional shipped-product configuration.
 - Repository branding, queue controls, GitHub workflows, release metadata, and
   generated channel state are control-plane concerns and stay outside product
   mailboxes.

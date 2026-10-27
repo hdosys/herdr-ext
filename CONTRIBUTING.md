@@ -108,10 +108,13 @@ recovery source for the cumulative line. Reopen its registered worktree, or in a
 fresh checkout create the same local branch from the exact fetched remote tip.
 Never reconstruct it from `BASE` while the remote branch exists.
 
-`materialize` validates the checkout, shared repository identity, exact `BASE`,
-and clean state before applying `series` once with `git am --3way`. Its Git trust is
-scoped to the control checkout and selected worktree. It never queries official
-upstream.
+`materialize` validates the checkout, shared repository identity, exact selected
+base and clean state before passing the complete `series` to one `git am --3way`
+operation. It defaults to recorded `BASE`; an explicit `--base <full-stable-oid>`
+selects an authorized refresh without changing `BASE`. Git owns the remaining
+sequence after a conflict: resolve and stage the current patch, then run
+`git am --continue` in that same checkout. Skip a patch only after reviewing full
+upstream equivalence. Its Git trust is checkout-scoped and it never queries upstream.
 
 Create a topic worktree only for a concrete parallel collision or risky isolation
 boundary. Base it on the exact current development commit, not `BASE`. The creating
@@ -177,9 +180,10 @@ installer works does not itself select finalization. One session owns the path:
      --new-mailbox
    ```
 
-   This mode derives commit metadata from that WIP commit, renumbers existing
-   format-patch subjects, appends the series entry, and restores every delta input
-   if exact replay verification fails.
+   This mode derives commit metadata from the first WIP commit and appends the
+   series entry without rewriting existing mailboxes. Subjects use `[PATCH]`;
+   `series` alone owns application order. Failed exact replay leaves existing
+   inputs unchanged.
 3. Run the inventory tests below. A matching tree transfers the source evidence to
    the checked-in queue, so mailbox regeneration alone does not require another
    product gate.
@@ -208,12 +212,11 @@ An explicitly authorized post-stable backport finalization does not advance `BAS
 Append one mailbox per coherent correction, combining fixture repairs with their
 owning fix rather than preserving incidental development commits. Preserve source
 author credit, qualified upstream references, and immutable reviewed source hashes.
-Keep existing mailboxes byte-identical except for their required total-count subject
-renumbering. Stage the complete candidate queue privately and prove the accepted
-source tree before replacing inputs. Every new prefix must compile before control
-publication; when the existing prefix command checks the whole queue, run it once
-with a disjoint task-owned `--work-dir`. Do not add a verification bypass to skip
-the reviewed foundation. Keep backport inventory in `patches/delta/README.md`, mark
+Keep unrelated mailboxes byte-identical. Stage the complete candidate queue privately
+and prove the accepted source tree before replacing inputs. Verify the final source
+and changed product boundaries; intermediate-prefix compilation is a separately
+selected queue-structure audit, not ordinary publication acceptance. Keep backport
+inventory in `patches/delta/README.md`, mark
 local candidates as unpublished, and retire a correction only after an authorized
 stable refresh proves equivalent behavior including necessary fork adaptations.
 
@@ -491,11 +494,14 @@ that separate operation. For every approved refresh:
    unselected or unfinished work. Keep GitHub workflow/control changes in the
    control checkout, outside the product source delta.
 3. Create one temporary adaptation checkout directly at the selected upstream
-   commit. Apply each existing mailbox in `series` order. Resolve its demonstrated
-   conflicts in the owning source, incorporate the selected pending changes, and
-   commit that responsibility before advancing. Retain author/date/message and
-   qualified upstream references. Remove a mailbox only when its complete required
-   behavior is now upstream or its retirement was explicitly selected.
+   commit. Start the whole Git-owned sequence with
+   `delta_workflow.py materialize --worktree <path> --base <full-stable-oid>`.
+   Resolve only demonstrated conflicts in the owning source and continue that same
+   sequence with `git am --continue`. Preserve completed resolutions instead of
+   restarting the series. Incorporate selected development changes in their owners.
+   Retain author/date/message and qualified upstream references. Remove a mailbox
+   only when its complete required behavior is upstream, its retirement was selected,
+   or an explicitly selected consolidation preserves its complete behavior.
 4. Keep one linear responsibility commit per retained mailbox. Do not merge upstream
    into `candidate/development` as a prerequisite, paste a whole development tree
    over the new base, or append a catch-all reconciliation patch. Existing development
@@ -513,27 +519,17 @@ that separate operation. For every approved refresh:
    the delta. The command stages all mailboxes privately, preserves retained
    metadata, rejects control files, and proves complete replay equality before
    replacing the queue and `BASE`; failures preserve existing inputs.
-6. Before publishing control `master`, run `delta_workflow.py compile-prefixes`.
-   Every Windows x86_64 prefix must compile with all logical processors and
-   incremental disabled. Use `--work-dir <absolute-task-owned-empty-directory>`
-   throughout one refresh correction cycle to retain both the source checkout's
-   native Zig caches/output and its sibling Cargo `target`. Choose a short Windows
-   path: Zig's relative generator-executable launch can hit
-   `MAX_PATH` before normalization even when the resolved executable path is shorter.
-   The first invocation accepts only a new or empty directory outside the control
-   checkout. Subsequent invocations require the same local repository and `BASE`,
-   reject dirty source or unfinished replay, and return to `BASE` without forced
-   checkout or cleanup.
-   Do not edit or share this disposable workspace. A compile failure retains it;
-   a replay conflict requires inspection rather than automatic recovery. Use a new
-   workspace when changing `BASE`. Every invocation replays and checks every prefix,
-   printing its exact tree; compiler caches are never verification attestations.
-   `--target-dir` remains the Cargo-only alternative and cannot accompany
-   `--work-dir`. After the refresh, inspect the workspace and explicitly remove
-   only that caller-owned directory, using extended-path-aware cleanup on Windows.
-   No automatic expiry or cache index is maintained.
-    Evidence from the exact same privately staged prefix trees
-    remains valid; queue finalization or cleanup alone does not require recompilation.
+6. Review the source adaptations and `git range-diff` between the old and new logical
+   stacks, not generated mailbox or binary-patch churn. Require the exact final replay
+   tree, final-source build, package integrity and focused changed-boundary evidence.
+   A normal refresh does not promise independently compilable intermediate prefixes.
+   For an explicitly selected queue-decomposition or upstream-contribution audit,
+   `delta_workflow.py compile-prefixes --work-dir <short-task-owned-directory>`
+   remains available. It checks every prefix using all processors and retains Cargo
+   and source-local Zig caches for corrections at the same `BASE`. Reuse valid tree
+   evidence; do not restart identical builds because mailbox envelope IDs changed.
+   Preserve dirty or unfinished work and remove only the caller-owned audit directory
+   after completion. No persistent verification registry is introduced.
 7. Reconcile the published development line with the verified replay without
    rewriting its history. Its resulting product tree must equal the accepted queue
    tree; preserve unselected development work separately. Build the canonical local
@@ -556,6 +552,13 @@ separate workflow version pins or port the vendor merely to update the build too
 
 Repository branding, GitHub Actions, patch metadata, and release orchestration
 must not be included in product mailboxes.
+
+Keep the queue responsibility-oriented rather than replaying obsolete stages of a
+feature. Consolidate selected branding, artwork and naming evolution into its current
+owner with exact final-tree equality. Keep unrelated features separate. Subjects use
+`[PATCH]` without position/count; stable filenames and `series` own identity and order.
+Do not carry unrelated formatting or duplicate fork release history into upstream
+changelog hunks. The fork's root `CHANGELOG.md` owns fork release communication.
 
 Patch 0004 owns the replayed managed Windows distribution. Preserve the update,
 installer, exact-layout rejection, and cross-agent-skill boundaries documented in

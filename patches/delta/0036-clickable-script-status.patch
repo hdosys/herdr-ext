@@ -1,7 +1,7 @@
 From 8ea0a288de977f6c81c5c1f4c824c51375332415 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Fri, 18 Sep 2026 23:39:09 +0200
-Subject: [PATCH 23/25] feat(status): open script status links on the client
+Subject: [PATCH] feat(status): open script status links on the client
 
 ---
  .../src/content/docs/configuration.mdx        |  30 ++
@@ -1274,4 +1274,3 @@ index a7da046ea1897ef576042f2feb6643356c01c4ad..601bab9e9e6718fbd66dc2caa8ee9efe
      };
 -- 
 2.55.0.windows.5
-

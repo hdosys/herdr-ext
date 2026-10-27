@@ -73,7 +73,8 @@ turning the queue into task history.
 - `BASE` records the exact commit behind the latest non-draft, non-prerelease
   upstream stable release selected during the latest explicit manual refresh.
 - `series` is the only release application order.
-- `*.patch` files are full-index, binary-safe `git format-patch` mailboxes.
+- `*.patch` files are full-index, binary-safe `git format-patch` mailboxes with
+  unnumbered `[PATCH]` subjects. Adding a mailbox never renumbers existing files.
 
 Repository branding, GitHub Actions, and release orchestration are control-plane
 files and do not belong in this product patch queue.
@@ -85,14 +86,16 @@ Run this procedure only for a current user-authorized official-upstream refresh.
 1. Use the explicitly selected stable version or resolve the latest stable release
    for a new update. Start directly at that exact upstream commit, reusing verified
    local objects when resuming a fixed-version update.
-2. Apply `series` in order with `git am --3way`.
-3. Resolve upstream drift in the patch that owns the behavior.
+2. Start the complete series with `delta_workflow.py materialize --worktree <path>
+   --base <full-stable-oid>`. Git owns one resumable `am` sequence.
+3. Resolve upstream drift in the owning patch and use `git am --continue`.
 4. Keep one reviewed commit per logical patch, preserving its metadata and stable
    filename. Do not flatten merged development history into a single mailbox.
 5. Use `delta_workflow.py refresh` as documented in `CONTRIBUTING.md`. It stages
    full-index binary mailboxes privately and proves the accepted tree before
-   replacing the queue and `BASE`. Every ordered prefix must compile before control
-   publication; evidence for unchanged staged prefix trees remains valid.
+   replacing the queue and `BASE`. Review source changes with `git range-diff`, build
+   the final source, and verify changed boundaries. A full prefix-compilation sweep
+   is reserved for an explicitly selected queue-decomposition audit.
 
 Validate the control-plane inventory with:
 

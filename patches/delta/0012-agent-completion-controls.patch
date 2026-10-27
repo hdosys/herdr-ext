@@ -1,7 +1,7 @@
 From 3685285186c6b8426e8113e316c99e579a9ca9bc Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 01:46:36 +0200
-Subject: [PATCH 10/25] feat(agent): add completion alert controls
+Subject: [PATCH] feat(agent): add completion alert controls
 
 ---
  docs/next/CHANGELOG.md                        |  2 ++
@@ -585,4 +585,3 @@ index 868d77102a3c37c7a6645209c2a27322f8c2146b..7f92d86a8846c40d88d3849cffbd633d
                  agent: "pi".into(),
 -- 
 2.55.0.windows.5
-

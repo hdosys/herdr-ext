@@ -84,7 +84,7 @@ class DeltaFixture:
                 "--stdout",
                 "--full-index",
                 "--binary",
-                "--subject-prefix=PATCH 1/2",
+                "--subject-prefix=PATCH",
                 "-1",
                 first,
             ],
@@ -102,7 +102,7 @@ class DeltaFixture:
                 "--stdout",
                 "--full-index",
                 "--binary",
-                "--subject-prefix=PATCH 2/2",
+                "--subject-prefix=PATCH",
                 "-1",
                 second,
             ],
@@ -174,7 +174,7 @@ class DeltaWorkflowTests(unittest.TestCase):
             self.assertEqual(result.tree, fixture.source_tree)
             self.assertEqual(result.mailboxes, ("0002-second.patch",))
             self.assertFalse((delta / "0001-first.patch").exists())
-            self.assertIn(b"Subject: [PATCH 1/1] feat: second", (delta / "0002-second.patch").read_bytes())
+            self.assertIn(b"Subject: [PATCH] feat: second", (delta / "0002-second.patch").read_bytes())
 
     def test_linked_development_integration_requires_exact_clean_base(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -485,6 +485,31 @@ class DeltaWorkflowTests(unittest.TestCase):
                 "2",
             )
 
+    def test_materialize_refresh_keeps_the_remaining_series_after_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = DeltaFixture(Path(directory))
+            worktree = Path(directory) / "adapt"
+            run_git(fixture.control, [
+                "worktree", "add", "-b", "agent/delta-adapt", str(worktree), fixture.base,
+            ])
+            (worktree / "value.txt").write_bytes(b"upstream\n")
+            run_git(worktree, ["commit", "-am", "new stable base"])
+            base = run_git(worktree, ["rev-parse", "HEAD"])
+
+            with self.assertRaisesRegex(DeltaWorkflowError, "exact selected base"):
+                materialize_delta_worktree(worktree, fixture.control)
+            with self.assertRaisesRegex(DeltaWorkflowError, "git am --continue"):
+                materialize_delta_worktree(worktree, fixture.control, base=base)
+
+            (worktree / "value.txt").write_bytes(b"accepted resolution\n")
+            run_git(worktree, ["add", "value.txt"])
+            run_git(worktree, ["am", "--continue"])
+            self.assertEqual((worktree / "second.txt").read_bytes(), b"second\n")
+            self.assertEqual(run_git(worktree, ["rev-list", "--count", f"{base}..HEAD"]), "2")
+            self.assertEqual(
+                (fixture.control / "patches/delta/BASE").read_text().strip(), fixture.base,
+            )
+
     def test_publish_development_pushes_only_the_exact_shared_branch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             fixture = DeltaFixture(Path(temp_dir))
@@ -570,7 +595,7 @@ class DeltaWorkflowTests(unittest.TestCase):
             self.assertEqual(run_git(worktree, ["rev-parse", "HEAD"]), source_head)
             self.assertEqual(later_mailbox.read_bytes(), later_bytes)
             self.assertIn(
-                "Subject: [PATCH 1/2] feat: first",
+                "Subject: [PATCH] feat: first",
                 (delta_root / "0001-first.patch").read_text(encoding="utf-8"),
             )
             self.assertIn(
@@ -639,6 +664,8 @@ class DeltaWorkflowTests(unittest.TestCase):
             source_head = run_git(worktree, ["rev-parse", "HEAD"])
             source_tree = run_git(worktree, ["rev-parse", "HEAD^{tree}"])
 
+            delta_root = fixture.control / "patches" / "delta"
+            unchanged = {path: path.read_bytes() for path in delta_root.glob("*.patch")}
             result = finalize_delta_mailbox(
                 worktree,
                 "0003-third.patch",
@@ -654,18 +681,12 @@ class DeltaWorkflowTests(unittest.TestCase):
                 (delta_root / "series").read_text(encoding="utf-8").splitlines(),
                 ["0001-first.patch", "0002-second.patch", "0003-third.patch"],
             )
-            self.assertIn(
-                "Subject: [PATCH 1/3] feat: first",
-                (delta_root / "0001-first.patch").read_text(encoding="utf-8"),
-            )
-            self.assertIn(
-                "Subject: [PATCH 2/3] feat: second",
-                (delta_root / "0002-second.patch").read_text(encoding="utf-8"),
-            )
+            for path, content in unchanged.items():
+                self.assertEqual(path.read_bytes(), content)
             new_mailbox = (delta_root / "0003-third.patch").read_text(
                 encoding="utf-8"
             )
-            self.assertIn("Subject: [PATCH 3/3] feat: third", new_mailbox)
+            self.assertIn("Subject: [PATCH] feat: third", new_mailbox)
             self.assertIn("Refs example/repo#123", new_mailbox)
             self.assertEqual(
                 verify_replay_tree(source_tree, fixture.control).tree,

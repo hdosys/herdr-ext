@@ -1,7 +1,7 @@
 From 5ec7bffa82c5acb7266a96083df1a8156d5d52f0 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 5 Aug 2026 09:38:50 +0200
-Subject: [PATCH 5/25] fix(security): harden curl transfers
+Subject: [PATCH] fix(security): harden curl transfers
 
 Ignore user curl configuration, require TLS 1.2+ HTTPS for initial and redirected runtime transfers, cap redirects, disable URL globbing, and pass each URL as data rather than a possible option.
 ---
@@ -181,4 +181,3 @@ index 633b89f516becdd97d82d53d66f6e5d8eafa0eec..32a79be192f20caf50a99e3428f54c36
          .status()
 -- 
 2.55.0.windows.5
-

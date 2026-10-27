@@ -1,7 +1,7 @@
 From 69b630230ee32cba95fca82ef260f63b959292d6 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 3 Oct 2026 20:48:35 +0200
-Subject: [PATCH 25/25] fix(onboarding): display the configured prefix key
+Subject: [PATCH] fix(onboarding): display the configured prefix key
 
 ---
  src/client/shell/overlays.rs               | 11 ++++++++---
@@ -105,4 +105,3 @@ index 94c9b2a0728b0e8a7c2e500532f22bb5a41b4126..148574d69dac36a9be3b2fe803c4a2f0
  pub(crate) const ONBOARDING_HELP_SUFFIX: &str = " shows keybinds and settings";
 -- 
 2.55.0.windows.5
-
