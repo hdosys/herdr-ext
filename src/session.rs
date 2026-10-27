@@ -250,8 +250,19 @@ pub(crate) fn stop_all_sessions_for_uninstall() -> Result<usize, String> {
     let mut stopped = 0;
 
     loop {
-        let running = list_sessions()
-            .map_err(|err| format!("failed to enumerate Herdr sessions before uninstall: {err}"))?
+        let sessions = list_sessions()
+            .map_err(|err| format!("failed to enumerate Herdr sessions before uninstall: {err}"))?;
+        if let Some((name, error)) = sessions.iter().find_map(|session| {
+            session
+                .connection_error
+                .as_ref()
+                .map(|error| (&session.name, error))
+        }) {
+            return Err(format!(
+                "could not inspect session {name} before uninstall: {error}"
+            ));
+        }
+        let running = sessions
             .into_iter()
             .filter(|session| session.running)
             .collect::<Vec<_>>();
@@ -269,7 +280,8 @@ pub(crate) fn stop_all_sessions_for_uninstall() -> Result<usize, String> {
             }
             let name = (!session.default).then_some(session.name.as_str());
             if let Err(err) = stop_session_with_timeout(name, remaining.min(STOP_WAIT_TIMEOUT)) {
-                if session_info(name).running {
+                let current = session_info(name);
+                if current.running || current.connection_error.is_some() {
                     return Err(format!(
                         "failed to stop session {} before uninstall: {err}",
                         session.name
@@ -597,6 +609,12 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
 
         let sessions = list_sessions().unwrap();
+        assert!(sessions
+            .iter()
+            .all(|session| Path::new(&session.socket_path).starts_with(&config_home)));
+        assert!(stop_all_sessions_for_uninstall()
+            .unwrap_err()
+            .contains("could not inspect session denied before uninstall"));
         let denied = sessions
             .iter()
             .find(|session| session.name == "denied")

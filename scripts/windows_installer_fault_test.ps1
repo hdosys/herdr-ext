@@ -997,10 +997,20 @@ try {
     if ($modifiedUninstallExit -ne 0) {
         throw "Modified-tree uninstaller exited with $modifiedUninstallExit."
     }
-    Wait-TestCondition -Description "modified-tree uninstall" -Condition {
-        -not (Test-Path -LiteralPath $installRoot) -and
-            -not (Test-Path -LiteralPath $arpKey) -and
-            -not (Test-Path -LiteralPath $settingsRoot)
+    try {
+        Wait-TestCondition -Description "modified-tree uninstall" -Condition {
+            -not (Test-Path -LiteralPath $installRoot) -and
+                -not (Test-Path -LiteralPath $arpKey) -and
+                -not (Test-Path -LiteralPath $settingsRoot)
+        }
+    } catch {
+        $residuals = @(
+            "installRoot='$installRoot' exists=$(Test-Path -LiteralPath $installRoot)"
+            "registration='$arpKey' exists=$(Test-Path -LiteralPath $arpKey)"
+            "settingsRoot='$settingsRoot' exists=$(Test-Path -LiteralPath $settingsRoot)"
+            "roamingRoot='$roamingRoot'"
+        ) -join "; "
+        throw "$($_.Exception.Message) Residuals: $residuals"
     }
     Wait-TestInstallerIdle
     if (Test-Path -LiteralPath $skillPath) {
