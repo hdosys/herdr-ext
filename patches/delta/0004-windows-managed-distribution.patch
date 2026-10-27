@@ -1,4 +1,4 @@
-From b1aca136bf7cf78e71a3d29bbc17bb1508ecb901 Mon Sep 17 00:00:00 2001
+From 256af58a511b6cc90837636aea67e8753d1e1715 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH] feat(windows): manage fork distribution
@@ -39,7 +39,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  scripts/test_preview.py                       |  298 +-
  scripts/windows_check.ps1                     |   21 +-
  .../windows_install_conpty_package_test.ps1   |  631 +---
- scripts/windows_installer_fault_test.ps1      | 1347 +++++++++
+ scripts/windows_installer_fault_test.ps1      | 1357 +++++++++
  src/app/custom_commands.rs                    |    2 +-
  src/app/mod.rs                                |   57 -
  src/bin/herdr-installer-helper.rs             |   47 +
@@ -69,13 +69,13 @@ Subject: [PATCH] feat(windows): manage fork distribution
  src/remote/attach.rs                          |    4 +-
  src/server/autodetect.rs                      |    6 +-
  src/server/handoff.rs                         |    2 +-
- src/session.rs                                |   57 +
+ src/session.rs                                |   75 +
  src/update.rs                                 | 1922 ++++++------
  tests/api_ping.rs                             |    5 +-
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 71 files changed, 12452 insertions(+), 3361 deletions(-)
+ 71 files changed, 12480 insertions(+), 3361 deletions(-)
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
  create mode 100644 packaging/windows/installer/artwork/README.md
@@ -59542,10 +59542,10 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
  }
 diff --git a/scripts/windows_installer_fault_test.ps1 b/scripts/windows_installer_fault_test.ps1
 new file mode 100644
-index 0000000000000000000000000000000000000000..5f93c7b478f1c60a2f0492f7287e2d323e8649bf
+index 0000000000000000000000000000000000000000..23a1c7dfdfa643101147de33dc402ab44a1c8ea7
 --- /dev/null
 +++ b/scripts/windows_installer_fault_test.ps1
-@@ -0,0 +1,1347 @@
+@@ -0,0 +1,1357 @@
 +[CmdletBinding()]
 +param(
 +    [Parameter(Mandatory = $true)][string]$StageDir,
@@ -60545,10 +60545,20 @@ index 0000000000000000000000000000000000000000..5f93c7b478f1c60a2f0492f7287e2d32
 +    if ($modifiedUninstallExit -ne 0) {
 +        throw "Modified-tree uninstaller exited with $modifiedUninstallExit."
 +    }
-+    Wait-TestCondition -Description "modified-tree uninstall" -Condition {
-+        -not (Test-Path -LiteralPath $installRoot) -and
-+            -not (Test-Path -LiteralPath $arpKey) -and
-+            -not (Test-Path -LiteralPath $settingsRoot)
++    try {
++        Wait-TestCondition -Description "modified-tree uninstall" -Condition {
++            -not (Test-Path -LiteralPath $installRoot) -and
++                -not (Test-Path -LiteralPath $arpKey) -and
++                -not (Test-Path -LiteralPath $settingsRoot)
++        }
++    } catch {
++        $residuals = @(
++            "installRoot='$installRoot' exists=$(Test-Path -LiteralPath $installRoot)"
++            "registration='$arpKey' exists=$(Test-Path -LiteralPath $arpKey)"
++            "settingsRoot='$settingsRoot' exists=$(Test-Path -LiteralPath $settingsRoot)"
++            "roamingRoot='$roamingRoot'"
++        ) -join "; "
++        throw "$($_.Exception.Message) Residuals: $residuals"
 +    }
 +    Wait-TestInstallerIdle
 +    if (Test-Path -LiteralPath $skillPath) {
@@ -69836,7 +69846,7 @@ index efe554e641c69a55fb9f36f8b289d1a9b1542b38..9d624b516983c1db6bb4c2962fb838b9
                  err.kind(),
                  format!("failed to determine herdr executable path: {err}"),
 diff --git a/src/session.rs b/src/session.rs
-index 017c20dd28a49da963672ffb9338440c7abc3fb0..605c72dfe2d3085a93449035365ea82471a5f107 100644
+index 017c20dd28a49da963672ffb9338440c7abc3fb0..2154c849cf024f98fcb1b826e655caa9467351b0 100644
 --- a/src/session.rs
 +++ b/src/session.rs
 @@ -14,6 +14,8 @@ const MAX_SESSION_NAME_LEN: usize = 64;
@@ -69848,7 +69858,7 @@ index 017c20dd28a49da963672ffb9338440c7abc3fb0..605c72dfe2d3085a93449035365ea824
  
  static EXPLICIT_SESSION_REQUESTED: AtomicBool = AtomicBool::new(false);
  
-@@ -242,6 +244,43 @@ pub fn stop_session(name: Option<&str>) -> Result<SessionInfo, String> {
+@@ -242,6 +244,55 @@ pub fn stop_session(name: Option<&str>) -> Result<SessionInfo, String> {
      stop_session_with_timeout(name, STOP_WAIT_TIMEOUT)
  }
  
@@ -69858,8 +69868,19 @@ index 017c20dd28a49da963672ffb9338440c7abc3fb0..605c72dfe2d3085a93449035365ea824
 +    let mut stopped = 0;
 +
 +    loop {
-+        let running = list_sessions()
-+            .map_err(|err| format!("failed to enumerate Herdr sessions before uninstall: {err}"))?
++        let sessions = list_sessions()
++            .map_err(|err| format!("failed to enumerate Herdr sessions before uninstall: {err}"))?;
++        if let Some((name, error)) = sessions.iter().find_map(|session| {
++            session
++                .connection_error
++                .as_ref()
++                .map(|error| (&session.name, error))
++        }) {
++            return Err(format!(
++                "could not inspect session {name} before uninstall: {error}"
++            ));
++        }
++        let running = sessions
 +            .into_iter()
 +            .filter(|session| session.running)
 +            .collect::<Vec<_>>();
@@ -69877,7 +69898,8 @@ index 017c20dd28a49da963672ffb9338440c7abc3fb0..605c72dfe2d3085a93449035365ea824
 +            }
 +            let name = (!session.default).then_some(session.name.as_str());
 +            if let Err(err) = stop_session_with_timeout(name, remaining.min(STOP_WAIT_TIMEOUT)) {
-+                if session_info(name).running {
++                let current = session_info(name);
++                if current.running || current.connection_error.is_some() {
 +                    return Err(format!(
 +                        "failed to stop session {} before uninstall: {err}",
 +                        session.name
@@ -69892,7 +69914,20 @@ index 017c20dd28a49da963672ffb9338440c7abc3fb0..605c72dfe2d3085a93449035365ea824
  pub(crate) fn stop_active_server() -> Result<(), String> {
      let socket_path = active_api_socket_path();
      let client_socket_path = crate::server::socket_paths::client_socket_path();
-@@ -601,6 +640,24 @@ mod tests {
+@@ -546,6 +597,12 @@ mod tests {
+         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+ 
+         let sessions = list_sessions().unwrap();
++        assert!(sessions
++            .iter()
++            .all(|session| Path::new(&session.socket_path).starts_with(&config_home)));
++        assert!(stop_all_sessions_for_uninstall()
++            .unwrap_err()
++            .contains("could not inspect session denied before uninstall"));
+         let denied = sessions
+             .iter()
+             .find(|session| session.name == "denied")
+@@ -601,6 +658,24 @@ mod tests {
          assert_eq!(STOP_WAIT_TIMEOUT, Duration::from_secs(15));
      }
  

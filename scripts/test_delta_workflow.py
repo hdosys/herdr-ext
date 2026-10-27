@@ -401,8 +401,11 @@ class DeltaWorkflowTests(unittest.TestCase):
             joined = issue_reference_report(fixture.control, ledger=ledger)
             self.assertEqual(joined[0]["title"], "Captured title")
             self.assertEqual(joined[0]["behavior"], "Captured behavior")
-            self.assertEqual(len(joined[0]["source_commit"]), 40)
-            self.assertEqual(len(joined[0]["mailbox_sha256"]), 64)
+            for field, length in (("source_commit", 40), ("mailbox_sha256", 64)):
+                value = joined[0][field]
+                if not isinstance(value, str):
+                    self.fail(f"{field} must be a string")
+                self.assertRegex(value, rf"^[0-9a-f]{{{length}}}$")
             output = json.dumps(joined)
             self.assertNotIn("PRIVATE", output)
             self.assertNotIn("@", output)
