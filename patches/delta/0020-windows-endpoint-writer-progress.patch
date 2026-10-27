@@ -1,4 +1,4 @@
-From d6594946b6292f0fca975fe1492dbba28dcc6705 Mon Sep 17 00:00:00 2001
+From 70b3f500f41b5656b5b3bee0d7214cf7a362588d Mon Sep 17 00:00:00 2001
 From: Jonathan Liebig <jonathan.liebig@gmail.com>
 Date: Wed, 9 Sep 2026 12:27:15 +0200
 Subject: [PATCH] fix(endpoint): keep Windows polling-peer writes progressing
@@ -12,13 +12,14 @@ Refs herdrdev/herdr#3721, herdrdev/herdr#3651.
  src/api/server/subscription_socket_tests.rs |  1 +
  src/client/endpoint/writer.rs               | 37 +++++----
  src/ipc.rs                                  | 88 ++++++++++++++++-----
+ src/platform/windows.rs                     |  1 -
  src/remote/attach.rs                        |  1 +
  src/server/autodetect.rs                    |  1 +
  src/server/client_accept.rs                 |  4 +-
  src/server/client_transport.rs              |  1 +
  src/server/headless.rs                      |  1 +
  src/session.rs                              |  1 +
- 11 files changed, 103 insertions(+), 39 deletions(-)
+ 12 files changed, 103 insertions(+), 40 deletions(-)
 
 diff --git a/src/api/client.rs b/src/api/client.rs
 index b4ecfc4ebe2bf3be7cc6ca4ed92a80f967f22d57..94b18b08d8b51483a747b76b327c6788a11403f7 100644
@@ -292,6 +293,18 @@ index a038b59b49701dd25fd0197d7d63203d34a795ef..be58c0e90f866cd3bdd1c57d1ffe2588
      use std::path::PathBuf;
  
      #[test]
+diff --git a/src/platform/windows.rs b/src/platform/windows.rs
+index d0b5251ea563f73b612adb1571a05f2127847592..e3c23e69529fdbbee9df8e083f38948059eaad34 100644
+--- a/src/platform/windows.rs
++++ b/src/platform/windows.rs
+@@ -4156,7 +4156,6 @@ mod tests {
+ 
+     #[test]
+     fn local_resources_authorize_account_without_admin_rights() {
+-        use interprocess::local_socket::traits::Listener as _;
+         use std::io::{Read, Write};
+         use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+         use windows_sys::Win32::Security::{
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
 index e187df1c2a4271ed026bf9a3ff3b48fbed26a4b2..eccf1d59edc8e659242891b152392e78378d6fb5 100644
 --- a/src/remote/attach.rs
