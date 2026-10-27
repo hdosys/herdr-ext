@@ -4156,7 +4156,6 @@ mod tests {
 
     #[test]
     fn local_resources_authorize_account_without_admin_rights() {
-        use interprocess::local_socket::traits::Listener as _;
         use std::io::{Read, Write};
         use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
         use windows_sys::Win32::Security::{
