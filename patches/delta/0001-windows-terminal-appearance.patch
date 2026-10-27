@@ -1,4 +1,4 @@
-From 1edd7cc5c87b9ee75063f12bb93f143e2df9ff7c Mon Sep 17 00:00:00 2001
+From 6c7d3550dddda38e02044111bfc4fe22a935ac87 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 26 Jul 2026 07:35:54 +0200
 Subject: [PATCH] feat(windows): preserve terminal appearance
@@ -20,6 +20,7 @@ Refs herdrdev/herdr#2786
  src/client/shell/input.rs                     |  37 +-
  src/client/shell/state.rs                     |  27 +
  src/client/shell/tests/input.rs               |  58 ++-
+ src/client/shell/tests/input_conformance.rs   |  55 ++-
  src/client/shell_runtime.rs                   |   9 +
  src/client/state.rs                           |  51 +-
  src/client/terminal_geometry.rs               |   8 +-
@@ -30,7 +31,7 @@ Refs herdrdev/herdr#2786
  src/pane.rs                                   |   1 +
  src/pane/cursor.rs                            |  14 +-
  src/pane/osc.rs                               | 187 ++++++-
- src/pane/terminal.rs                          | 241 +++++----
+ src/pane/terminal.rs                          | 247 +++++-----
  src/platform/fallback.rs                      |   4 -
  src/platform/linux.rs                         |   4 -
  src/platform/macos.rs                         |   4 -
@@ -47,7 +48,7 @@ Refs herdrdev/herdr#2786
  src/server/pane_input.rs                      |   1 -
  src/server/render_stream.rs                   | 132 ++++-
  src/terminal_theme.rs                         |  90 ++--
- 40 files changed, 1643 insertions(+), 664 deletions(-)
+ 41 files changed, 1691 insertions(+), 677 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
 index 874fe56ce57ba61723cbf7ac591a5e38929ce404..4b5a15b6771e1099f64a9c3e42fa66a91a528671 100644
@@ -991,6 +992,99 @@ index 8b817d0ae935fecbe902f3fe13877dad04e96519..81400a632195ca457085a3100e096214
  }
  
  #[test]
+diff --git a/src/client/shell/tests/input_conformance.rs b/src/client/shell/tests/input_conformance.rs
+index 5053a616fb0c6d550fc33110f1293bd09aeea8b3..b0e26d49bc9da6c9d95bf18ffef0b92396fea05c 100644
+--- a/src/client/shell/tests/input_conformance.rs
++++ b/src/client/shell/tests/input_conformance.rs
+@@ -1812,11 +1812,10 @@ async fn keyboard_transparency_conformance() {
+ // Windows: native key records
+ // ---------------------------------------------------------------------------
+ //
+-// In Windows Terminal each keypress reaches ConPTY as a native key record
+-// (win32-input-mode). Herdr's pane is a ConPTY too, so for a pane that
+-// negotiated no keyboard protocol, transparency means the pane's ConPTY gets
+-// the same records Herdr received. Records are built from the real keyboard
+-// layouts with ToUnicodeEx, the way Windows produces them.
++// Native records come from real keyboard layouts through ToUnicodeEx. The fork
++// sends ordinary text as UTF-8, with no text on release, while modified command
++// and function keys retain their native records. Check both delivery contracts
++// through the real input path without using its encoder as the expected result.
+ 
+ #[cfg(windows)]
+ mod windows_records {
+@@ -2033,6 +2032,32 @@ mod windows_records {
+         herdr.deliver(vec![outcome])
+     }
+ 
++    fn expected_text(press: crate::input::WindowsKeyRecord, chord: Chord) -> Option<Vec<u8>> {
++        let vk = press.virtual_key_code;
++        let character_key =
++            matches!(vk, 0x30..=0x39 | 0x41..=0x5a | 0xba..=0xc0 | 0xdb..=0xdf | 0xe2);
++        let altgr_command = chord.alt_gr && press.unicode == 0 && !character_key;
++        if chord.ctrl || chord.left_alt || altgr_command {
++            return None;
++        }
++        match vk {
++            0x08 if !chord.shift => Some(b"\x7f".to_vec()),
++            0x09 if !chord.shift => Some(b"\t".to_vec()),
++            0x0d if !chord.shift => Some(b"\r".to_vec()),
++            _ if character_key || vk == 0x20 => {
++                if press.unicode == 0 {
++                    Some(Vec::new())
++                } else {
++                    let text = char::from_u32(u32::from(press.unicode))
++                        .expect("fixture text must be a Unicode scalar");
++                    assert!(!text.is_control(), "fixture character must be printable");
++                    Some(text.to_string().into_bytes())
++                }
++            }
++            _ => None,
++        }
++    }
++
+     fn run() -> Report {
+         let mut report = Report {
+             by_cell: BTreeMap::new(),
+@@ -2058,9 +2083,23 @@ mod windows_records {
+                         tally.host_lossy += 1;
+                         continue;
+                     };
+-                    let expected = [win32_input_mode(press), win32_input_mode(release)].concat();
++                    let text = expected_text(press, *chord);
++                    let expected = text.clone().unwrap_or_else(|| {
++                        [win32_input_mode(press), win32_input_mode(release)].concat()
++                    });
+                     let pressed = deliver_record(&mut herdr, &mut input, press, layout);
+                     let released = deliver_record(&mut herdr, &mut input, release, layout);
++                    if let Some(text) = text.as_ref() {
++                        // Text loss or unexpected ownership must not disappear into
++                        // the raw-command ownership skip or its existing ratchet.
++                        assert_eq!(
++                            (pressed.as_deref(), released.as_deref()),
++                            (Some(text.as_slice()), Some(&b""[..])),
++                            "{layout_name} {} {key_name} unicode={:#x}",
++                            chord.name,
++                            press.unicode,
++                        );
++                    }
+                     let page_key_scrolls_herdr = chord.name == "plain"
+                         && matches!(key_name.as_str(), "pageup" | "pagedown")
+                         && herdr.runtime.plain_page_keys_use_host_scrollback() == Some(true);
+@@ -2095,12 +2134,12 @@ mod windows_records {
+     }
+ 
+     #[tokio::test(flavor = "multi_thread")]
+-    async fn windows_key_record_transparency() {
++    async fn windows_key_records_follow_text_and_command_contract() {
+         let report = run();
+         print_report(&report);
+         assert!(
+             report.failures.len() <= WINDOWS_RECORD_FAILURES_BASELINE,
+-            "windows key record transparency regressed: {} failures > {WINDOWS_RECORD_FAILURES_BASELINE}",
++            "windows command record delivery regressed: {} failures > {WINDOWS_RECORD_FAILURES_BASELINE}",
+             report.failures.len()
+         );
+     }
 diff --git a/src/client/shell_runtime.rs b/src/client/shell_runtime.rs
 index 66a418642d3dd7823c41f54a6b76c80725dbb00a..20d94b88b4eeb96dfb3d3c51d80b4cd34c376302 100644
 --- a/src/client/shell_runtime.rs
@@ -1808,7 +1902,7 @@ index 85b8e780b67f8f41cadfc194a63874d8d020fa22..132ebb6d9fda7d61742c814ef309bf16
 +    }
  }
 diff --git a/src/pane/terminal.rs b/src/pane/terminal.rs
-index d4b7ef575bd96f71a29f231127a8d693be5dd7b6..e5dea136f7e2eb154a61828c140b3ae651d62704 100644
+index d4b7ef575bd96f71a29f231127a8d693be5dd7b6..d940f517b4848ece135530ad077e1e06a7798070 100644
 --- a/src/pane/terminal.rs
 +++ b/src/pane/terminal.rs
 @@ -103,6 +103,8 @@ pub struct TerminalCursorState {
@@ -2038,7 +2132,20 @@ index d4b7ef575bd96f71a29f231127a8d693be5dd7b6..e5dea136f7e2eb154a61828c140b3ae6
      #[test]
      fn ghostty_render_can_suppress_cursor_position() {
          let (tx, _rx) = mpsc::channel(4);
-@@ -6541,9 +6576,10 @@ mod tests {
+@@ -5261,11 +5296,7 @@ mod tests {
+             unicode: u16::from(b'/'),
+             control_key_state: 0x0010,
+         });
+-        #[cfg(windows)]
+-        let legacy_expected = b"\x1b[55;8;47;1;16;3_".as_slice();
+-        #[cfg(not(windows))]
+-        let legacy_expected = b"///".as_slice();
+-        assert_eq!(pane.encode_terminal_key(shifted.clone()), legacy_expected);
++        assert_eq!(pane.encode_terminal_key(shifted.clone()), b"///");
+         let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+         terminal.write(b"\x1b[>15u");
+         let (tx, _rx) = mpsc::channel(4);
+@@ -6541,9 +6572,10 @@ mod tests {
          assert!(pane.apply_host_terminal_appearance(None).is_none());
          let unknown_query = pane.process_pty_bytes(pane_id, 0, b"\x1b[?996n", &tx);
          assert!(unknown_query.terminal_responses.is_empty());
@@ -2052,7 +2159,7 @@ index d4b7ef575bd96f71a29f231127a8d693be5dd7b6..e5dea136f7e2eb154a61828c140b3ae6
  
          pane.process_pty_bytes(pane_id, 0, b"\x1bc", &tx);
          assert!(pane
-@@ -6749,6 +6785,29 @@ mod tests {
+@@ -6749,6 +6781,29 @@ mod tests {
          assert!(rx.try_recv().is_err());
      }
  
@@ -2082,7 +2189,7 @@ index d4b7ef575bd96f71a29f231127a8d693be5dd7b6..e5dea136f7e2eb154a61828c140b3ae6
      #[test]
      fn child_default_color_reset_restores_cached_host_color() {
          let (tx, mut rx) = mpsc::channel(4);
-@@ -6942,110 +7001,6 @@ mod tests {
+@@ -6942,110 +6997,6 @@ mod tests {
          assert!(rx.try_recv().is_err());
      }
  
@@ -2193,7 +2300,7 @@ index d4b7ef575bd96f71a29f231127a8d693be5dd7b6..e5dea136f7e2eb154a61828c140b3ae6
      #[test]
      fn process_pty_bytes_returns_split_palette_color_query_response() {
          let (tx, mut rx) = mpsc::channel(4);
-@@ -7255,6 +7210,28 @@ mod tests {
+@@ -7255,6 +7206,28 @@ mod tests {
          assert!(core.child_default_background_changed);
      }
  
