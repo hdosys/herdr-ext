@@ -1812,11 +1812,10 @@ async fn keyboard_transparency_conformance() {
 // Windows: native key records
 // ---------------------------------------------------------------------------
 //
-// In Windows Terminal each keypress reaches ConPTY as a native key record
-// (win32-input-mode). Herdr's pane is a ConPTY too, so for a pane that
-// negotiated no keyboard protocol, transparency means the pane's ConPTY gets
-// the same records Herdr received. Records are built from the real keyboard
-// layouts with ToUnicodeEx, the way Windows produces them.
+// Native records come from real keyboard layouts through ToUnicodeEx. The fork
+// sends ordinary text as UTF-8, with no text on release, while modified command
+// and function keys retain their native records. Check both delivery contracts
+// through the real input path without using its encoder as the expected result.
 
 #[cfg(windows)]
 mod windows_records {
@@ -2033,6 +2032,32 @@ mod windows_records {
         herdr.deliver(vec![outcome])
     }
 
+    fn expected_text(press: crate::input::WindowsKeyRecord, chord: Chord) -> Option<Vec<u8>> {
+        let vk = press.virtual_key_code;
+        let character_key =
+            matches!(vk, 0x30..=0x39 | 0x41..=0x5a | 0xba..=0xc0 | 0xdb..=0xdf | 0xe2);
+        let altgr_command = chord.alt_gr && press.unicode == 0 && !character_key;
+        if chord.ctrl || chord.left_alt || altgr_command {
+            return None;
+        }
+        match vk {
+            0x08 if !chord.shift => Some(b"\x7f".to_vec()),
+            0x09 if !chord.shift => Some(b"\t".to_vec()),
+            0x0d if !chord.shift => Some(b"\r".to_vec()),
+            _ if character_key || vk == 0x20 => {
+                if press.unicode == 0 {
+                    Some(Vec::new())
+                } else {
+                    let text = char::from_u32(u32::from(press.unicode))
+                        .expect("fixture text must be a Unicode scalar");
+                    assert!(!text.is_control(), "fixture character must be printable");
+                    Some(text.to_string().into_bytes())
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn run() -> Report {
         let mut report = Report {
             by_cell: BTreeMap::new(),
@@ -2058,9 +2083,23 @@ mod windows_records {
                         tally.host_lossy += 1;
                         continue;
                     };
-                    let expected = [win32_input_mode(press), win32_input_mode(release)].concat();
+                    let text = expected_text(press, *chord);
+                    let expected = text.clone().unwrap_or_else(|| {
+                        [win32_input_mode(press), win32_input_mode(release)].concat()
+                    });
                     let pressed = deliver_record(&mut herdr, &mut input, press, layout);
                     let released = deliver_record(&mut herdr, &mut input, release, layout);
+                    if let Some(text) = text.as_ref() {
+                        // Text loss or unexpected ownership must not disappear into
+                        // the raw-command ownership skip or its existing ratchet.
+                        assert_eq!(
+                            (pressed.as_deref(), released.as_deref()),
+                            (Some(text.as_slice()), Some(&b""[..])),
+                            "{layout_name} {} {key_name} unicode={:#x}",
+                            chord.name,
+                            press.unicode,
+                        );
+                    }
                     let page_key_scrolls_herdr = chord.name == "plain"
                         && matches!(key_name.as_str(), "pageup" | "pagedown")
                         && herdr.runtime.plain_page_keys_use_host_scrollback() == Some(true);
@@ -2095,12 +2134,12 @@ mod windows_records {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn windows_key_record_transparency() {
+    async fn windows_key_records_follow_text_and_command_contract() {
         let report = run();
         print_report(&report);
         assert!(
             report.failures.len() <= WINDOWS_RECORD_FAILURES_BASELINE,
-            "windows key record transparency regressed: {} failures > {WINDOWS_RECORD_FAILURES_BASELINE}",
+            "windows command record delivery regressed: {} failures > {WINDOWS_RECORD_FAILURES_BASELINE}",
             report.failures.len()
         );
     }

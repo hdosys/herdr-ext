@@ -5296,11 +5296,7 @@ mod tests {
             unicode: u16::from(b'/'),
             control_key_state: 0x0010,
         });
-        #[cfg(windows)]
-        let legacy_expected = b"\x1b[55;8;47;1;16;3_".as_slice();
-        #[cfg(not(windows))]
-        let legacy_expected = b"///".as_slice();
-        assert_eq!(pane.encode_terminal_key(shifted.clone()), legacy_expected);
+        assert_eq!(pane.encode_terminal_key(shifted.clone()), b"///");
         let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
         terminal.write(b"\x1b[>15u");
         let (tx, _rx) = mpsc::channel(4);
