@@ -1,4 +1,4 @@
-From 748b31e435e50fa21150942d9688b43462a43471 Mon Sep 17 00:00:00 2001
+From 12cdd86b38cbc1bad44667c37c88c911ff820a7c Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 30 Aug 2026 17:33:23 +0200
 Subject: [PATCH] fix(settings): show valid integration hints
@@ -26,4 +26,5 @@ index b45cf7734834ab3464ec692fcaa5cee0045b0d5d..456a3e0b145c3037698bd5e3aaa8fb51
      );
  
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

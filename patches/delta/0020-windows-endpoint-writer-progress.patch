@@ -1,8 +1,7 @@
-From a3bc2d343e47465ed0cc606ba960fe308e0a1509 Mon Sep 17 00:00:00 2001
+From d6594946b6292f0fca975fe1492dbba28dcc6705 Mon Sep 17 00:00:00 2001
 From: Jonathan Liebig <jonathan.liebig@gmail.com>
 Date: Wed, 9 Sep 2026 12:27:15 +0200
-Subject: [PATCH] fix(endpoint): keep Windows polling-peer writes
- progressing
+Subject: [PATCH] fix(endpoint): keep Windows polling-peer writes progressing
 
 Backport herdrdev/herdr@c43bdfcfe1c5886d5ca05bc4127ce17d593eb8e8 and herdrdev/herdr@6bc877e17af64b2ebeb4fd5f3cfa620198645ebc. Keep the native polling-peer regression bounded.
 
@@ -12,14 +11,14 @@ Refs herdrdev/herdr#3721, herdrdev/herdr#3651.
  src/api/server.rs                           |  6 +-
  src/api/server/subscription_socket_tests.rs |  1 +
  src/client/endpoint/writer.rs               | 37 +++++----
- src/ipc.rs                                  | 83 ++++++++++++++++-----
+ src/ipc.rs                                  | 88 ++++++++++++++++-----
  src/remote/attach.rs                        |  1 +
  src/server/autodetect.rs                    |  1 +
  src/server/client_accept.rs                 |  4 +-
  src/server/client_transport.rs              |  1 +
  src/server/headless.rs                      |  1 +
  src/session.rs                              |  1 +
- 11 files changed, 100 insertions(+), 37 deletions(-)
+ 11 files changed, 103 insertions(+), 39 deletions(-)
 
 diff --git a/src/api/client.rs b/src/api/client.rs
 index b4ecfc4ebe2bf3be7cc6ca4ed92a80f967f22d57..94b18b08d8b51483a747b76b327c6788a11403f7 100644
@@ -34,7 +33,7 @@ index b4ecfc4ebe2bf3be7cc6ca4ed92a80f967f22d57..94b18b08d8b51483a747b76b327c6788
          let path =
              std::env::temp_dir().join(format!("herdr-status-timeout-{}.sock", std::process::id()));
 diff --git a/src/api/server.rs b/src/api/server.rs
-index 7e25bee8c7a6af58496f48322c4f1604d5d2974f..234aedb8a62c18cbd44cd6cb9891b0decc40e063 100644
+index 1bc761bdbfb826af064b957952e56c6258f167f1..f84c44cdfc1aadfbbe5aee6e702b9308a1655529 100644
 --- a/src/api/server.rs
 +++ b/src/api/server.rs
 @@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,7 +47,7 @@ index 7e25bee8c7a6af58496f48322c4f1604d5d2974f..234aedb8a62c18cbd44cd6cb9891b0de
  use tracing::{debug, error, info, warn};
  
  #[cfg(all(test, unix))]
-@@ -748,7 +750,6 @@ fn read_initial_request_line_with_limits(
+@@ -787,7 +789,6 @@ fn read_initial_request_line_with_limits(
  #[cfg(all(test, windows))]
  mod windows_tests {
      use super::*;
@@ -56,7 +55,7 @@ index 7e25bee8c7a6af58496f48322c4f1604d5d2974f..234aedb8a62c18cbd44cd6cb9891b0de
      use std::io::{BufRead, BufReader};
      use std::sync::mpsc::{self, Receiver};
  
-@@ -1115,6 +1116,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
+@@ -1154,6 +1155,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
  #[cfg(all(test, unix))]
  mod tests {
      use super::*;
@@ -160,7 +159,7 @@ index f7d67454a5bbd967feb07ce3ab96ca8a01fe6e01..0a6aeedab53f8fc86b91b508d1bf76ca
          let (done, received) = mpsc::channel();
          let reader = std::thread::spawn(move || {
 diff --git a/src/ipc.rs b/src/ipc.rs
-index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5cf1408d9 100644
+index a038b59b49701dd25fd0197d7d63203d34a795ef..be58c0e90f866cd3bdd1c57d1ffe2588cbd053ca 100644
 --- a/src/ipc.rs
 +++ b/src/ipc.rs
 @@ -7,9 +7,50 @@ use std::path::Path;
@@ -214,23 +213,28 @@ index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5
  pub(crate) enum LocalStreamRead {
      Data,
      Pending,
-@@ -65,14 +106,7 @@ pub(crate) fn bind_local_listener(path: &Path) -> io::Result<LocalListener> {
+@@ -65,16 +106,10 @@ pub(crate) fn bind_local_listener(path: &Path) -> io::Result<LocalListener> {
  
      #[cfg(windows)]
      {
 -        use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
+-        use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
 -
 -        let name = path.to_string_lossy().to_string();
 -        let name = name.to_ns_name::<GenericNamespaced>()?;
 -        let listener = ListenerOptions::new()
 -            .name(name)
 -            .reclaim_name(false)
+-            .security_descriptor(crate::platform::local_server_security_descriptor()?)
 -            .create_sync()?;
-+        let listener = bind_windows_local_listener(path, None)?;
++        let listener = bind_windows_local_listener(
++            path,
++            Some(crate::platform::local_server_security_descriptor()?),
++        )?;
          fs::write(path, windows_socket_marker())?;
          Ok(listener)
      }
-@@ -141,26 +175,39 @@ pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<LocalListen
+@@ -143,26 +178,39 @@ pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<LocalListen
  
      #[cfg(windows)]
      {
@@ -279,7 +283,7 @@ index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5
  pub(crate) fn poll_local_stream_read(
      stream: &mut LocalStream,
      buf: &mut [u8],
-@@ -384,8 +431,6 @@ pub(crate) fn restrict_socket_permissions(_path: &Path, _mode: u32) -> io::Resul
+@@ -386,8 +434,6 @@ pub(crate) fn restrict_socket_permissions(_path: &Path, _mode: u32) -> io::Resul
  mod tests {
      use super::*;
      #[cfg(windows)]
@@ -289,7 +293,7 @@ index 6231343da06260bafd14ccc3e3e4a947eaa3830d..d3819cab8a4264ae13e2d17db8197db5
  
      #[test]
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index a8aa3321b071b514f901f54710d18b4bc8544a85..edb8a3f6900c0abae5bfc899b0911fa6e9232ddf 100644
+index e187df1c2a4271ed026bf9a3ff3b48fbed26a4b2..eccf1d59edc8e659242891b152392e78378d6fb5 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
 @@ -7,6 +7,7 @@ use std::io::{self, IsTerminal, Read as _, Write as _};
@@ -301,10 +305,10 @@ index a8aa3321b071b514f901f54710d18b4bc8544a85..edb8a3f6900c0abae5bfc899b0911fa6
  #[cfg(all(test, unix))]
  use interprocess::local_socket::traits::Stream as _;
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
-index cd3eec3ad337f2378599fa04f6e5f849f3cd93ee..9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60 100644
+index 3e26516971de9490d8f676ccdf20a5542d229074..481ca7679ee986b8273024fbe4071425a6ac9665 100644
 --- a/src/server/autodetect.rs
 +++ b/src/server/autodetect.rs
-@@ -434,6 +434,7 @@ mod windows_tests {
+@@ -508,6 +508,7 @@ mod windows_tests {
          ))
          .unwrap());
  
@@ -313,7 +317,7 @@ index cd3eec3ad337f2378599fa04f6e5f849f3cd93ee..9aff4ac0c780cc28cd878dd5ef6f4942
          let root =
              std::env::temp_dir().join(format!("herdr-inactive-readiness-{}", std::process::id()));
 diff --git a/src/server/client_accept.rs b/src/server/client_accept.rs
-index e2a8a42d981597afae17c2860fdc2cbc84219929..7712e10b813d65d8f094e6200bbfc9c5d7520ede 100644
+index 34d22ef134c074d39f450c5306025bb04ea0cd9f..9551ea3c561172281e7ac9473cf2c233722a5b70 100644
 --- a/src/server/client_accept.rs
 +++ b/src/server/client_accept.rs
 @@ -1,7 +1,9 @@
@@ -328,7 +332,7 @@ index e2a8a42d981597afae17c2860fdc2cbc84219929..7712e10b813d65d8f094e6200bbfc9c5
  use tracing::{debug, error, warn};
  
 diff --git a/src/server/client_transport.rs b/src/server/client_transport.rs
-index f1311cd910182b9d5c6023589449877ffc8faf9a..7d05f27a39df18afb46168c6f08c76e1463f984f 100644
+index ec25e4bc2b7814f27c1c0c75f02699cfb212589f..e635969cf8abbdd382d7a0718a017235afc54ac1 100644
 --- a/src/server/client_transport.rs
 +++ b/src/server/client_transport.rs
 @@ -1429,6 +1429,7 @@ fn client_read_loop_with_endpoint_controls(
@@ -340,7 +344,7 @@ index f1311cd910182b9d5c6023589449877ffc8faf9a..7d05f27a39df18afb46168c6f08c76e1
      use std::path::PathBuf;
  
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index 0ed9c97670ff1c7b3e0672d43a6acd4bf6ef5d77..71720f5abdbc2744e75a9e0c289a71378daeba03 100644
+index 06c1590da7ba4c05b659cac3c11fcc97bd41aff7..488b150812ac6c7e056c007fd92b5583f477dff5 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
 @@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
@@ -352,16 +356,17 @@ index 0ed9c97670ff1c7b3e0672d43a6acd4bf6ef5d77..71720f5abdbc2744e75a9e0c289a7137
  #[cfg(windows)]
  use interprocess::local_socket::traits::Stream as _;
 diff --git a/src/session.rs b/src/session.rs
-index a7784c6e286d66797473059c0a10518419a9357a..6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b 100644
+index 605c72dfe2d3085a93449035365ea82471a5f107..c530e085392a6fe0f76231a37a130a5438a9d223 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -534,6 +534,7 @@ fn normalize_name(name: &str) -> Result<Option<String>, String> {
+@@ -543,6 +543,7 @@ fn normalize_name(name: &str) -> Result<Option<String>, String> {
  mod tests {
      use super::*;
      #[cfg(unix)]
 +    #[cfg(unix)]
      use interprocess::local_socket::traits::Listener as _;
-     use std::sync::{Mutex, OnceLock};
+     use std::sync::Mutex;
  
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

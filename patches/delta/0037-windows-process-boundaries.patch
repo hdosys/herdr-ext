@@ -1,8 +1,8 @@
-From eac9179dbe6c504d85269d725e6d80f817719c8d Mon Sep 17 00:00:00 2001
+From 536aace6d74bac2fefa4930f6bafafb2959deeae Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 3 Oct 2026 20:48:04 +0200
-Subject: [PATCH] fix(windows): bound process termination and omit
- environment diagnostics
+Subject: [PATCH] fix(windows): bound process termination and omit environment
+ diagnostics
 
 ---
  src/platform/windows.rs               | 35 ++++++++++++++++++++++++---
@@ -10,10 +10,10 @@ Subject: [PATCH] fix(windows): bound process termination and omit
  2 files changed, 32 insertions(+), 5 deletions(-)
 
 diff --git a/src/platform/windows.rs b/src/platform/windows.rs
-index 2aced950d9a5f42e521705e7341307f30c53e76e..cfca20b772c9d290d7fad38ccd3d1130480011ec 100644
+index 0e4573ed5009c77304a976678accbf5cbfd60930..aa4c3bac39ec10087b847323fbcc338cd4384f90 100644
 --- a/src/platform/windows.rs
 +++ b/src/platform/windows.rs
-@@ -3143,11 +3143,11 @@ pub fn signal_processes(pids: &[u32], signal: Signal) {
+@@ -3452,11 +3452,11 @@ pub fn signal_processes(pids: &[u32], signal: Signal) {
      }
  
      for &pid in pids {
@@ -28,7 +28,7 @@ index 2aced950d9a5f42e521705e7341307f30c53e76e..cfca20b772c9d290d7fad38ccd3d1130
          }
      }
  }
-@@ -4105,6 +4105,35 @@ mod tests {
+@@ -4572,6 +4572,35 @@ mod tests {
          assert!(!command.contains("EncodedCommand"));
      }
  
@@ -65,7 +65,7 @@ index 2aced950d9a5f42e521705e7341307f30c53e76e..cfca20b772c9d290d7fad38ccd3d1130
      fn child_process_job_assigns_and_terminates_within_deadline() {
          let mut child = Command::new("powershell.exe")
 diff --git a/vendor/portable-pty/src/cmdbuilder.rs b/vendor/portable-pty/src/cmdbuilder.rs
-index e4a9edc786c9dee8362e0999ffd704bb1b6a5c3d..97d380cedebb7e6aed16febb22c01382b79f77d4 100644
+index 81ebd72378cee817be95e3b482989f4580bef4d9..545930c1df6e463d3a7cbac8c669454706861bd8 100644
 --- a/vendor/portable-pty/src/cmdbuilder.rs
 +++ b/vendor/portable-pty/src/cmdbuilder.rs
 @@ -179,7 +179,6 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
@@ -85,4 +85,5 @@ index e4a9edc786c9dee8362e0999ffd704bb1b6a5c3d..97d380cedebb7e6aed16febb22c01382
                              EnvEntry::map_key(name.clone().into()),
                              EnvEntry {
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

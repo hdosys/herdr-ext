@@ -1,11 +1,10 @@
-From 5d6d273d4ba9d4b46cbbfb284da604168b0ddf17 Mon Sep 17 00:00:00 2001
+From 210d32a86c50bbc1b6d59244b66f19b39046f2e4 Mon Sep 17 00:00:00 2001
 From: hdosys <71881005+hdosys@users.noreply.github.com>
 Date: Wed, 29 Jul 2026 19:41:54 +0200
 Subject: [PATCH] fix(opencode): preserve truthful lifecycle state
 
 Defer root-session errors until idle or a bounded fallback, cancel them when explicit continuing status follows, and prevent terminal blocked state from being overwritten by legacy idle events. Keep outstanding root and child prompts blocked until their exact replies arrive so unrelated busy or idle events cannot erase user-waiting state.
 ---
- CHANGELOG.md                                  |    1 +
  .../website/src/content/docs/integrations.mdx |   10 +-
  .../src/content/docs/ja/integrations.mdx      |   10 +-
  .../src/content/docs/zh-cn/integrations.mdx   |   10 +-
@@ -34,21 +33,9 @@ Defer root-session errors until idle or a bounded fallback, cancel them when exp
  src/terminal/metadata.rs                      |   17 +-
  src/terminal/state.rs                         |  108 +-
  src/workspace.rs                              |  123 ++
- 29 files changed, 3476 insertions(+), 1959 deletions(-)
+ 28 files changed, 3475 insertions(+), 1959 deletions(-)
  delete mode 100644 src/integration/assets/opencode/tui.js
 
-diff --git a/CHANGELOG.md b/CHANGELOG.md
-index f7ced3ec22bdfcd2da25f2211f7cbfdf1c75a092..869443834aab895c881dbe7a8de9bec5a3ff5896 100644
---- a/CHANGELOG.md
-+++ b/CHANGELOG.md
-@@ -3,6 +3,7 @@
- ## Unreleased
- 
- ### Added
-+- Direct OpenCode subagents from Herdr-managed roots now open in adaptive unfocused splits that evenly tile the complete tab across both axes, then close when the child session becomes idle or is deleted.
- - Local herdr-win binaries and Windows setup now lead with one sortable UTC `YYYY.MM.DD.HHMMZ` build label while retaining the exact build ID as secondary provenance.
- 
- ### Fixed
 diff --git a/docs/next/website/src/content/docs/integrations.mdx b/docs/next/website/src/content/docs/integrations.mdx
 index 691bc306c8a0fdb6c80fcc43706b70ae8b5402f1..b388de3bfee3ec34136d8c174030e9d6ba848727 100644
 --- a/docs/next/website/src/content/docs/integrations.mdx
@@ -72,7 +59,7 @@ index 691bc306c8a0fdb6c80fcc43706b70ae8b5402f1..b388de3bfee3ec34136d8c174030e9d6
  The plugin reports lifecycle state and session identity while OpenCode runs inside a Herdr pane. After OpenCode emits a session-bearing event, Herdr can use the reported session id to resume the pane with `opencode --session <id>`. Native screen manifest detection remains available when the plugin is not installed.
  
 diff --git a/docs/next/website/src/content/docs/ja/integrations.mdx b/docs/next/website/src/content/docs/ja/integrations.mdx
-index d39d40560bad8a24f64fb2a8a00640aa2e3b22f7..49ab24e9be53ad64f7b0c93de0c472728519307d 100644
+index 943aead0a6a068d76421f99b3b885e374390709e..39defb22d4589bd5ad53e1dad6576bf65991fd81 100644
 --- a/docs/next/website/src/content/docs/ja/integrations.mdx
 +++ b/docs/next/website/src/content/docs/ja/integrations.mdx
 @@ -193,15 +193,9 @@ OpenCode プラグインをインストールします:
@@ -164,7 +151,7 @@ index d6a68e451d23b93357a6308c4298e116b954ec77..70bcde10ea951fc923dfaf7dcac7c293
          assert_eq!(
              plan(
 diff --git a/src/app/agents.rs b/src/app/agents.rs
-index fd2a58edb8f1d348664d76dbb3bdc0b0f4009759..a65d7493690269b300655f00698253057b2a8a30 100644
+index 89625f008c5bee4c029696937410f5a3198890e3..48c511d24cd30d3c2026e864e340a362d2613dab 100644
 --- a/src/app/agents.rs
 +++ b/src/app/agents.rs
 @@ -19,6 +19,16 @@ fn valid_agent_name(name: &str) -> bool {
@@ -226,7 +213,7 @@ index 8aee1c31bdd6e21d36a12abb7fa0313c9d65a8e5..bba2e10a71d5b24540d2d3feb2fe1ded
          self.plugin_context_from_parts(
              ws_idx,
 diff --git a/src/app/creation.rs b/src/app/creation.rs
-index d44e56b5cccd3675be437c62681b8a3a42f4504b..18b2d5a0f720d51f20c96e78499737b0baee8f8d 100644
+index d0576aa18390b950f495e9fe0e98996d9f4a8d5d..fa81ff470eef4d92640cc2b1c7b1c07f46933c04 100644
 --- a/src/app/creation.rs
 +++ b/src/app/creation.rs
 @@ -331,7 +331,7 @@ impl App {
@@ -268,11 +255,11 @@ index e43ab8ccbd0c922154b745a595b0ad7b641907bc..8f6e49bb78438a490029d895d7d81f9e
          .or(agent.agent.as_deref())
          .or(agent.title.as_deref());
 diff --git a/src/client/shell/tests/agents_worktrees_notifications.rs b/src/client/shell/tests/agents_worktrees_notifications.rs
-index 5b8b12243ca1b3c9921390994a1c875d292445d0..082de7b33ad1d0b80b1a1b211ebf35c1b5e5fb79 100644
+index df09f464a952215ab02a7c47f0e4a2048c68f95d..f9da17c99f0c5e4632ce816d37b959b2bd07e44b 100644
 --- a/src/client/shell/tests/agents_worktrees_notifications.rs
 +++ b/src/client/shell/tests/agents_worktrees_notifications.rs
-@@ -339,6 +339,38 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
-     assert!(state.chrome_drag.is_none());
+@@ -559,6 +559,38 @@ fn workspace_drag_moves_parent_worktree_as_one_block_and_rejects_child() {
+     }
  }
  
 +#[test]
@@ -5022,7 +5009,7 @@ index bec9e23bfcb1e0ec36733c13a72caf3de87d9767..3a75de670fb3c3ef14cbdd7dfd6445d7
 -    }
 -}
 diff --git a/src/integration/mod.rs b/src/integration/mod.rs
-index 69142bd77d503387b5086b97b3bf4b8c9fac0727..516eba2c7bf93df9d5870b539d7f3580a73422f5 100644
+index cb29c50cfa725cb1654dd6fbd41bd03250071716..5afd890a3792b6608b1fc9c48270865daf9b4fbd 100644
 --- a/src/integration/mod.rs
 +++ b/src/integration/mod.rs
 @@ -181,10 +181,7 @@ const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-agent-st
@@ -5612,7 +5599,7 @@ index 9185c96f19bd7dbc69a8548766f9eb19717f971d..1d0ca18e8512e41a79cf3a66e3ddb4ff
  
  fn integration_state_for_path(
 diff --git a/src/integration/targets.rs b/src/integration/targets.rs
-index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa4a4236ca 100644
+index e38ee44679e7395777d06531b45fa7374f93f989..12a142a8968d45ffa04a201d559c16875f24c4ab 100644
 --- a/src/integration/targets.rs
 +++ b/src/integration/targets.rs
 @@ -23,14 +23,13 @@ use super::config_file::{check_config_targets, write_config};
@@ -5632,7 +5619,7 @@ index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa
  };
  use super::types::{
      AntigravityCliInstallPaths, AntigravityCliUninstallResult, ClaudeInstallPaths,
-@@ -461,7 +460,6 @@ pub(crate) fn install_droid() -> io::Result<DroidInstallPaths> {
+@@ -462,7 +461,6 @@ pub(crate) fn install_droid() -> io::Result<DroidInstallPaths> {
  
  pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
      let dir = opencode_dir()?;
@@ -5640,7 +5627,7 @@ index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa
      if !dir.is_dir() {
          return Err(io::Error::other(format!(
              "opencode config directory not found at {}. install opencode first",
-@@ -478,20 +476,11 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
+@@ -479,20 +477,11 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
      let tui_plugin_path = dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
      fs::write(&tui_plugin_path, OPENCODE_TUI_PLUGIN_ASSET)?;
      let tui_config_path = add_tui_plugin(&dir, OPENCODE_TUI_PLUGIN_SPEC)?;
@@ -5661,7 +5648,7 @@ index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa
      })
  }
  
-@@ -844,23 +833,14 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
+@@ -846,23 +835,14 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
  
  pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
      let dir = opencode_dir()?;
@@ -5688,7 +5675,7 @@ index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa
          });
      let removed_plugin = remove_file_if_exists(&plugin_path).unwrap_or_else(|err| {
          errors.push(format!("failed to remove {}: {err}", plugin_path.display()));
-@@ -880,9 +860,10 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
+@@ -882,9 +862,10 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
      Ok(OpenCodeUninstallResult {
          plugin_path,
          tui_plugin_path,
@@ -5701,7 +5688,7 @@ index ec605866dd775c90baa14497bdbed2ea1d4e41e6..a9c4d53151c98f86e282aedab8ab14fa
  }
  
 diff --git a/src/integration/tests.rs b/src/integration/tests.rs
-index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc3851bcf4d9 100644
+index 147daff837c0efb91a7b32a5d9e115ade11a4bd2..e35c25133297b9d1f2aea4723b17773cbb3c570d 100644
 --- a/src/integration/tests.rs
 +++ b/src/integration/tests.rs
 @@ -4,8 +4,6 @@ use super::env::*;
@@ -5721,7 +5708,7 @@ index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc38
      #[cfg(windows)]
      std::env::remove_var("APPDATA");
      std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
-@@ -2316,288 +2313,11 @@ fn install_opencode_writes_server_and_tui_plugins() {
+@@ -2489,284 +2486,7 @@ fn install_opencode_writes_server_and_tui_plugins() {
      let tui_config: Value =
          serde_json::from_str(&fs::read_to_string(&installed.tui_config_path).unwrap()).unwrap();
      assert_eq!(tui_config["plugin"], json!([OPENCODE_TUI_PLUGIN_SPEC]));
@@ -5732,11 +5719,11 @@ index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc38
 -    let cli_config: Value =
 -        serde_json::from_str(&fs::read_to_string(&cli_config_path).unwrap()).unwrap();
 -    assert_eq!(cli_config["plugins"], json!([OPENCODE_V2_TUI_PLUGIN_SPEC]));
- 
-     std::env::remove_var("HOME");
-     let _ = fs::remove_dir_all(base);
- }
- 
+-
+-    std::env::remove_var("HOME");
+-    let _ = fs::remove_dir_all(base);
+-}
+-
 -#[cfg(unix)]
 -#[test]
 -fn opencode_reuses_json_registration_in_symlinked_config_directory() {
@@ -5868,7 +5855,7 @@ index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc38
 -    std::env::remove_var("HOME");
 -    let _ = fs::remove_dir_all(base);
 -}
--
+ 
 -#[test]
 -fn opencode_hard_link_rejection_precedes_install_and_uninstall_asset_changes() {
 -    let _lock = integration_env_lock();
@@ -6003,14 +5990,10 @@ index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc38
 -    assert!(install_opencode().is_err());
 -    assert_eq!(fs::read_to_string(plugin).unwrap(), "previous integration");
 -    assert!(!dir.join("tui.jsonc").exists());
--    std::env::remove_var("HOME");
--    let _ = fs::remove_dir_all(base);
--}
--
- #[test]
- fn opencode_status_requires_the_tui_plugin_and_config_entry() {
-     let _lock = integration_env_lock();
-@@ -2641,16 +2361,10 @@ fn uninstall_opencode_removes_plugins_and_managed_tui_config_entry() {
+     std::env::remove_var("HOME");
+     let _ = fs::remove_dir_all(base);
+ }
+@@ -2814,16 +2534,10 @@ fn uninstall_opencode_removes_plugins_and_managed_tui_config_entry() {
  
      assert!(result.removed_plugin);
      assert!(result.removed_tui_plugin);
@@ -6029,7 +6012,7 @@ index bffe2f4511334a955c26b71a48d7159dc687e28e..24fe12078dba1355284c5756b944cc38
      assert_eq!(installed.plugin_path, result.plugin_path);
  
      std::env::remove_var("HOME");
-@@ -2706,9 +2420,10 @@ fn uninstall_opencode_removes_plugins_when_tui_config_is_invalid() {
+@@ -2879,9 +2593,10 @@ fn uninstall_opencode_removes_plugins_when_tui_config_is_invalid() {
      assert!(err.contains("failed to parse OpenCode TUI config"));
      assert!(!plugin_path.exists());
      assert!(!tui_plugin_path.exists());
@@ -6154,11 +6137,11 @@ index d339bae82efdb9caee62ac5629842d2e40f0df07..69293d62bd3cc37b7cc88879cbcdf4a8
  pub(crate) fn create_private_state_file(path: &Path) -> std::io::Result<std::fs::File> {
      super::create_remote_ssh_config_file(path)
 diff --git a/src/platform/mod.rs b/src/platform/mod.rs
-index acf493af50aaa493c7c760f16426c7bb41612bc6..a9a8cd9cb5a93e4b229a172b3ae1845a58579af0 100644
+index b43b8d0db75b155640fe1a86c7e4dcb726cf348f..757b8651c13d4bf68f17aaf758b1bb9fe0561a16 100644
 --- a/src/platform/mod.rs
 +++ b/src/platform/mod.rs
-@@ -366,6 +366,8 @@ pub(crate) mod unix_image_files;
- pub(crate) use unix_common::{begin_cli_output, forward_remote_bridge_stdio, RemoteBridgeWake};
+@@ -482,6 +482,8 @@ pub(crate) use unix_common::{
+ };
  
  mod client_state;
 +#[cfg(windows)]
@@ -6485,4 +6468,5 @@ index 8944b884f73d4ee431f3d5165d96ecd862212ae3..181d53d968f9a91c6b5d381c033147d5
      fn moving_tab_keeps_active_identity_and_stable_tab_numbers() {
          let mut ws = Workspace::test_new("test");
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

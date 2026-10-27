@@ -7,11 +7,11 @@ stable-release commit recorded in `BASE`.
 The queue contains responsibility-owned feature patches and temporary reviewed
 backports, not a monolith or a patch for every development commit.
 
-The current queue targets Herdr v0.9.3 and retains these logical slots:
+The current queue targets Herdr v0.9.5 and retains these logical slots:
 
 - 0001: client terminal appearance, negotiated cursor color, and Windows VTI input.
 - 0003: Windows SSH adapter, compatible attach, client-config provisioning, and bounded desktop launch.
-- 0004: managed distribution, installer lifecycle, and fork update handling.
+- 0004: managed distribution, installer lifecycle, fork update handling, and current identity, artwork and asset names.
 - 0005: OpenCode V1 lifecycle, pane-local selection, task titles, prompt readiness, and direct-child layouts.
 - 0006: shared runtime `curl` policy.
 - 0008: selected-path Git trust and bounded Windows worktree terminal shutdown.
@@ -20,18 +20,18 @@ The current queue targets Herdr v0.9.3 and retains these logical slots:
 - 0011: 64-token metadata capacity.
 - 0012: client-local completion controls and cancellation suppression.
 - 0016: hide the inapplicable row-selection hint in integration settings.
-- 0032: Herdr Extended runtime, installer, update-source, and documentation identity.
-- 0033: current installer artwork.
-- 0034: validated asset-transition handling.
-- 0035: current release asset names.
 - 0036: bounded multi-link script status and optional client-local hyperlink projection.
 - 0037: Windows process termination rights and omission of environment values from PTY diagnostics.
-- 0038: onboarding guidance derived from the configured prefix key.
 
 Slots 0007, 0014, 0017, and 0018 are absent because v0.9.0 already owns the
 equivalent native-path docs assertion, plugin-root resolution, Devin configuration,
 and Windows environment validation. Partial upstream adoption does not retire a
 remaining responsibility.
+
+The v0.9.5 refresh consolidates slots 0032 through 0035 into 0004 without changing
+the final product tree. Slot 0038 is retired because upstream now renders and tests
+the configured onboarding prefix, including longer bindings. Fork release history
+is owned by the control repository's changelog, not repeated in upstream changelogs.
 
 The v0.9.2 refresh also retires 0013, 0015, 0022, 0023, 0024, 0025, 0027,
 and 0030. The new base supplies their required history, contrast, mouse,
@@ -42,7 +42,7 @@ remain unused; the frozen upstream archive is unchanged.
 
 These corrections originated in the v0.9.0 distribution and are retained only
 where the fork still needs implementation or product-owned boundary coverage on
-v0.9.3. Runtime changes and test-only remainders are distinct below. An upstream PR
+v0.9.5. Runtime changes and test-only remainders are distinct below. An upstream PR
 reference records provenance, not current runtime ownership. The retained queue
 does not reintroduce older implementations over equivalent newer upstream code.
 

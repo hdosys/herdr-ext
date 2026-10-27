@@ -1,29 +1,16 @@
-From 5a8d125e27536a9a2a21a2fd6d8955e6d274fc8a Mon Sep 17 00:00:00 2001
+From 0ce162a4fc47c894175c66bf9cf40fa6d7d943b9 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 26 Aug 2026 13:52:34 +0200
 Subject: [PATCH] feat(api): expand metadata token capacity
 
 ---
- docs/next/CHANGELOG.md              |  1 +
  docs/next/api/herdr-api.schema.json | 14 +++----
  src/api/schema/common.rs            |  4 +-
  src/app/api/panes.rs                | 29 +++++++++++++++
  src/app/api/workspaces.rs           | 58 +++++++++++++++++++++++++++--
  src/app/api_helpers.rs              | 16 ++++++--
- 6 files changed, 105 insertions(+), 17 deletions(-)
+ 5 files changed, 104 insertions(+), 17 deletions(-)
 
-diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 8e99c7173299a69e4ecf1d447e17df29e3818e00..92c054e8ebb00cf60e0db72c9f2242a08a768bac 100644
---- a/docs/next/CHANGELOG.md
-+++ b/docs/next/CHANGELOG.md
-@@ -6,6 +6,7 @@
- - New persistent sessions can start one configured interactive Agent in the root pane of every genuinely new tab with `[session] auto_start_agent`; enabling the setting during live reload also starts it in existing tab roots that are waiting at their shell.
- 
- ### Changed
-+- Pane and workspace metadata reports can atomically update and retain up to 64 custom tokens while preserving the existing key, value, source, and TTL bounds.
- - Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
- 
- ### Fixed
 diff --git a/docs/next/api/herdr-api.schema.json b/docs/next/api/herdr-api.schema.json
 index a66b63e7a9b6e98df3a03839102b877c0a96e63f..510e093032ab82f1938740d48130aba3521f4e60 100644
 --- a/docs/next/api/herdr-api.schema.json
@@ -114,10 +101,10 @@ index bf0d7cafb6326b47ea4a22ddaec5236056212f1e..6a9f0262b0a13b4c38108e1f0c079e6a
          "additionalProperties": { "type": "string" }
      })
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
-index 970cfc37b56937355ae1fba3040191c77923ac3e..e57d4658f5ab0650a28b43f2eb2ff6b05231ade6 100644
+index ea3d3ce6d4b71a6f7fa8893f19fd3b5dcb105524..319ef00b1a80adc7dba7b734597705c1b7029b52 100644
 --- a/src/app/api/panes.rs
 +++ b/src/app/api/panes.rs
-@@ -4433,6 +4433,35 @@ mod tests {
+@@ -4474,6 +4474,35 @@ mod tests {
          assert!(app.state.terminals[&terminal_id].agent_metadata.is_empty());
      }
  
@@ -154,7 +141,7 @@ index 970cfc37b56937355ae1fba3040191c77923ac3e..e57d4658f5ab0650a28b43f2eb2ff6b0
      fn pane_tokens_are_independent_from_presentation_guards() {
          let (mut app, pane_id) = app_with_test_workspace();
 diff --git a/src/app/api/workspaces.rs b/src/app/api/workspaces.rs
-index 3efcc4dca39243592d1fa8eece6a1fce0e6b6046..db37ed24eba1dd78a2b273e04e423602acb01a26 100644
+index c9dd326efa3ff0773729ba2f5740bd9781589644..59baa7a022bebc725c31b6108e4d53b5fe7d6daf 100644
 --- a/src/app/api/workspaces.rs
 +++ b/src/app/api/workspaces.rs
 @@ -7,7 +7,10 @@ use crate::api::schema::{
@@ -195,7 +182,7 @@ index 3efcc4dca39243592d1fa8eece6a1fce0e6b6046..db37ed24eba1dd78a2b273e04e423602
                  ),
              );
          }
-@@ -852,6 +855,53 @@ mod tests {
+@@ -1017,6 +1020,53 @@ mod tests {
          )));
      }
  
@@ -285,4 +272,5 @@ index a224938d3b4b7c98142fcd2067822bfca6107a59..0b0c2e955bb5c4dda6efc6b0e2b2c73b
      }
  }
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

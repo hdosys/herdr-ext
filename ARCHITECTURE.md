@@ -9,8 +9,8 @@ behavior; code and tests remain the detailed implementation truth.
 
 ## Source and Ownership Model
 
-- The current reviewed base is Herdr v0.9.3, commit
-  `7b116c05bfda646af39d2524c54e70c751f57ee8`.
+- The current reviewed base is Herdr v0.9.5, commit
+  `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`.
 - Release source is a fresh checkout of the exact commit behind the upstream stable
   release recorded in `BASE` plus the ordered `patches/delta/series` queue. At each
   explicit manual refresh, select the user's named stable version or otherwise the
@@ -143,7 +143,8 @@ behavior; code and tests remain the detailed implementation truth.
   installer, changes remote `PATH`, adds compatibility layouts, or enables Windows
   live handoff or OpenSSH control-socket reuse.
 - Mailbox 0004 owns deterministic ConPTY packaging, managed Windows distribution,
-  fork update sources, and installer lifecycle.
+  fork update sources, installer lifecycle, current branding/artwork and release
+  asset names. It introduces the current assets directly, not superseded generations.
 - Mailbox 0005 owns OpenCode retry/error lifecycle correlation and root-session
   selection. It preserves actionable terminal failures without surfacing transient
   errors during an active retry, keeps child prompt state scoped to the selected

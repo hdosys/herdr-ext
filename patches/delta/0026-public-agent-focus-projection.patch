@@ -1,8 +1,7 @@
-From f37838968d3aff273dbfdcea5aaea2f54c9af465 Mon Sep 17 00:00:00 2001
+From ab1f155c19ad8989188b813390aabd34fa8ca863 Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:49:19 +0200
-Subject: [PATCH] fix(focus): project successful public agent focus to
- clients
+Subject: [PATCH] fix(focus): project successful public agent focus to clients
 
 Backport herdrdev/herdr@ec338ce01a1e8fa5217c0cfd46fcfb83d93257f2. Resolve the agent after pending events, use the shared public-focus path, and keep failed requests local to their error result.
 
@@ -12,10 +11,10 @@ Refs herdrdev/herdr#3764, herdrdev/herdr#3760.
  1 file changed, 33 insertions(+), 2 deletions(-)
 
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index 7f92d86a8846c40d88d3849cffbd633de42abc03..0e3a6c5e6227ec2998f16ae2a698f4d92d532a71 100644
+index 84c03a73b5d791897e5ccb4f8670ad0f7e458b1f..bcd438c2863471b789b70da031bb296f267874af 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
-@@ -2823,6 +2823,33 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
+@@ -2830,6 +2830,33 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
      let diverged_surface = recv_pane_surface(&render_rx, "diverged surface");
      assert!(frame_text(&diverged_surface.frame).contains("SECOND_WORKSPACE"));
  
@@ -49,7 +48,7 @@ index 7f92d86a8846c40d88d3849cffbd633de42abc03..0e3a6c5e6227ec2998f16ae2a698f4d9
      server
          .app
          .event_tx
-@@ -2843,8 +2870,12 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
+@@ -2850,8 +2877,12 @@ async fn public_agent_focus_replaces_a_diverged_client_shell_projection() {
          respond_to,
          response_write_complete: None,
      });
@@ -65,4 +64,5 @@ index 7f92d86a8846c40d88d3849cffbd633de42abc03..0e3a6c5e6227ec2998f16ae2a698f4d9
          panic!("expected agent info");
      };
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

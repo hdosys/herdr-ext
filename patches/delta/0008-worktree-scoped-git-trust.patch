@@ -1,52 +1,25 @@
-From 155ef67ca4d7266af2dfdc135e340fa724a134d0 Mon Sep 17 00:00:00 2001
+From b5d408c98f2c028b7cd21ae15b02d88502c508f8 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 17:49:01 +0200
 Subject: [PATCH] fix(worktree): scope Git trust to selected paths
 
 Refs herdrdev/herdr#3044
 ---
- CHANGELOG.md                      |  1 +
- docs/next/CHANGELOG.md            |  2 ++
  src/app/api/worktrees.rs          |  4 +++-
- src/app/api/worktrees/deferred.rs | 22 +++++++++++++---------
+ src/app/api/worktrees/deferred.rs | 25 ++++++++++++++++---------
  src/app/runtime.rs                |  8 ++++++--
  src/app/worktrees.rs              |  7 ++++---
  src/pane.rs                       | 24 ++++++++++++++++++++++--
  src/pty/actor.rs                  | 30 +++++++++++++++++++++++++++++-
  src/terminal/runtime.rs           |  4 ++--
  src/worktree.rs                   | 16 ++++++++++------
- 10 files changed, 92 insertions(+), 26 deletions(-)
+ 8 files changed, 92 insertions(+), 26 deletions(-)
 
-diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 869443834aab895c881dbe7a8de9bec5a3ff5896..d885067dd32a7e296af433a679fb8ff2e7c4f3d7 100644
---- a/CHANGELOG.md
-+++ b/CHANGELOG.md
-@@ -8,6 +8,7 @@
- 
- ### Fixed
- - Windows setup now recognizes the managed `local.<build-id>` identity written by earlier local candidates, so a current candidate can upgrade them in place.
-+- Windows worktree removal now waits for terminal sessions to release the checkout before unregistering it, preventing locked directories that cannot be retried by workspace ID.
- 
- ### Changed
- - `herdr --remote <target> --yes` now approves installation or restart for one normal attach. Windows updates reuse the initial candidate and server inspection, transfer the portable payload once, and perform an approved stop, activation, and deployed-client verification in one remote operation. Interactive progress again reports every real phase.
-diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index a98fd9ef658612f175ffad09a1e68fb0c5b129c7..3fb26acdaee78d57dcda00082f42ec5bfdbfa672 100644
---- a/docs/next/CHANGELOG.md
-+++ b/docs/next/CHANGELOG.md
-@@ -6,6 +6,8 @@
- - Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
- 
- ### Fixed
-+- Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
-+- Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
- - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
- 
- ## [0.9.3] - 2026-09-29
 diff --git a/src/app/api/worktrees.rs b/src/app/api/worktrees.rs
-index b2fc0330eb674719376b1fa8c4bf6ff3a480cc0c..5f3141f582d0d2b9be6758ebf1597bd303408434 100644
+index be282c1c7b9b1cbbd7c5aedd4ef5c55eb220d727..dc11425f5f2a6030cdd58f2f023dc4074a7b4681 100644
 --- a/src/app/api/worktrees.rs
 +++ b/src/app/api/worktrees.rs
-@@ -2459,7 +2459,9 @@ mod tests {
+@@ -2567,7 +2567,9 @@ mod tests {
          let (runtime, _input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
          app.terminal_runtimes.insert(terminal_id.clone(), runtime);
  
@@ -58,10 +31,10 @@ index b2fc0330eb674719376b1fa8c4bf6ff3a480cc0c..5f3141f582d0d2b9be6758ebf1597bd3
  
          let checkout_key = crate::worktree::canonical_or_original(&checkout);
 diff --git a/src/app/api/worktrees/deferred.rs b/src/app/api/worktrees/deferred.rs
-index 0f5ed547fe75a9fb13f8e49b116f93c80bc42612..536db13e048bac31fa6b4f4919d4c719ba13a4c4 100644
+index c20aaec4cd50651d3cc3dada196e27a44fffacc9..6e61fdaf9286991fb3e3e3e4ef9c7ec43ad5e523 100644
 --- a/src/app/api/worktrees/deferred.rs
 +++ b/src/app/api/worktrees/deferred.rs
-@@ -315,11 +315,11 @@ impl App {
+@@ -343,11 +343,11 @@ impl App {
              return;
          }
  
@@ -75,33 +48,36 @@ index 0f5ed547fe75a9fb13f8e49b116f93c80bc42612..536db13e048bac31fa6b4f4919d4c719
              };
  
          let operation_id = self.next_api_worktree_operation_id();
-@@ -348,13 +348,17 @@ impl App {
-         let trust_repository = params.trust_repository;
-         let event_tx = self.event_tx.clone();
-         std::thread::spawn(move || {
--            let result = crate::worktree::run_worktree_remove_command_with_recovery(
--                &command,
--                &repo_root,
--                &path,
--                force,
--                trust_repository,
--            );
-+            let result = if shutdown_complete {
-+                crate::worktree::run_worktree_remove_command_with_recovery(
-+                    &command,
-+                    &repo_root,
-+                    &path,
-+                    force,
-+                    trust_repository,
-+                )
-+            } else {
-+                Err("Could not stop the worktree terminal. Close it and retry removal.".to_string())
-+            };
-             let _ = event_tx.blocking_send(AppEvent::WorktreeRemoveFinished(Box::new(
-                 crate::events::WorktreeRemoveResult {
-                     workspace_id: workspace_internal_id,
+@@ -386,13 +386,20 @@ impl App {
+             "herdr-worktree-remove",
+             finished,
+             move |mut finished| {
+-                finished.result = crate::worktree::run_worktree_remove_command_with_recovery(
+-                    &command,
+-                    &repo_root,
+-                    &finished.path,
+-                    finished.forced,
+-                    trust_repository,
+-                );
++                finished.result = if shutdown_complete {
++                    crate::worktree::run_worktree_remove_command_with_recovery(
++                        &command,
++                        &repo_root,
++                        &finished.path,
++                        finished.forced,
++                        trust_repository,
++                    )
++                } else {
++                    Err(
++                        "Could not stop the worktree terminal. Close it and retry removal."
++                            .to_string(),
++                    )
++                };
+                 let _ =
+                     event_tx.blocking_send(AppEvent::WorktreeRemoveFinished(Box::new(finished)));
+             },
 diff --git a/src/app/runtime.rs b/src/app/runtime.rs
-index 99769e7b860c39bc17bf247fba955cea737af078..252e6c584c84b9eb2bf906204cdf5d4c9a66c766 100644
+index c668087a04bb1f21332e1dcba86f1a6f31510f80..844d26b79149378a2e467ab206a16d5b9f5f35c8 100644
 --- a/src/app/runtime.rs
 +++ b/src/app/runtime.rs
 @@ -27,10 +27,14 @@ impl App {
@@ -149,10 +125,10 @@ index c26d5deae262d9f9881e03b656216c84fe593a18..cf432bc2001a2b7e655d1b5c6dc6472a
  }
  
 diff --git a/src/pane.rs b/src/pane.rs
-index 373cf7d9592723c08af06f382f357f1ec4371163..ff813b01281bc49735a88a7a18583c74a12599d4 100644
+index dc95ad456cc3c7306f873b91dabfdf29d887fef8..1807a63a034e4ea6147dd83198c0a080543b92e9 100644
 --- a/src/pane.rs
 +++ b/src/pane.rs
-@@ -1395,6 +1395,15 @@ impl PaneRuntimeIo {
+@@ -1539,6 +1539,15 @@ impl PaneRuntimeIo {
          }
      }
  
@@ -168,7 +144,7 @@ index 373cf7d9592723c08af06f382f357f1ec4371163..ff813b01281bc49735a88a7a18583c74
      #[cfg(unix)]
      fn duplicate_handoff_fd(&self) -> std::io::Result<std::os::fd::RawFd> {
          match self {
-@@ -2087,7 +2096,7 @@ fn publish_reported_cwd(
+@@ -2231,7 +2240,7 @@ fn publish_reported_cwd(
  }
  
  impl PaneRuntime {
@@ -177,7 +153,7 @@ index 373cf7d9592723c08af06f382f357f1ec4371163..ff813b01281bc49735a88a7a18583c74
          if let Some(handle) = self.detect_handle.take() {
              handle.abort();
          }
-@@ -2098,7 +2107,18 @@ impl PaneRuntime {
+@@ -2242,7 +2251,18 @@ impl PaneRuntime {
              self.child_pid.load(Ordering::Acquire),
              self.child_wait_completed.as_deref(),
          );
@@ -198,7 +174,7 @@ index 373cf7d9592723c08af06f382f357f1ec4371163..ff813b01281bc49735a88a7a18583c74
  
      #[cfg(unix)]
 diff --git a/src/pty/actor.rs b/src/pty/actor.rs
-index 76e793ef467b55dc24c4792719e25373598a8a98..f12be0e5adefd53b79f2e8b09657ef1edc9cbcc8 100644
+index 36cbaedd3d260ad8a0d258956903217c8431863e..af95c58c7b0860c941f4dcb7b70e1220fd026fe9 100644
 --- a/src/pty/actor.rs
 +++ b/src/pty/actor.rs
 @@ -7,7 +7,7 @@ pub(crate) use unix::*;
@@ -210,16 +186,16 @@ index 76e793ef467b55dc24c4792719e25373598a8a98..f12be0e5adefd53b79f2e8b09657ef1e
      use std::time::{Duration, Instant};
  
      use bytes::Bytes;
-@@ -75,6 +75,7 @@ mod windows {
+@@ -81,6 +81,7 @@ mod windows {
          write_tx: std_mpsc::Sender<PtyIoWriteCommand>,
          response_order: Arc<Mutex<()>>,
-         accepting: Arc<Mutex<bool>>,
+         accepting: Arc<Mutex<InputAcceptance>>,
 +        shutdown_complete: Arc<(Mutex<bool>, Condvar)>,
      }
  
      impl PtyIoActorHandle {
-@@ -182,6 +183,23 @@ mod windows {
-             }
+@@ -197,6 +198,23 @@ mod windows {
+             drop(accepting);
              let _ = self.control_tx.send(PtyIoControlCommand::Shutdown);
          }
 +
@@ -242,23 +218,23 @@ index 76e793ef467b55dc24c4792719e25373598a8a98..f12be0e5adefd53b79f2e8b09657ef1e
      }
  
      pub(crate) struct PtyIoActor;
-@@ -207,6 +225,7 @@ mod windows {
-             let (write_tx, write_rx) = std_mpsc::channel::<PtyIoWriteCommand>();
-             let response_order = Arc::new(Mutex::new(()));
-             let accepting = Arc::new(Mutex::new(!initially_quiesced));
+@@ -225,6 +243,7 @@ mod windows {
+                 accepting: !initially_quiesced,
+                 enter_completion: None,
+             }));
 +            let shutdown_complete = Arc::new((Mutex::new(false), Condvar::new()));
  
-             std::thread::spawn(move || {
+             crate::thread_spawn::spawn_named("herdr-pty-writer", move || {
                  run_writer(&mut writer, write_rx);
-@@ -256,6 +275,7 @@ mod windows {
+@@ -274,6 +293,7 @@ mod windows {
  
              {
                  let write_tx = write_tx.clone();
 +                let shutdown_complete = Arc::clone(&shutdown_complete);
-                 std::thread::spawn(move || {
+                 crate::thread_spawn::spawn_named("herdr-pty-control", move || {
                      for command in control_rx {
                          match command {
-@@ -278,6 +298,13 @@ mod windows {
+@@ -296,6 +316,13 @@ mod windows {
                              PtyIoControlCommand::Shutdown => break,
                          }
                      }
@@ -270,9 +246,9 @@ index 76e793ef467b55dc24c4792719e25373598a8a98..f12be0e5adefd53b79f2e8b09657ef1e
 +                    *complete = true;
 +                    notify.notify_all();
                      debug!(pane_id, "windows pty control thread exiting");
-                 });
+                 })?;
              }
-@@ -288,6 +315,7 @@ mod windows {
+@@ -306,6 +333,7 @@ mod windows {
                  write_tx,
                  response_order,
                  accepting,
@@ -281,7 +257,7 @@ index 76e793ef467b55dc24c4792719e25373598a8a98..f12be0e5adefd53b79f2e8b09657ef1e
          }
      }
 diff --git a/src/terminal/runtime.rs b/src/terminal/runtime.rs
-index 9171340906a6e964749d424653f860886d88b294..ac37a828c0ce0d628d34963da682e10c91be94e2 100644
+index 23b61da26a7ade005ac6263e87b2becdebd225d2..c606095465cc069280289bef0500a473791d9dbc 100644
 --- a/src/terminal/runtime.rs
 +++ b/src/terminal/runtime.rs
 @@ -17,8 +17,8 @@ use crate::layout::PaneId;
@@ -337,4 +313,5 @@ index 17f560a431146843d646efda4b69d60b7df56a35..ed61224676dca793466292348e413534
                  "/repo/herdr",
                  "worktree",
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

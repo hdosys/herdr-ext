@@ -1,4 +1,4 @@
-From 03a4b8cdacd377fb95d2036db844c409169ea8f2 Mon Sep 17 00:00:00 2001
+From 5a09c704bd8a746faf65ca5df5eb4edbcae14765 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:50:01 +0200
 Subject: [PATCH] fix(client): preserve Local startup errors during saved
@@ -109,7 +109,7 @@ index 437f39f37f6b90930e9e56a38dcc1e92c39b7fbf..2eb4302ac9618842667864ed85339d4d
      fn negotiated_remote_health_probe_expires_the_connection() {
          let mut registry = EndpointRegistry::new(
 diff --git a/src/client/loop_config.rs b/src/client/loop_config.rs
-index 97979bbfa2825c400089329c5c04ab11bfdd16b8..f046f1d1d96e87c319f5071ac097fe3bba32b938 100644
+index c4e659178c4ebf4c04b8d272fd7e6454a2f4e1d6..72ce40db166320f0bf58f73d910344cdd897e114 100644
 --- a/src/client/loop_config.rs
 +++ b/src/client/loop_config.rs
 @@ -1,6 +1,7 @@
@@ -121,7 +121,7 @@ index 97979bbfa2825c400089329c5c04ab11bfdd16b8..f046f1d1d96e87c319f5071ac097fe3b
      pub(super) mouse_scroll_lines: usize,
      pub(super) redraw_on_focus_gained: bool,
 diff --git a/src/client/mod.rs b/src/client/mod.rs
-index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062ccce55096 100644
+index bd1070a919e11995607e321d463c9ac3e41e2017..5436db81f65b9314b6fcc62d5e87a6cffb0efe40 100644
 --- a/src/client/mod.rs
 +++ b/src/client/mod.rs
 @@ -57,6 +57,7 @@ use transport::*;
@@ -132,7 +132,7 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
  pub use startup::{run_client, run_terminal_attach};
  pub use terminal_sessions::{run_terminal_session_control, run_terminal_session_observe};
  
-@@ -159,6 +160,7 @@ fn run_client_with_mode(
+@@ -176,6 +177,7 @@ fn run_client_with_mode(
      attach_request: Option<(String, bool)>,
      attach_escape: Option<AttachEscapeState>,
      log_message: &'static str,
@@ -140,7 +140,7 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
  ) -> io::Result<()> {
      init_logging();
  
-@@ -196,6 +198,7 @@ fn run_client_with_mode(
+@@ -213,6 +215,7 @@ fn run_client_with_mode(
          .as_ref()
          .is_some_and(shell::ClientShellConfig::uses_endpoint_keybindings);
      let mut loop_config = ClientLoopConfig {
@@ -148,7 +148,7 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
          sound_config: loaded_config.config.ui.sound,
          mouse_scroll_lines,
          redraw_on_focus_gained,
-@@ -224,17 +227,21 @@ fn run_client_with_mode(
+@@ -242,17 +245,21 @@ fn run_client_with_mode(
      };
      let federated = endpoint_catalog.has_enabled_ssh();
  
@@ -179,8 +179,8 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
 +        )?
      };
  
-     // Get the terminal geometry before handshake (before raw mode).
-@@ -286,14 +293,9 @@ fn run_client_with_mode(
+     // Get one coherent geometry snapshot before raw mode changes the terminal.
+@@ -322,14 +329,9 @@ fn run_client_with_mode(
              Ok((stream, handshake))
          })
          .transpose();
@@ -196,9 +196,9 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
 +        retain_local_startup_result(initial, federated, &mut local_startup_error)?.flatten();
 +    loop_config.local_startup_error = local_startup_error;
  
-     // The federated shell can show connection notices without any server snapshot.
-     let direct_attach = attach_escape.is_some();
-@@ -498,6 +500,9 @@ async fn run_client_loop(
+     // Install a panic hook so the foreground client always restores its terminal.
+     let panic_restore = terminal_guard.panic_restore();
+@@ -522,6 +524,9 @@ async fn run_client_loop(
                  endpoint::ClientEndpointStatus::Connecting,
              );
          }
@@ -208,7 +208,7 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
      }
      let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
      // Cell size reported by the host terminal, packed as width<<32 | height.
-@@ -1289,6 +1294,12 @@ async fn run_client_loop(
+@@ -1359,6 +1364,12 @@ async fn run_client_loop(
                      let unavailable = state.shell.as_mut().and_then(|shell| {
                          shell.set_endpoint_status(&endpoint_id, status);
                          shell.set_machine_diagnostic(&endpoint_id, message.clone());
@@ -222,10 +222,10 @@ index cb0cb78edc2a8b4d4fdf785036e97bbb1cfe9fb9..9bb5ac070bb223c9e06ce16b55da062c
                              && shell.endpoint_is_active(&endpoint_id))
                          .then(|| format!("{}: {message}", shell.endpoint_label(&endpoint_id)))
 diff --git a/src/client/shell/actions.rs b/src/client/shell/actions.rs
-index 6df3721154fecc63dd64ddf9afaa699605fb1ea4..ea255fafcd62286738f65f61f4281b23d85c8cb2 100644
+index d50b59e838f493b58c7ab4df6c3d71b59c3312e1..c62f52f952646e6a46f802918250936cc1e445d8 100644
 --- a/src/client/shell/actions.rs
 +++ b/src/client/shell/actions.rs
-@@ -488,6 +488,25 @@ impl ClientShellState {
+@@ -486,6 +486,25 @@ impl ClientShellState {
          )
      }
  
@@ -269,10 +269,10 @@ index e796d2c557e505b85c7b734b3aafcb3b55f246d9..c23d294d493cfa07261136e66864d2b4
          palette,
      )
 diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
-index 85ae6cd7c425428a3b1eec907aea6f7e12190f94..fafb38bcdf0e5a5ced1794be4d58e9cbc1ddf8ff 100644
+index d441b9752e3e8b8a64df69e8bb47b86ccd587a66..32c8ec39dc2bb5f1703f78b024737ab07b70c212 100644
 --- a/src/client/shell/state.rs
 +++ b/src/client/shell/state.rs
-@@ -691,6 +691,7 @@ pub(super) enum ClientEndpointNoticeKind {
+@@ -694,6 +694,7 @@ pub(super) enum ClientEndpointNoticeKind {
      Rejected,
      Timeout,
      Unavailable,
@@ -280,7 +280,7 @@ index 85ae6cd7c425428a3b1eec907aea6f7e12190f94..fafb38bcdf0e5a5ced1794be4d58e9cb
  }
  
  #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-@@ -1272,7 +1273,10 @@ impl ClientShellState {
+@@ -1297,7 +1298,10 @@ impl ClientShellState {
          self.popup_pending_deadline = None;
          self.pending_integration_installs = 0;
          self.endpoint_notice_seen.clear();
@@ -293,10 +293,10 @@ index 85ae6cd7c425428a3b1eec907aea6f7e12190f94..fafb38bcdf0e5a5ced1794be4d58e9cb
          self.endpoint_error_deadline = None;
          self.navigate_workspace_id = None;
 diff --git a/src/client/shell/tests/endpoints.rs b/src/client/shell/tests/endpoints.rs
-index f327f8c1668e99c56ef02d32be9b24ccc2ee16ed..e287540ca2d2f2cc314ea7181d730ad92710b837 100644
+index c0a7e52356d15d1c029ab62670c4389aa5fc1d81..3049a134a5f85eef77df673571748db0bd7128d9 100644
 --- a/src/client/shell/tests/endpoints.rs
 +++ b/src/client/shell/tests/endpoints.rs
-@@ -543,6 +543,61 @@ fn machine_navigation_does_not_require_a_local_snapshot_or_surface() {
+@@ -791,6 +791,61 @@ fn machine_navigation_does_not_require_a_local_snapshot_or_surface() {
      }
  }
  
@@ -433,10 +433,10 @@ index 40ee2cc8e82b58f8ab5ed94cc97232aa126d8060..be389167f24537d59bdb78cbd5eb1a24
  }
  
 diff --git a/src/main.rs b/src/main.rs
-index 32725bc1a22229451cedc485b0714fb99c5c0749..1ef199a58938445365957ca78ad254d55ad04916 100644
+index 72cfd2b82647960eca0628d1c1d323d7c916f916..e73d36ea82d8bd2a2f44a7704e2921e56c05162e 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -620,7 +620,7 @@ fn main() -> io::Result<()> {
+@@ -629,7 +629,7 @@ fn main() -> io::Result<()> {
      if args.get(1).map(|s| s.as_str()) == Some("client") {
          let loaded_config = config::Config::load();
          exit_if_nested_disabled(&loaded_config.config);
@@ -446,7 +446,7 @@ index 32725bc1a22229451cedc485b0714fb99c5c0749..1ef199a58938445365957ca78ad254d5
  
      if args.get(1).map(|s| s.as_str()) == Some("update") {
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
-index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad20342a64912b 100644
+index 481ca7679ee986b8273024fbe4071425a6ac9665..a4a6a32cb7b85b14cf0004bac9170f4a2a16be77 100644
 --- a/src/server/autodetect.rs
 +++ b/src/server/autodetect.rs
 @@ -23,6 +23,7 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -457,7 +457,7 @@ index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad2034
  const CLIENT_PROTOCOL_READINESS_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(250);
  
  /// Timeout for checking the stable JSON API before attaching to the binary protocol socket.
-@@ -194,8 +195,11 @@ fn client_protocol_welcome_is_ready(
+@@ -204,8 +205,11 @@ fn client_protocol_welcome_is_ready(
      }
  }
  
@@ -471,7 +471,7 @@ index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad2034
          return Err(io::Error::other(format!(
              "a herdr server is listening, but its status API is unavailable.\n\n{}\nIf that fails, stop the old server process manually.",
              crate::session::active_restart_after_update_guidance()
-@@ -269,7 +273,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
+@@ -279,7 +283,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
  pub fn start_server_daemon_with_exe(exe: PathBuf) -> io::Result<()> {
      let socket_path = client_socket_path();
      if is_server_listening_at(&socket_path) {
@@ -480,22 +480,23 @@ index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad2034
          return Ok(());
      }
      let mut command = build_server_daemon_command(exe);
-@@ -378,31 +382,77 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
- 
-     let startup = if is_server_listening_at(&socket_path) {
-         info!("server already running, attaching as client");
--        if saved_federation {
--            Ok(())
--        } else {
--            validate_running_server_compatibility(false)
--        }
-+        read_server_status()
-+            .and_then(|status| validate_running_server_compatibility(status, saved_federation))
-     } else {
-         info!("no server running, spawning server daemon");
-         spawn_server_daemon()
-             .and_then(|_| wait_for_server_socket(&socket_path, SERVER_READY_TIMEOUT))
-     };
+@@ -389,32 +393,78 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
+     let startup = is_server_listening().and_then(|listening| {
+         if listening {
+             info!("server already running, attaching as client");
+-            if saved_federation {
+-                Ok(())
+-            } else {
+-                validate_running_server_compatibility(false)
+-            }
++            read_server_status()
++                .and_then(|status| validate_running_server_compatibility(status, saved_federation))
+         } else {
+             info!("no server running, spawning server daemon");
+             spawn_server_daemon()
+                 .and_then(|_| wait_for_server_socket(&socket_path, SERVER_READY_TIMEOUT))
+         }
+     });
 -    if let Err(error) = startup {
 -        if !saved_federation {
 -            return Err(error);
@@ -569,8 +570,8 @@ index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad2034
 +
  #[cfg(all(test, windows))]
  mod windows_tests {
-     #[test]
-@@ -694,7 +744,8 @@ test "$sid" = "$$"
+     use super::*;
+@@ -768,7 +818,8 @@ test "$sid" = "$$"
          let path = dir.join("api.sock");
          std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &path);
  
@@ -580,7 +581,7 @@ index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad2034
  
          assert!(
              err.to_string().contains("status API is unavailable"),
-@@ -730,7 +781,8 @@ test "$sid" = "$$"
+@@ -804,7 +855,8 @@ test "$sid" = "$$"
              stream.flush().unwrap();
          });
  
@@ -591,4 +592,5 @@ index 9aff4ac0c780cc28cd878dd5ef6f4942b1acaa60..238b9eb08f94255d435259ca3aad2034
  
          let _ = handle.join();
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

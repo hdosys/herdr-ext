@@ -1,12 +1,10 @@
-From 946aec5f3427de65b9b00ead87fe81327645d1d1 Mon Sep 17 00:00:00 2001
+From 77d611bf5902cacf22b22330d5d47866bda8db19 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 22 Aug 2026 18:22:00 +0200
 Subject: [PATCH] feat(session): auto-start configured agent
 
 Refs herdrdev/herdr#321
 ---
- CHANGELOG.md                                  |   1 +
- docs/next/CHANGELOG.md                        |   4 +
  .../src/content/docs/configuration.mdx        |  51 +++
  .../website/src/data/config-reference.json    |  32 +-
  src/app/agent_resume.rs                       |  56 +--
@@ -38,42 +36,10 @@ Refs herdrdev/herdr#321
  src/server/headless.rs                        |   2 +-
  src/terminal/runtime.rs                       |   4 +
  tests/fixtures/endpoint-method-shapes-v1.json |   1 +
- 33 files changed, 1214 insertions(+), 201 deletions(-)
+ 31 files changed, 1209 insertions(+), 201 deletions(-)
 
-diff --git a/CHANGELOG.md b/CHANGELOG.md
-index d885067dd32a7e296af433a679fb8ff2e7c4f3d7..19d867ce2f2ee5a02ba76f12783918d539970a03 100644
---- a/CHANGELOG.md
-+++ b/CHANGELOG.md
-@@ -7,6 +7,7 @@
- - Local herdr-win binaries and Windows setup now lead with one sortable UTC `YYYY.MM.DD.HHMMZ` build label while retaining the exact build ID as secondary provenance.
- 
- ### Fixed
-+- Windows Agent autostart now treats `nu` and `nu.exe` as the same Nushell executable, so either accepted shell spelling reaches the existing new-tab launch path.
- - Windows setup now recognizes the managed `local.<build-id>` identity written by earlier local candidates, so a current candidate can upgrade them in place.
- - Windows worktree removal now waits for terminal sessions to release the checkout before unregistering it, preventing locked directories that cannot be retried by workspace ID.
- 
-diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 3fb26acdaee78d57dcda00082f42ec5bfdbfa672..4477ad6d33e6533793164d0aa63c203416e47c1e 100644
---- a/docs/next/CHANGELOG.md
-+++ b/docs/next/CHANGELOG.md
-@@ -2,11 +2,15 @@
- 
- ## Unreleased
- 
-+### Added
-+- New persistent sessions can start one configured interactive Agent in the root pane of every genuinely new tab with `[session] auto_start_agent`; enabling the setting during live reload also starts it in existing tab roots that are waiting at their shell.
-+
- ### Changed
- - Herdr no longer queries all 256 indexed colors from the host terminal. It continues to synchronize the host foreground, background, and cursor while using its built-in indexed palette, preventing raw OSC 4 replies from reaching pane input. (#2786)
- 
- ### Fixed
- - Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
-+- Windows `agent start` now launches npm-installed agents with arguments through the interactive shell instead of passing a bare shim name to `Start-Process`. (#2685)
- - Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
- - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
- 
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
-index 9f751a2399d7ec3d702ad3f5c50d2e6dd885f266..4eb86d05416b85141970fa8d239b6a9349aaaf02 100644
+index 8184144b49bfd953234503198b98394b68061a12..0c459dbf71c6a674532d812de6ddbab55e76b152 100644
 --- a/docs/next/website/src/content/docs/configuration.mdx
 +++ b/docs/next/website/src/content/docs/configuration.mdx
 @@ -153,6 +153,46 @@ Every configured prefix enters the same prefix mode and starts every `prefix+...
@@ -123,7 +89,7 @@ index 9f751a2399d7ec3d702ad3f5c50d2e6dd885f266..4eb86d05416b85141970fa8d239b6a93
  A binding may also be an array when one action needs multiple shortcuts:
  
  ```toml
-@@ -546,6 +586,17 @@ The legacy `experimental.kitty_graphics` setting remains accepted for existing c
+@@ -555,6 +595,17 @@ The legacy `experimental.kitty_graphics` setting remains accepted for existing c
  
  Changing this setting requires restarting the affected Herdr server or reattaching the client. In remote sessions, the server's setting controls Kitty graphics parsing, while the local client's setting controls output to the outer terminal.
  
@@ -142,7 +108,7 @@ index 9f751a2399d7ec3d702ad3f5c50d2e6dd885f266..4eb86d05416b85141970fa8d239b6a93
  
  Herdr resumes supported Agent conversations after a server restart by default:
 diff --git a/docs/next/website/src/data/config-reference.json b/docs/next/website/src/data/config-reference.json
-index cd6327a2dd5d0520752f1dcacb4fe6f30d617f33..f895ff12d2fcda8330beed0a67e88be8c032be19 100644
+index b2bda7b5c32cf49f89344dd3c006b266514e40be..3303fbdcb9108761d714fc16ae29c365460d93e4 100644
 --- a/docs/next/website/src/data/config-reference.json
 +++ b/docs/next/website/src/data/config-reference.json
 @@ -12,6 +12,24 @@
@@ -170,7 +136,7 @@ index cd6327a2dd5d0520752f1dcacb4fe6f30d617f33..f895ff12d2fcda8330beed0a67e88be8
      {
        "id": "server",
        "title": "Server",
-@@ -580,9 +598,15 @@
+@@ -586,9 +604,15 @@
            "description": "Reload config.toml in the running app/server."
          },
          {
@@ -187,7 +153,7 @@ index cd6327a2dd5d0520752f1dcacb4fe6f30d617f33..f895ff12d2fcda8330beed0a67e88be8
            "description": "Focus the currently visible notification target."
          },
          {
-@@ -1414,6 +1438,12 @@
+@@ -1420,6 +1444,12 @@
        "id": "session",
        "title": "Session",
        "keys": [
@@ -293,7 +259,7 @@ index f088138c7a9f16d979f1aa2fc773c83c58f4c2d7..36361cb6f418af1a16a1758f7b40748c
 -    }
  }
 diff --git a/src/app/agents.rs b/src/app/agents.rs
-index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d13cbca558 100644
+index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd05862e2abed 100644
 --- a/src/app/agents.rs
 +++ b/src/app/agents.rs
 @@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
@@ -571,7 +537,7 @@ index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d1
  
          let argv = agent_launch_argv(kind, params.args);
          let command = crate::platform::interactive_shell_command(&argv, &shell_name)
-@@ -265,7 +499,7 @@ impl App {
+@@ -269,7 +503,7 @@ impl App {
                  code: "agent_pane_not_found".into(),
                  message: format!("agent target pane {target} not found"),
              },
@@ -580,7 +546,7 @@ index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d1
                  code: "agent_pane_busy".into(),
                  message: format!("agent target pane {target} is not an available shell"),
              },
-@@ -462,6 +696,7 @@ pub(super) enum AgentStartError {
+@@ -466,6 +700,7 @@ pub(super) enum AgentStartError {
      InvalidTimeout,
      TargetNotFound(String),
      TargetBusy(String),
@@ -588,7 +554,7 @@ index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d1
      TargetUnavailable(String),
      InputFailed(String),
      DuplicateName {
-@@ -483,7 +718,8 @@ pub(super) enum AgentRenameError {
+@@ -487,7 +722,8 @@ pub(super) enum AgentRenameError {
  
  #[cfg(test)]
  mod tests {
@@ -598,7 +564,7 @@ index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d1
  
      #[test]
      fn agent_names_use_a_small_cli_safe_grammar() {
-@@ -503,4 +739,170 @@ mod tests {
+@@ -507,4 +743,170 @@ mod tests {
              assert!(!valid_agent_name(name), "expected {name:?} to be invalid");
          }
      }
@@ -770,10 +736,10 @@ index a65d7493690269b300655f00698253057b2a8a30..8a926536510debe41d0f3efa53a0b7d1
 +    }
  }
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
-index e4e03e71b48f96754bf0559b6e6ecf546437ab65..970cfc37b56937355ae1fba3040191c77923ac3e 100644
+index b5f3baf67db29c34060b12463dca692a0f093abf..ea3d3ce6d4b71a6f7fa8893f19fd3b5dcb105524 100644
 --- a/src/app/api/panes.rs
 +++ b/src/app/api/panes.rs
-@@ -2332,6 +2332,36 @@ mod tests {
+@@ -2346,6 +2346,36 @@ mod tests {
          (app, public_pane_id)
      }
  
@@ -811,7 +777,7 @@ index e4e03e71b48f96754bf0559b6e6ecf546437ab65..970cfc37b56937355ae1fba3040191c7
      fn pane_input_set_changes_only_the_target_pane() {
          let (mut app, public_pane_id) = app_with_test_workspace();
 diff --git a/src/app/api/tabs.rs b/src/app/api/tabs.rs
-index c1bd86e9e36ea41862881bc4630c488ec7f0be2c..7d9ff5c93d91287b9aa138fe7d69e35ab50b8b12 100644
+index b00858592fdaaadee7d9ede73b4197c9378326e1..54b40645e1883bc480d6b41617e75d302dbefd00 100644
 --- a/src/app/api/tabs.rs
 +++ b/src/app/api/tabs.rs
 @@ -117,6 +117,7 @@ impl App {
@@ -822,7 +788,7 @@ index c1bd86e9e36ea41862881bc4630c488ec7f0be2c..7d9ff5c93d91287b9aa138fe7d69e35a
                  self.schedule_session_save();
                  self.emit_tab_created_events(ws_idx, tab_idx);
                  encode_success(
-@@ -426,7 +427,7 @@ mod tests {
+@@ -432,7 +433,7 @@ mod tests {
      }
  
      #[tokio::test]
@@ -831,7 +797,7 @@ index c1bd86e9e36ea41862881bc4630c488ec7f0be2c..7d9ff5c93d91287b9aa138fe7d69e35a
          let event_hub = crate::api::EventHub::default();
          let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
          let mut app = App::new(
-@@ -436,6 +437,7 @@ mod tests {
+@@ -442,6 +443,7 @@ mod tests {
              api_rx,
              event_hub,
          );
@@ -839,7 +805,7 @@ index c1bd86e9e36ea41862881bc4630c488ec7f0be2c..7d9ff5c93d91287b9aa138fe7d69e35a
          app.state.default_shell = exiting_test_command().into();
          app.state.shell_mode = ShellModeConfig::NonLogin;
          let workspace = Workspace::test_new("tabs");
-@@ -465,12 +467,18 @@ mod tests {
+@@ -471,12 +473,18 @@ mod tests {
          let success: SuccessResponse = serde_json::from_str(&response).unwrap();
          assert!(matches!(success.result, ResponseResult::TabCreated { .. }));
          let created = &app.state.workspaces[0].tabs[1];
@@ -859,7 +825,7 @@ index c1bd86e9e36ea41862881bc4630c488ec7f0be2c..7d9ff5c93d91287b9aa138fe7d69e35a
      }
  }
 diff --git a/src/app/creation.rs b/src/app/creation.rs
-index 18b2d5a0f720d51f20c96e78499737b0baee8f8d..167bec258c5ef572789b83e1173cb86eae9e132d 100644
+index fa81ff470eef4d92640cc2b1c7b1c07f46933c04..770b89404a005d0d2f6aaad60ac1042115591558 100644
 --- a/src/app/creation.rs
 +++ b/src/app/creation.rs
 @@ -156,6 +156,7 @@ impl App {
@@ -879,11 +845,11 @@ index 18b2d5a0f720d51f20c96e78499737b0baee8f8d..167bec258c5ef572789b83e1173cb86e
          Ok(())
      }
 diff --git a/src/app/mod.rs b/src/app/mod.rs
-index 9bde5ff993ca71f160fa449c8d05d5007eff375e..9e4051cedd3756262b2b40a862313a5632ebbc49 100644
+index ff6e574d4571e6d6b7c790c25efc556f103b2b42..5b8bc223e373f52dc1440be95b007b82b1869218 100644
 --- a/src/app/mod.rs
 +++ b/src/app/mod.rs
-@@ -7,7 +7,7 @@ pub(crate) mod actions;
- mod agent_resume;
+@@ -9,7 +9,7 @@ mod agent_resume;
+ mod agent_suspend_tests;
  pub(crate) mod agent_view;
  mod agents;
 -pub(crate) use agents::{AGENT_START_SETTLE_DELAY, MAX_AGENT_START_TIMEOUT};
@@ -891,7 +857,7 @@ index 9bde5ff993ca71f160fa449c8d05d5007eff375e..9e4051cedd3756262b2b40a862313a56
  mod api;
  #[cfg(test)]
  pub(crate) use api::test_support::exiting_test_command;
-@@ -105,6 +105,13 @@ pub(crate) struct DeferredWorkspaceShell {
+@@ -107,6 +107,13 @@ pub(crate) struct DeferredWorkspaceShell {
      pub(crate) extra_env: Vec<(String, String)>,
  }
  
@@ -905,7 +871,7 @@ index 9bde5ff993ca71f160fa449c8d05d5007eff375e..9e4051cedd3756262b2b40a862313a56
  pub struct App {
      pub state: AppState,
      pub(crate) pixel_mouse_available: bool,
-@@ -140,6 +147,8 @@ pub struct App {
+@@ -147,6 +154,8 @@ pub struct App {
      pub(crate) pending_agent_resume_deadline: Option<Instant>,
      startup_per_agent_delay: Duration,
      next_agent_resume_at: Option<Instant>,
@@ -914,7 +880,7 @@ index 9bde5ff993ca71f160fa449c8d05d5007eff375e..9e4051cedd3756262b2b40a862313a56
      pub(crate) session_save_deadline: Option<Instant>,
      pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
      session_writer: Arc<std::sync::Mutex<crate::persist::SessionWriter>>,
-@@ -614,6 +623,11 @@ impl App {
+@@ -669,6 +678,11 @@ impl App {
                  config.session.startup_per_agent_delay_ms.into(),
              ),
              next_agent_resume_at: None,
@@ -926,7 +892,7 @@ index 9bde5ff993ca71f160fa449c8d05d5007eff375e..9e4051cedd3756262b2b40a862313a56
              session_save_deadline: None,
              session_save_thread: None,
              session_writer,
-@@ -810,6 +824,21 @@ impl App {
+@@ -874,6 +888,21 @@ impl App {
          let invalid_section =
              |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
  
@@ -949,10 +915,10 @@ index 9bde5ff993ca71f160fa449c8d05d5007eff375e..9e4051cedd3756262b2b40a862313a56
              match config.live_keybinds_with_diagnostics() {
                  Ok((live, keybind_diagnostics)) => {
 diff --git a/src/app/runtime.rs b/src/app/runtime.rs
-index 252e6c584c84b9eb2bf906204cdf5d4c9a66c766..26a5e553bd337c9ddcf3a667fc87d0a3d7de31e8 100644
+index 844d26b79149378a2e467ab206a16d5b9f5f35c8..f9c53f1aae7d6b2778820857db5fde505e848781 100644
 --- a/src/app/runtime.rs
 +++ b/src/app/runtime.rs
-@@ -162,6 +162,7 @@ impl App {
+@@ -171,6 +171,7 @@ impl App {
              self.next_agent_manifest_update_check,
              self.agent_metadata_deadline,
              self.pending_agent_resume_deadline,
@@ -961,7 +927,7 @@ index 252e6c584c84b9eb2bf906204cdf5d4c9a66c766..26a5e553bd337c9ddcf3a667fc87d0a3
              self.next_tab_bar_status_deadline(),
              render_deadline,
 diff --git a/src/client/shell/actions.rs b/src/client/shell/actions.rs
-index 9d0a3bd5dc9c49911f248a3e5a6071baa6679be5..6df3721154fecc63dd64ddf9afaa699605fb1ea4 100644
+index 83819b0d1e999bcaeef432f57d855a26c2d0d198..d50b59e838f493b58c7ab4df6c3d71b59c3312e1 100644
 --- a/src/client/shell/actions.rs
 +++ b/src/client/shell/actions.rs
 @@ -66,6 +66,47 @@ impl ClientShellState {
@@ -1013,7 +979,7 @@ index 9d0a3bd5dc9c49911f248a3e5a6071baa6679be5..6df3721154fecc63dd64ddf9afaa6996
                      self.push_endpoint_method_with_kind(
                          crate::api::schema::Method::ServerReloadConfig(
 diff --git a/src/client/shell/config.rs b/src/client/shell/config.rs
-index bfa1fb2f7eebd809471f2eb9347aee43a540ae66..6a743518528c87050cb3eb61ce35c2e57ed41183 100644
+index 04a3ddb567737529f758a139975fc180b31f1d38..0e98b0308968560619f5343e81eaa6075b4b4a9c 100644
 --- a/src/client/shell/config.rs
 +++ b/src/client/shell/config.rs
 @@ -143,6 +143,7 @@ impl ClientShellConfig {
@@ -1024,7 +990,7 @@ index bfa1fb2f7eebd809471f2eb9347aee43a540ae66..6a743518528c87050cb3eb61ce35c2e5
              keybinding_source: ClientShellKeybindingSource::Local,
              prompt_new_tab_name: config.ui.prompt_new_tab_name,
              prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
-@@ -290,6 +291,10 @@ impl ClientShellConfig {
+@@ -315,6 +316,10 @@ impl ClientShellConfig {
          let invalid_section =
              |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
  
@@ -1036,7 +1002,7 @@ index bfa1fb2f7eebd809471f2eb9347aee43a540ae66..6a743518528c87050cb3eb61ce35c2e5
              && self.keybinding_source != ClientShellKeybindingSource::Endpoint
          {
 diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
-index 022333f4c5c5c929fff11c0afd4704690d836a27..6a0a7250c48e66ed358a2bf7242b25866e68635e 100644
+index 65913aa64afc6e0301eeebf9b83c8bde352214f5..3717d86a2418354add0021a5821202e0d4f8408c 100644
 --- a/src/client/shell/state.rs
 +++ b/src/client/shell/state.rs
 @@ -37,6 +37,7 @@ pub(crate) struct ClientShellConfig {
@@ -1048,10 +1014,10 @@ index 022333f4c5c5c929fff11c0afd4704690d836a27..6a0a7250c48e66ed358a2bf7242b2586
      pub(super) prompt_new_tab_name: bool,
      pub(super) prompt_new_workspace_name: bool,
 diff --git a/src/client/shell/tests/agents_worktrees_notifications.rs b/src/client/shell/tests/agents_worktrees_notifications.rs
-index 082de7b33ad1d0b80b1a1b211ebf35c1b5e5fb79..ef47dfaab5db61792177843011b441dbdc560768 100644
+index f9da17c99f0c5e4632ce816d37b959b2bd07e44b..0f95ad334210e4af9e1ec505fcf680dca969fdd9 100644
 --- a/src/client/shell/tests/agents_worktrees_notifications.rs
 +++ b/src/client/shell/tests/agents_worktrees_notifications.rs
-@@ -1442,11 +1442,8 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
+@@ -1662,11 +1662,8 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
          },
          now,
      );
@@ -1066,10 +1032,10 @@ index 082de7b33ad1d0b80b1a1b211ebf35c1b5e5fb79..ef47dfaab5db61792177843011b441db
          action,
          ClientShellAction::Endpoint { request, .. }
 diff --git a/src/client/shell/tests/keybindings_settings.rs b/src/client/shell/tests/keybindings_settings.rs
-index dd60fe118fca12e7e68150c46c6a9b1b0fba33c1..9b527c42a874a8c9037f509dbccf8370c91d86ba 100644
+index fd3301db222fed6a09ed0af875cc023fa9622895..286b9cb0cefdd5e6864c0fd327443425f5f4d750 100644
 --- a/src/client/shell/tests/keybindings_settings.rs
 +++ b/src/client/shell/tests/keybindings_settings.rs
-@@ -240,6 +240,99 @@ detach = "prefix+x"
+@@ -379,6 +379,99 @@ detach = "prefix+x"
      assert!(detach.requests.is_empty());
  }
  
@@ -1170,7 +1136,7 @@ index dd60fe118fca12e7e68150c46c6a9b1b0fba33c1..9b527c42a874a8c9037f509dbccf8370
  fn prefix_endpoint_action_uses_public_api_with_stable_ids() {
      let mut config = Config::default();
 diff --git a/src/config.rs b/src/config.rs
-index c58975a81bc35033fa3cc75ef35047a114e74b22..0dda392976d11b178224b6af883235d6ddc3fbd3 100644
+index 3ef1a4cb27e8bd7727f7ab66142636e5bc4cbe81..bd4a7265d744bd37a51a84579b94ec19573ada0b 100644
 --- a/src/config.rs
 +++ b/src/config.rs
 @@ -23,7 +23,7 @@ pub use self::{
@@ -1284,7 +1250,7 @@ index 0f311d4cbb606e81c07525288e8b9fe4e40b8575..12e921ad402c4c98684c0af0c4ed37ca
  
      #[test]
 diff --git a/src/config/keybinds.rs b/src/config/keybinds.rs
-index 903f85ca3b642f8fcc8fc5134b1060ca3404dd76..26a2e45afd74e032228650b60fdb3f1477a55e35 100644
+index 276764a603ba301224388f4dfba115515d1a9106..bb0233b5077723de4021c2b1f63c45f3a5e6e660 100644
 --- a/src/config/keybinds.rs
 +++ b/src/config/keybinds.rs
 @@ -363,6 +363,7 @@ pub struct Keybinds {
@@ -1312,7 +1278,7 @@ index 903f85ca3b642f8fcc8fc5134b1060ca3404dd76..26a2e45afd74e032228650b60fdb3f14
                  keybinds.open_notification_target,
                  open_notification_target,
 diff --git a/src/config/model.rs b/src/config/model.rs
-index cbff934a96c9b86f8e203d73ec5aeb466b014f00..fdc09c8df133453ebfc54ea5b5bf55a299389c94 100644
+index ce233a4262cddd0acaf5315252e63465e1201ae3..63185b5c932c654f2eca7a170b2ac4159966502b 100644
 --- a/src/config/model.rs
 +++ b/src/config/model.rs
 @@ -234,6 +234,9 @@ pub struct TerminalConfig {
@@ -1433,7 +1399,7 @@ index cbff934a96c9b86f8e203d73ec5aeb466b014f00..fdc09c8df133453ebfc54ea5b5bf55a2
          copy_effective_action_field!(open_notification_target, keybinds.open_notification_target);
          copy_effective_action_field!(previous_workspace, keybinds.previous_workspace);
          copy_effective_action_field!(next_workspace, keybinds.next_workspace);
-@@ -1105,7 +1169,8 @@ impl Default for KeysConfig {
+@@ -1108,7 +1172,8 @@ impl Default for KeysConfig {
              navigate_pane_right: BindingConfig::one("l"),
              detach: BindingConfig::one("prefix+q"),
              reload_config: BindingConfig::one("prefix+shift+r"),
@@ -1443,7 +1409,7 @@ index cbff934a96c9b86f8e203d73ec5aeb466b014f00..fdc09c8df133453ebfc54ea5b5bf55a2
              previous_workspace: BindingConfig::empty(),
              next_workspace: BindingConfig::empty(),
              previous_agent: BindingConfig::empty(),
-@@ -1361,19 +1426,35 @@ new_cwd = "~/Projects"
+@@ -1366,19 +1431,35 @@ new_cwd = "~/Projects"
      }
  
      #[test]
@@ -1481,10 +1447,10 @@ index cbff934a96c9b86f8e203d73ec5aeb466b014f00..fdc09c8df133453ebfc54ea5b5bf55a2
  
      #[test]
 diff --git a/src/input/keybind_help.rs b/src/input/keybind_help.rs
-index cb1fdb99d49c266d5a870f6ce9c0f555660b31e6..e14f242ab6cdc649899d71bc1825a7a87669a4e4 100644
+index 8007948881d73db1be6a649af466aa1b1c6bffde..e665e7eac973b0b4e7b86cf6e1d88a94e46e11c9 100644
 --- a/src/input/keybind_help.rs
 +++ b/src/input/keybind_help.rs
-@@ -74,6 +74,10 @@ pub(crate) fn keybind_help_groups(
+@@ -85,6 +85,10 @@ pub(crate) fn keybind_help_groups(
                  entry(binding_label(&keybinds.settings), "settings"),
                  entry(binding_label(&keybinds.detach), "detach"),
                  entry(binding_label(&keybinds.reload_config), "reload config"),
@@ -1516,10 +1482,10 @@ index 9ffce2eefe84f43146c291bd9e9d2b41db276e79..d5f4093cc3fd7d6a7904de84f86f1377
              &keybinds.open_notification_target,
              KeybindAction::OpenNotificationTarget,
 diff --git a/src/main.rs b/src/main.rs
-index 9d9b8ef16a0d87a086b8d4ae132847f61738cc41..32725bc1a22229451cedc485b0714fb99c5c0749 100644
+index 3404611fa527730ee37299cf60fb5ef86dd33e11..72cfd2b82647960eca0628d1c1d323d7c916f916 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -146,7 +146,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -148,7 +148,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # settings = "prefix+s"
  # detach = "prefix+q"
  # reload_config = "prefix+shift+r"
@@ -1529,7 +1495,7 @@ index 9d9b8ef16a0d87a086b8d4ae132847f61738cc41..32725bc1a22229451cedc485b0714fb9
  # workspace_picker = "prefix+w"
  # goto = "prefix+g"
  # new_workspace = "prefix+shift+n"
-@@ -220,6 +221,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -222,6 +223,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # workspaces = "" # e.g. "ctrl+shift" makes ctrl+shift+1..9 switch workspaces directly
  # agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows directly
  
@@ -1542,7 +1508,7 @@ index 9d9b8ef16a0d87a086b8d4ae132847f61738cc41..32725bc1a22229451cedc485b0714fb9
  # Size of the virtual terminal used when no client is attached.
  # Attached clients always use their own terminal size.
  [server]
-@@ -390,6 +397,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
+@@ -395,6 +402,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
  # droid = "off"
  
  [session]
@@ -1554,10 +1520,10 @@ index 9d9b8ef16a0d87a086b8d4ae132847f61738cc41..32725bc1a22229451cedc485b0714fb9
  # a Herdr server restart. Requires official integrations that report session refs.
  # resume_agents_on_restore = true
 diff --git a/src/pane.rs b/src/pane.rs
-index ff813b01281bc49735a88a7a18583c74a12599d4..723f0cc46c917dae3572c6c47df092fbf1d3ff56 100644
+index 1807a63a034e4ea6147dd83198c0a080543b92e9..5f7e54bf3e0afde443cd637a61d03d47b386e141 100644
 --- a/src/pane.rs
 +++ b/src/pane.rs
-@@ -1861,6 +1861,10 @@ impl<'a> PaneShellConfig<'a> {
+@@ -2005,6 +2005,10 @@ impl<'a> PaneShellConfig<'a> {
              mode,
          }
      }
@@ -1568,7 +1534,7 @@ index ff813b01281bc49735a88a7a18583c74a12599d4..723f0cc46c917dae3572c6c47df092fb
  }
  
  /// Target platform for shell launch policy. Parameterized (instead of raw
-@@ -1989,7 +1993,12 @@ fn pane_shell_command_builder_for_target(
+@@ -2133,7 +2137,12 @@ fn pane_shell_command_builder_for_target(
      shell_config: PaneShellConfig<'_>,
      target: ShellLaunchTarget,
  ) -> io::Result<CommandBuilder> {
@@ -1582,7 +1548,7 @@ index ff813b01281bc49735a88a7a18583c74a12599d4..723f0cc46c917dae3572c6c47df092fb
      // Unix login shells go through portable-pty's default-program builder so
      // they receive the login argv0 convention. Windows has no such convention
      // and the default-program builder would launch cmd.exe, so Windows login
-@@ -2034,8 +2043,7 @@ fn uses_windows_powershell_pane_shell_for_target(
+@@ -2178,8 +2187,7 @@ fn uses_windows_powershell_pane_shell_for_target(
      // Login mode no longer routes Windows through the default-program builder,
      // so login PowerShell panes are launched directly and can carry the same
      // prompt-based cwd reporting as non-login panes.
@@ -1592,7 +1558,7 @@ index ff813b01281bc49735a88a7a18583c74a12599d4..723f0cc46c917dae3572c6c47df092fb
  }
  
  fn is_powershell_shell(shell: &str) -> bool {
-@@ -3691,6 +3699,12 @@ impl PaneRuntime {
+@@ -3860,6 +3868,12 @@ impl PaneRuntime {
              .or_else(|| self.reported_cwd.lock().ok().and_then(|cwd| cwd.clone()))
      }
  
@@ -1605,7 +1571,7 @@ index ff813b01281bc49735a88a7a18583c74a12599d4..723f0cc46c917dae3572c6c47df092fb
      pub fn child_pid(&self) -> Option<u32> {
          let pid = self.child_pid.load(Ordering::Acquire);
          (pid > 0).then_some(pid)
-@@ -4698,6 +4712,15 @@ mod tests {
+@@ -5105,6 +5119,15 @@ mod tests {
          .unwrap();
  
          assert_eq!(cmd.get_argv(), &[std::ffi::OsString::from("cmd.exe")]);
@@ -1622,10 +1588,10 @@ index ff813b01281bc49735a88a7a18583c74a12599d4..723f0cc46c917dae3572c6c47df092fb
  
      #[test]
 diff --git a/src/platform/fallback.rs b/src/platform/fallback.rs
-index 10833ddb5239ebc0a5f319fbed584998180bec1e..7bb804dde51ca50f57553dd201067a3c705896b3 100644
+index b64a8ac7274060407aa850622d229d1117c9c23e..481927c69b2f74edfb633a6051a667ea5e6cb394 100644
 --- a/src/platform/fallback.rs
 +++ b/src/platform/fallback.rs
-@@ -164,10 +164,6 @@ pub(crate) fn pane_custom_command_pty_builder_platform(
+@@ -174,10 +174,6 @@ pub(crate) fn pane_custom_command_pty_builder_platform(
      portable_pty::CommandBuilder::from_argv(raw_command_argv(command, "-c"))
  }
  
@@ -1637,7 +1603,7 @@ index 10833ddb5239ebc0a5f319fbed584998180bec1e..7bb804dde51ca50f57553dd201067a3c
  pub(crate) fn scrollback_editor_argv(_path: &std::path::Path) -> std::io::Result<Vec<String>> {
      Err(std::io::Error::new(
 diff --git a/src/platform/linux.rs b/src/platform/linux.rs
-index ca4bcf0972bc6c3982ef72d0a25e5dde859a2ee8..8b0dacd28c3e8ee37e42de0b869f7f977e12c7c1 100644
+index 76129ce5400fe5e60face5837043025259445f3b..8ae8231e9b80b20949c56d3b5b26a70418909271 100644
 --- a/src/platform/linux.rs
 +++ b/src/platform/linux.rs
 @@ -317,10 +317,6 @@ pub(crate) fn scrollback_editor_argv(path: &std::path::Path) -> std::io::Result<
@@ -1652,10 +1618,10 @@ index ca4bcf0972bc6c3982ef72d0a25e5dde859a2ee8..8b0dacd28c3e8ee37e42de0b869f7f97
      if !value.is_empty()
          && value.chars().all(|ch| {
 diff --git a/src/platform/macos.rs b/src/platform/macos.rs
-index b29629de1078563603e035b3ecd7531230775ca5..5925b7d6a16d3deddd84512f282bed44475d4678 100644
+index b4f8403121e65bde391d28232d751ee24849b97a..db919cb356879210caa1ca2679c754578622dc1c 100644
 --- a/src/platform/macos.rs
 +++ b/src/platform/macos.rs
-@@ -201,10 +201,6 @@ pub(crate) fn scrollback_editor_argv(path: &Path) -> std::io::Result<Vec<String>
+@@ -210,10 +210,6 @@ pub(crate) fn scrollback_editor_argv(path: &Path) -> std::io::Result<Vec<String>
      Ok(vec!["/bin/sh".to_string(), "-c".to_string(), command])
  }
  
@@ -1667,10 +1633,10 @@ index b29629de1078563603e035b3ecd7531230775ca5..5925b7d6a16d3deddd84512f282bed44
      if !value.is_empty()
          && value.chars().all(|ch| {
 diff --git a/src/platform/mod.rs b/src/platform/mod.rs
-index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b72321a6deb5d 100644
+index 757b8651c13d4bf68f17aaf758b1bb9fe0561a16..fb4396554e3bbcf76120aa4d8c7c671bf1fed7ce 100644
 --- a/src/platform/mod.rs
 +++ b/src/platform/mod.rs
-@@ -416,7 +416,6 @@ fn normalized_process_name(name: &str) -> String {
+@@ -535,7 +535,6 @@ fn normalized_process_name(name: &str) -> String {
          .to_ascii_lowercase()
  }
  
@@ -1678,7 +1644,7 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
  pub(crate) fn is_powershell_process_name(name: &str) -> bool {
      matches!(
          normalized_process_name(name).as_str(),
-@@ -424,19 +423,80 @@ pub(crate) fn is_powershell_process_name(name: &str) -> bool {
+@@ -543,19 +542,80 @@ pub(crate) fn is_powershell_process_name(name: &str) -> bool {
      )
  }
  
@@ -1769,7 +1735,7 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
      for part in parts {
          command.push(' ');
          command.push_str(&quote(part));
-@@ -444,6 +504,64 @@ pub(crate) fn interactive_unix_shell_command(
+@@ -563,6 +623,64 @@ pub(crate) fn interactive_unix_shell_command(
      Some(command)
  }
  
@@ -1834,7 +1800,7 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
  pub(crate) fn quote_powershell_arg(value: &str) -> String {
      if !value.is_empty()
          && !value.starts_with('-')
-@@ -488,8 +606,13 @@ pub(crate) fn quote_windows_command_line_arg(value: &str) -> String {
+@@ -607,8 +725,13 @@ pub(crate) fn quote_windows_command_line_arg(value: &str) -> String {
  
  pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
      let normalized = normalized_process_name(name);
@@ -1849,7 +1815,7 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
          "sh" | "bash"
              | "dash"
              | "zsh"
-@@ -500,10 +623,6 @@ pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
+@@ -619,10 +742,6 @@ pub(crate) fn is_pane_shell_process_name(name: &str) -> bool {
              | "tcsh"
              | "elvish"
              | "xonsh"
@@ -1860,7 +1826,7 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
      )
  }
  
-@@ -572,6 +691,57 @@ impl PrefixInputSource for RealPrefixInputSource {
+@@ -691,6 +810,57 @@ impl PrefixInputSource for RealPrefixInputSource {
      }
  }
  
@@ -1918,7 +1884,7 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
  #[cfg(all(test, any(unix, windows)))]
  #[test]
  fn child_exit_classification_only_checkpoints_interruptions() {
-@@ -661,28 +831,6 @@ mod tests {
+@@ -876,28 +1046,6 @@ mod tests {
          assert_eq!(parse_agent_env_hint(b"HERDR_AGENT=not-an-agent\0"), None);
      }
  
@@ -1948,10 +1914,10 @@ index a9a8cd9cb5a93e4b229a172b3ae1845a58579af0..3ea5c54f2077fe389f18f4d0968b7232
      fn read_limited_reader_returns_complete_data_under_limit() {
          let input = std::io::Cursor::new(b"image".to_vec());
 diff --git a/src/platform/windows.rs b/src/platform/windows.rs
-index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07ea64553d 100644
+index c96891effd2f4aed57aeda264b74594ccec432ae..d0b5251ea563f73b612adb1571a05f2127847592 100644
 --- a/src/platform/windows.rs
 +++ b/src/platform/windows.rs
-@@ -980,54 +980,6 @@ fn raw_command_shell(comspec: Option<std::ffi::OsString>) -> std::ffi::OsString
+@@ -1142,54 +1142,6 @@ fn raw_command_shell(comspec: Option<std::ffi::OsString>) -> std::ffi::OsString
          .unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".into())
  }
  
@@ -2006,7 +1972,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
  pub(crate) fn detached_custom_command_process_platform(command: &str) -> std::process::Command {
      detached_custom_command_process_with_comspec(command, std::env::var_os("ComSpec"))
  }
-@@ -4111,42 +4063,92 @@ mod tests {
+@@ -4578,42 +4530,92 @@ mod tests {
      }
  
      #[test]
@@ -2034,11 +2000,13 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
 +        assert_eq!(
 +            interactive_shell_command(&argv, "bash.exe").as_deref(),
 +            Some("agent-cli")
-+        );
+         );
 +        assert_eq!(interactive_shell_command(&argv, "unknown.exe"), None);
-+    }
-+
-+    #[test]
+     }
+ 
+     #[test]
+-    fn cmd_agent_command_encodes_edge_arguments_without_cmd_expansion() {
+-        use base64::Engine as _;
 +    fn nushell_agent_commands_use_direct_external_invocation() {
 +        let argv = vec![
 +            "agent-cli".into(),
@@ -2046,19 +2014,18 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
 +            "--workspace".into(),
 +            r"C:\Workspaces\two words".into(),
 +        ];
-+
+ 
+-        assert_eq!(super::super::quote_powershell_arg("@options"), "'@options'");
 +        let command = interactive_shell_command(&argv, "nu.exe").unwrap();
 +        assert_eq!(
 +            command,
 +            r#"^"agent-cli" "resume" "--workspace" "C:\\Workspaces\\two words""#
-         );
++        );
 +        assert!(!command.to_ascii_lowercase().contains("powershell"));
 +        assert!(!command.contains("EncodedCommand"));
-     }
- 
-     #[test]
--    fn cmd_agent_command_encodes_edge_arguments_without_cmd_expansion() {
--        use base64::Engine as _;
++    }
++
++    #[test]
 +    fn child_process_job_assigns_and_terminates_within_deadline() {
 +        let mut child = Command::new("powershell.exe")
 +            .args([
@@ -2088,8 +2055,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
 +            .expect("reinspect job test child")
 +            .is_some());
 +    }
- 
--        assert_eq!(super::super::quote_powershell_arg("@options"), "'@options'");
++
 +    #[test]
 +    fn cmd_agent_command_escapes_shell_expansion_without_powershell() {
          let argv = vec![
@@ -2122,7 +2088,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
      }
  
      #[test]
-@@ -4167,6 +4169,16 @@ mod tests {
+@@ -4634,6 +4636,16 @@ mod tests {
              "@echo off\r\n>\"%HERDR_ARGV_CAPTURE%\" (\r\necho(%~1\r\necho(%~2\r\necho(%~3\r\necho(%~4\r\necho(%~5\r\necho(%~6\r\necho(%~7\r\n)\r\n",
          )
          .unwrap();
@@ -2139,7 +2105,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
          let argv = vec![
              "pi".into(),
              String::new(),
-@@ -4180,14 +4192,29 @@ mod tests {
+@@ -4647,14 +4659,29 @@ mod tests {
          let inherited_path = std::env::var_os("PATH").unwrap_or_default();
          let path = format!("{};{}", base.display(), inherited_path.to_string_lossy());
          let run_command = |shell: &str, command: &str, capture: &std::path::Path| {
@@ -2177,7 +2143,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
              };
              process
                  .env("PATH", &path)
-@@ -4197,9 +4224,21 @@ mod tests {
+@@ -4664,9 +4691,21 @@ mod tests {
                  .unwrap()
          };
  
@@ -2201,7 +2167,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
              let status = run_command(shell, &no_args_command, &no_args_capture);
              assert!(status.success(), "{shell} argument-free command failed");
              assert_eq!(
-@@ -4210,7 +4249,7 @@ mod tests {
+@@ -4677,7 +4716,7 @@ mod tests {
              );
  
              let capture = base.join(format!("{shell}.txt"));
@@ -2210,7 +2176,7 @@ index df9439cf1513a9f7b5620b641ef2d7af3296c201..4caf06b27d5be7072a9761c966613c07
              let status = run_command(shell, &command, &capture);
              assert!(status.success(), "{shell} command failed");
              assert_eq!(
-@@ -4227,7 +4266,7 @@ mod tests {
+@@ -4694,7 +4733,7 @@ mod tests {
          .unwrap();
          for shell in ["powershell.exe", "cmd.exe"] {
              let capture = base.join(format!("{shell}-ps1.txt"));
@@ -2232,23 +2198,23 @@ index 87824c85d6a5ed82e373955acc87b35e7a430bfe..54ad95e546984f2e9bd2d42a9d10caa8
      "command.invoke",
      "integration.install",
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index 5a57147dd22339df0f898291ac95e1f901d67f84..0ed9c97670ff1c7b3e0672d43a6acd4bf6ef5d77 100644
+index 66ed86072908c63b248430dd3cc6944a9640945d..06c1590da7ba4c05b659cac3c11fcc97bd41aff7 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
-@@ -3224,7 +3224,7 @@ impl HeadlessServer {
-     ///
-     /// Similar to the former App scheduler but without terminal resize polling.
-     fn handle_scheduled_tasks_headless(&mut self, now: Instant, geometry_dirty: bool) -> bool {
+@@ -3305,7 +3305,7 @@ impl HeadlessServer {
+         if self.host_shutdown_requested() {
+             return false;
+         }
 -        let mut changed = false;
 +        let mut changed = self.app.try_start_tab_auto_start_agents(now);
  
          // No resize polling needed — server has no terminal.
          // Client resize messages drive size changes instead.
 diff --git a/src/terminal/runtime.rs b/src/terminal/runtime.rs
-index ac37a828c0ce0d628d34963da682e10c91be94e2..a02984cb6d91bed2dfba7c0b8ca3e94111dd89b2 100644
+index c606095465cc069280289bef0500a473791d9dbc..f9742e96e727a12c69f6cc1abf766ea0a45a1937 100644
 --- a/src/terminal/runtime.rs
 +++ b/src/terminal/runtime.rs
-@@ -578,6 +578,10 @@ impl TerminalRuntime {
+@@ -582,6 +582,10 @@ impl TerminalRuntime {
          self.0.cwd_for_persistence()
      }
  
@@ -2270,4 +2236,5 @@ index f8ea6444494da17abaf7ef2211613beb7c868b86..08d5c80ded6ec56ac82f6a7ba1a7df7c
    "command.invoke": "b16817652442b1ea2405e60a0443826a55baca461e938f524e79b16a675c5899",
    "integration.install": "913055b838166650fee6713332c1cc436efd4f8fae9a2064d8f9b6616a7a66f8",
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

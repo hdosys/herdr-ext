@@ -1,4 +1,4 @@
-From 2fb479a4cb4589d4db1c7c915e9bf2d8318b846b Mon Sep 17 00:00:00 2001
+From 6ae8d2ea7bd0fca616b9e2e61e3ef2aea3c93907 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 11:15:26 +0200
 Subject: [PATCH] fix(remote): preserve blocking Windows bridge writes
@@ -15,10 +15,10 @@ Refs herdrdev/herdr#3701
  1 file changed, 82 insertions(+), 4 deletions(-)
 
 diff --git a/src/remote/attach.rs b/src/remote/attach.rs
-index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..a8aa3321b071b514f901f54710d18b4bc8544a85 100644
+index 22b6512d55994e511c64e80cadc7137861826f6d..e187df1c2a4271ed026bf9a3ff3b48fbed26a4b2 100644
 --- a/src/remote/attach.rs
 +++ b/src/remote/attach.rs
-@@ -2696,7 +2696,9 @@ fn confirm_remote_install_with_server_status(
+@@ -2716,7 +2716,9 @@ fn confirm_remote_install_with_server_status(
      eprintln!(
          "To complete the remote update, Herdr must stop the running remote server after installing."
      );
@@ -29,7 +29,7 @@ index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..a8aa3321b071b514f901f54710d18b4b
      eprintln!();
      eprint!(
          "Install {} and stop the remote server now? [y/N] ",
-@@ -3351,7 +3353,9 @@ fn confirm_remote_server_stop(
+@@ -3416,7 +3418,9 @@ fn confirm_remote_server_stop(
          }
      }
  
@@ -40,7 +40,7 @@ index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..a8aa3321b071b514f901f54710d18b4b
      let prompt = if required_upgrade {
          "stop and update the remote server, then continue attaching? [y/N] "
      } else {
-@@ -4582,13 +4586,87 @@ fn sanitize_path_component(input: &str) -> String {
+@@ -4675,6 +4679,76 @@ fn sanitize_path_component(input: &str) -> String {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -115,7 +115,9 @@ index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..a8aa3321b071b514f901f54710d18b4b
 +        crate::ipc::remove_socket_file_if_owned(&socket, &socket_identity).unwrap();
 +    }
  
-     fn decode_windows_command(command: &str) -> String {
+     #[test]
+     fn remote_client_preferences_cross_process_handoff() {
+@@ -4718,8 +4792,12 @@ mod tests {
          use base64::Engine as _;
  
          let encoded = command
@@ -131,4 +133,5 @@ index 8eb1e5b3c1be98cb52e7afbc3a0557755924ffc5..a8aa3321b071b514f901f54710d18b4b
              .decode(encoded)
              .expect("base64");
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

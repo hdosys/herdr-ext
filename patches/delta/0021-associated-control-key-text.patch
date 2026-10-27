@@ -1,4 +1,4 @@
-From 618b8c16af637704f7b21f26db543daacdd065c6 Mon Sep 17 00:00:00 2001
+From 67b56f81ddd10be4682119f45a2874400c0442ed Mon Sep 17 00:00:00 2001
 From: akbash-bot <300245827+akbash-bot@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 12:30:03 +0200
 Subject: [PATCH] fix(input): preserve matching control-key reports
@@ -11,10 +11,10 @@ Refs herdrdev/herdr#3592, herdrdev/herdr#3589, herdrdev/herdr#3770, herdrdev/her
  1 file changed, 20 insertions(+), 10 deletions(-)
 
 diff --git a/src/input/parse.rs b/src/input/parse.rs
-index 0213bf3fb6710ac162c0828724d6867845d4fe26..3c20a7ab6025ac68d832a669ecddd4e2bbd0c9da 100644
+index 9e1243985053dee40cabbd2a6d7adec172b4faf4..544bfde3894a36dd3e07895c3db9723793393159 100644
 --- a/src/input/parse.rs
 +++ b/src/input/parse.rs
-@@ -752,6 +752,26 @@ mod tests {
+@@ -969,6 +969,26 @@ mod tests {
      #[test]
      fn parse_wezterm_control_associated_text_keeps_report_all_key_events() {
          for (sequence, expected_code, expected_kind) in [
@@ -41,7 +41,7 @@ index 0213bf3fb6710ac162c0828724d6867845d4fe26..3c20a7ab6025ac68d832a669ecddd4e2
              (
                  "\x1b[13;1;13u",
                  KeyCode::Enter,
-@@ -772,16 +792,6 @@ mod tests {
+@@ -989,16 +1009,6 @@ mod tests {
                  KeyCode::Backspace,
                  crossterm::event::KeyEventKind::Release,
              ),
@@ -59,4 +59,5 @@ index 0213bf3fb6710ac162c0828724d6867845d4fe26..3c20a7ab6025ac68d832a669ecddd4e2
              let key = parse_terminal_key_sequence(sequence).expect("captured key should parse");
              assert_eq!(key.code, expected_code);
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

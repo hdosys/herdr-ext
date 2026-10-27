@@ -1,8 +1,7 @@
-From 912c4560611fd6cd689bbe385f7a26fb8900cf6a Mon Sep 17 00:00:00 2001
+From a349f383a471becd3df8ace94f57ed051d660ab1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:26:02 +0200
-Subject: [PATCH] fix(session): require exact recorded names before
- deletion
+Subject: [PATCH] fix(session): require exact recorded names before deletion
 
 Resolve deletion through immediate directory entries, keep the existing exact-target live-socket guard, and report unmatched names rather than claiming deletion. Exercise case aliases with a task-owned Windows private listener and no environment mutation.
 
@@ -12,10 +11,10 @@ Refs herdrdev/herdr#3819.
  1 file changed, 99 insertions(+), 30 deletions(-)
 
 diff --git a/src/session.rs b/src/session.rs
-index 6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b..f6371697f98f7db3743c1d913137cb2bc6f70f32 100644
+index c530e085392a6fe0f76231a37a130a5438a9d223..3738d9aff1a4372983b630c96d8f2517a202e4e4 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -336,20 +336,47 @@ fn stop_socket_with_timeout(
+@@ -345,20 +345,47 @@ fn stop_socket_with_timeout(
  }
  
  pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
@@ -67,7 +66,7 @@ index 6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b..f6371697f98f7db3743c1d913137cb2b
      match std::fs::remove_dir_all(&dir) {
          Ok(()) => Ok(info),
          Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(info),
-@@ -357,31 +384,6 @@ pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
+@@ -366,31 +393,6 @@ pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
      }
  }
  
@@ -99,15 +98,15 @@ index 6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b..f6371697f98f7db3743c1d913137cb2b
  fn send_stop_request(
      mut stream: LocalStream,
      request: &serde_json::Value,
-@@ -543,7 +545,6 @@ mod tests {
-         LOCK.get_or_init(|| Mutex::new(()))
+@@ -618,7 +620,6 @@ mod tests {
+         std::fs::remove_dir_all(config_home).unwrap();
      }
  
 -    #[cfg(unix)]
      fn unique_test_path(name: &str) -> std::path::PathBuf {
          let nanos = std::time::SystemTime::now()
              .duration_since(std::time::UNIX_EPOCH)
-@@ -1118,6 +1119,74 @@ mod tests {
+@@ -1193,6 +1194,74 @@ mod tests {
          assert!(delete_session(DEFAULT_SESSION_NAME).is_err());
      }
  
@@ -183,4 +182,5 @@ index 6540a4e34bbfcc8c913118fb0ea5e56c2c13f05b..f6371697f98f7db3743c1d913137cb2b
      fn list_sessions_skips_reserved_default_directory() {
          let _guard = env_lock().lock().unwrap();
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

@@ -1,4 +1,4 @@
-From 8ea0a288de977f6c81c5c1f4c824c51375332415 Mon Sep 17 00:00:00 2001
+From f9ddc7bb279a4b712c7a7af3ce401bd702fb373d Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Fri, 18 Sep 2026 23:39:09 +0200
 Subject: [PATCH] feat(status): open script status links on the client
@@ -32,12 +32,12 @@ Subject: [PATCH] feat(status): open script status links on the client
  25 files changed, 636 insertions(+), 120 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
-index 07fc370436cd2ef9550c99346f4e9dfdd0c9b612..0758993dab80d8d840f455c2008e5ab812452d6f 100644
+index 813fc18c55053018484c77712597b5d7a3fc01a4..0bab04a5947538887177ae80222782db6327680d 100644
 --- a/docs/next/website/src/content/docs/configuration.mdx
 +++ b/docs/next/website/src/content/docs/configuration.mdx
-@@ -375,6 +375,36 @@ Command entries run immediately and then at `interval_seconds` without blocking
- 
- Separators appear only between visible entries. Set `tab_bar_right_separator = ""` for direct concatenation. On a narrow tab row, the complete status area yields to the tabs and their controls.
+@@ -382,6 +382,36 @@ and environment-relative paths; referenced scripts, programs, and credentials mu
+ already be available there. Provisioning does not copy those dependencies. Ordinary
+ attachment does not synchronize configuration.
  
 +Any script language can emit OSC 8 hyperlinks around individual text sections in
 +its last output line. One command can return several independently clickable
@@ -73,10 +73,10 @@ index 07fc370436cd2ef9550c99346f4e9dfdd0c9b612..0758993dab80d8d840f455c2008e5ab8
  
  Herdr emulates the terminals in its panes, so an `OSC 0`/`OSC 2` title written inside a pane stops at Herdr. Herdr writes its own title to the terminal it runs in, which is what window managers and terminal tab bars read:
 diff --git a/src/app/mod.rs b/src/app/mod.rs
-index 9e4051cedd3756262b2b40a862313a5632ebbc49..34ddf5e271be9ccaee0cb131549d3acc76b83cb1 100644
+index 5b8bc223e373f52dc1440be95b007b82b1869218..d1f3bdb560c59d7ebcf618b79da86cc6f59ce45c 100644
 --- a/src/app/mod.rs
 +++ b/src/app/mod.rs
-@@ -1121,7 +1121,10 @@ mod tests {
+@@ -1185,7 +1185,10 @@ mod tests {
          let event = |generation, output: Option<&str>| AppEvent::TabBarCommandFinished {
              generation,
              segment_index: 0,
@@ -89,7 +89,7 @@ index 9e4051cedd3756262b2b40a862313a5632ebbc49..34ddf5e271be9ccaee0cb131549d3acc
  
          assert!(!app.handle_internal_event_with_render_impact(event(generation, None)));
 diff --git a/src/app/state.rs b/src/app/state.rs
-index 65c06a6c32ef7ef8d0afc64402c8af017cffc2b7..134e6487ce09a01c5e1fc93ea863a9cb2f7baf97 100644
+index f30279d6c72dddcfcfd475eebbd4fd7ff4d252e9..6d46333aa647040e7389aa50d68781cd228c90a1 100644
 --- a/src/app/state.rs
 +++ b/src/app/state.rs
 @@ -784,6 +784,16 @@ pub(crate) struct PaneFocusTarget {
@@ -570,7 +570,7 @@ index 596c21172e9e833b2d295a844c4cfbc16c5a6f42..0f8584ce60d0b32699b9a57b173f9c4c
      fn command_output_uses_sanitized_last_line() {
          assert_eq!(
 diff --git a/src/client/endpoint/activation_tests.rs b/src/client/endpoint/activation_tests.rs
-index 7201940afa40680b1b23d6eba45864744c0cdc1e..82500a6e9522482e0627dfd0f5820149ae7b47ce 100644
+index 3cece7875426bcd4e6ae9b6709db199cdb2315d6..b7a42a7f1442b825aaccc0c843da02ff992322ac 100644
 --- a/src/client/endpoint/activation_tests.rs
 +++ b/src/client/endpoint/activation_tests.rs
 @@ -42,7 +42,7 @@ fn negotiation() -> super::super::EndpointNegotiation {
@@ -656,10 +656,10 @@ index e27df8419c18b5facf74c8557cad102986321bf8..9f088a0055b50780c665abf9e1323c5e
          }
          outcome.repaint = true;
 diff --git a/src/client/shell/input.rs b/src/client/shell/input.rs
-index 525b2d443eae252b4506108e2d7de4263109569e..8258c15de9162432905f56f06517f7597014410e 100644
+index b658a2fedd21d7a7bfa9f39e1b5385eabe290706..915ab23b17a1f4dc6788f9fda1a7b8d71494bed0 100644
 --- a/src/client/shell/input.rs
 +++ b/src/client/shell/input.rs
-@@ -589,6 +589,9 @@ impl ClientShellState {
+@@ -696,6 +696,9 @@ impl ClientShellState {
                  }
                  self.mode = return_mode;
                  outcome.repaint = true;
@@ -670,10 +670,10 @@ index 525b2d443eae252b4506108e2d7de4263109569e..8258c15de9162432905f56f06517f759
              }
              ClientShellMode::Navigate => {
 diff --git a/src/client/shell/mouse.rs b/src/client/shell/mouse.rs
-index f2df294103dcb6d61abcee024325c9c4d1333a62..68cb68eb66ec57a46887fe228a5522e87de508a2 100644
+index 8e873d68e9229c082942b58ce63723bf4eb00177..9e128787676c549635ef9977f5952c2ead792dbb 100644
 --- a/src/client/shell/mouse.rs
 +++ b/src/client/shell/mouse.rs
-@@ -2024,6 +2024,19 @@ impl ClientShellState {
+@@ -2062,6 +2062,19 @@ impl ClientShellState {
                      );
                      return;
                  }
@@ -694,7 +694,7 @@ index f2df294103dcb6d61abcee024325c9c4d1333a62..68cb68eb66ec57a46887fe228a5522e8
                      self.tab_scroll = self.tab_scroll.saturating_sub(1);
                      outcome.repaint = true;
 diff --git a/src/client/shell/overlays.rs b/src/client/shell/overlays.rs
-index 7116713b6f1bd8046bbfa595702ce55324e68156..696de1c60bc99acb73ba7162da6efeabaac03c1c 100644
+index f26cc6e4e64b411f07c4007f22ad16ca1cb9e73c..74681fb25524be2cd29ea713e7a8cbe7c0c74561 100644
 --- a/src/client/shell/overlays.rs
 +++ b/src/client/shell/overlays.rs
 @@ -115,8 +115,11 @@ pub(crate) fn render_global_menu(
@@ -712,7 +712,7 @@ index 7116713b6f1bd8046bbfa595702ce55324e68156..696de1c60bc99acb73ba7162da6efeab
              break;
          }
 diff --git a/src/client/shell/state.rs b/src/client/shell/state.rs
-index fafb38bcdf0e5a5ced1794be4d58e9cbc1ddf8ff..c68aa4d76ef92db7c5f8794c47018bdc0af98ffb 100644
+index 32c8ec39dc2bb5f1703f78b024737ab07b70c212..1244db8b03bdd817913da267cc25f0347c54b7f1 100644
 --- a/src/client/shell/state.rs
 +++ b/src/client/shell/state.rs
 @@ -92,6 +92,7 @@ pub(super) struct ShellHitMap {
@@ -771,7 +771,7 @@ index 3fdcf7dcf8951b2831e7cddd7a1208249fad644b..636031bd5f3c1ce6e5e31995c7e43b5f
  }
  
 diff --git a/src/client/shell/tests/chrome_context.rs b/src/client/shell/tests/chrome_context.rs
-index 9772cd3d0c4a057925bd833db58102b9c84e7142..99600ce5a20a4fc20a3ddb14ba1dbeb7b7c00c42 100644
+index 50392c45d089c2f75da67e38ce6f6794af1a4c29..62add7ed85265325bda567427c4f0a40b3183f00 100644
 --- a/src/client/shell/tests/chrome_context.rs
 +++ b/src/client/shell/tests/chrome_context.rs
 @@ -377,6 +377,96 @@ fn context_menus_capture_stable_targets_and_route_actions() {
@@ -872,10 +872,10 @@ index 9772cd3d0c4a057925bd833db58102b9c84e7142..99600ce5a20a4fc20a3ddb14ba1dbeb7
  fn global_menu_opens_from_sidebar_and_routes_client_actions() {
      let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
 diff --git a/src/client/shell/tests/endpoints.rs b/src/client/shell/tests/endpoints.rs
-index e287540ca2d2f2cc314ea7181d730ad92710b837..80a153156c00665e287b9a3006411d0d219a6044 100644
+index 3049a134a5f85eef77df673571748db0bd7128d9..3395727ce5b67a42de9b3e9301bbd4c27e5de42d 100644
 --- a/src/client/shell/tests/endpoints.rs
 +++ b/src/client/shell/tests/endpoints.rs
-@@ -1226,10 +1226,11 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
+@@ -1474,10 +1474,11 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
              ..agent("remote blocked", AgentStatus::Blocked, 2)
          },
      ];
@@ -889,7 +889,7 @@ index e287540ca2d2f2cc314ea7181d730ad92710b837..80a153156c00665e287b9a3006411d0d
      state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
  
 diff --git a/src/client/shell/tests/mod.rs b/src/client/shell/tests/mod.rs
-index 9d9601439aabd1f8004814f43df086a743894c4f..85e15d8db005b076116d0419b04ea4dc3c42e2b9 100644
+index 05bfc263abb0545dc8a1080cff6ffebbe15a156f..2bdc3ea0ab4ff47f0e947ed691d2472b4be4cf68 100644
 --- a/src/client/shell/tests/mod.rs
 +++ b/src/client/shell/tests/mod.rs
 @@ -8,7 +8,7 @@ use crossterm::event::MouseEvent;
@@ -910,10 +910,10 @@ index 9d9601439aabd1f8004814f43df086a743894c4f..85e15d8db005b076116d0419b04ea4dc
  
  fn worktree_list_result(open_workspace_id: Option<&str>) -> crate::api::schema::ResponseResult {
 diff --git a/src/client/shell_runtime.rs b/src/client/shell_runtime.rs
-index 52bfc9cf483b96a0f645fde98026d1305e30772c..54f7c55d982a77a23724598d597a45a30f08762f 100644
+index 20d94b88b4eeb96dfb3d3c51d80b4cd34c376302..c0c2241693b4416dfd8097655d212b47099a2420 100644
 --- a/src/client/shell_runtime.rs
 +++ b/src/client/shell_runtime.rs
-@@ -608,7 +608,7 @@ pub(super) fn handle_endpoint_attention(
+@@ -630,7 +630,7 @@ pub(super) fn handle_endpoint_attention(
  pub(super) fn install_client_shell_snapshot(
      state: &mut ClientState,
      endpoint_id: &endpoint::ClientEndpointId,
@@ -923,10 +923,10 @@ index 52bfc9cf483b96a0f645fde98026d1305e30772c..54f7c55d982a77a23724598d597a45a3
      endpoints: &mut endpoint::EndpointRegistry,
      prefix_input_source: &mut impl crate::platform::PrefixInputSource,
 diff --git a/src/events.rs b/src/events.rs
-index 1d67c00b26cffd8cbcd4a7415375381981c20f9f..9da47a4fa83561a31bb438739d343f5cc3bc0441 100644
+index e2b0b12d98df2a191095378dfea1e051529a8841..101af65cb7d2cf5ec63524b508488587ea0f8eaa 100644
 --- a/src/events.rs
 +++ b/src/events.rs
-@@ -195,7 +195,7 @@ pub enum AppEvent {
+@@ -201,7 +201,7 @@ pub enum AppEvent {
      TabBarCommandFinished {
          generation: u64,
          segment_index: usize,
@@ -936,10 +936,10 @@ index 1d67c00b26cffd8cbcd4a7415375381981c20f9f..9da47a4fa83561a31bb438739d343f5c
      /// A plugin action or event command finished.
      PluginCommandFinished {
 diff --git a/src/platform/windows.rs b/src/platform/windows.rs
-index 4caf06b27d5be7072a9761c966613c07ea64553d..2aced950d9a5f42e521705e7341307f30c53e76e 100644
+index d0b5251ea563f73b612adb1571a05f2127847592..0e4573ed5009c77304a976678accbf5cbfd60930 100644
 --- a/src/platform/windows.rs
 +++ b/src/platform/windows.rs
-@@ -4287,6 +4287,9 @@ mod tests {
+@@ -4754,6 +4754,9 @@ mod tests {
  
      #[test]
      fn windows_daemon_readiness_checks_job_limits_and_console() {
@@ -1065,7 +1065,7 @@ index 086c7ac6e67f850360c16a2a019afadfd643ef33..e55ebb777db6ba5f0463fb171eb5876a
                  AGENT_COMPLETIONS_CAPABILITY.to_string(),
              ]
 diff --git a/src/server/client_shell.rs b/src/server/client_shell.rs
-index f6729c919fdeb386fc173687b30f0ad66e424550..967066e5ca22925d93bacb912d54a7fe1d5895ab 100644
+index 5d00d072df874c8081de6965a1f74b32b928ecfa..c08e8081dc509fd68825f250233113185caae15a 100644
 --- a/src/server/client_shell.rs
 +++ b/src/server/client_shell.rs
 @@ -10,7 +10,7 @@ pub(super) fn snapshot(
@@ -1085,7 +1085,7 @@ index f6729c919fdeb386fc173687b30f0ad66e424550..967066e5ca22925d93bacb912d54a7fe
 +    protocol::endpoint::ShellSnapshot,
      protocol::endpoint::EndpointAgentCompletions,
  ) {
-     let snapshot = app.session_snapshot();
+     let snapshot = app.session_metadata_snapshot();
 @@ -198,25 +198,30 @@ pub(super) fn snapshot_with_completions(
                  .get(tab_index)
          })
@@ -1204,7 +1204,7 @@ index 40055ad1ed00816e703c237add3eb2e86e5ca185..a3bc527b50c0b86c5ad7d836bbe946bc
      /// View policy paired with the last coherent shell replacement.
      pub(crate) shell_agent_view: Option<crate::api::schema::AgentViewSetParams>,
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index 0e3a6c5e6227ec2998f16ae2a698f4d92d532a71..56ac4a8b0c6286e3e85a093fa530821a4f41b9ec 100644
+index bcd438c2863471b789b70da031bb296f267874af..558ca57ca953d433094d4be2161f61ae22c62ce5 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
 @@ -16,7 +16,7 @@ mod surface_scroll_tests;
@@ -1234,7 +1234,7 @@ index 0e3a6c5e6227ec2998f16ae2a698f4d92d532a71..56ac4a8b0c6286e3e85a093fa530821a
      client_shell_projection(receiver).0
  }
  
-@@ -7476,6 +7476,7 @@ fn api_report_agent_stores_valid_resume_argv_and_rejects_invalid() {
+@@ -7971,6 +7971,7 @@ fn api_report_agent_stores_valid_resume_argv_and_rejects_invalid() {
          .clone();
      let report = |resume_argv: Vec<&str>| {
          api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
@@ -1242,7 +1242,7 @@ index 0e3a6c5e6227ec2998f16ae2a698f4d92d532a71..56ac4a8b0c6286e3e85a093fa530821a
              pane_id: public_pane_id.clone(),
              source: "prime-agent".into(),
              agent: "prime-agent".into(),
-@@ -7654,6 +7655,7 @@ fn completion_guard_api_startup_blocker_respects_suppression() {
+@@ -8149,6 +8150,7 @@ fn completion_guard_api_startup_blocker_respects_suppression() {
              api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
                  pane_id: public_pane_id.clone(),
                  source: "custom:pi".into(),
@@ -1250,7 +1250,7 @@ index 0e3a6c5e6227ec2998f16ae2a698f4d92d532a71..56ac4a8b0c6286e3e85a093fa530821a
                  agent: "pi".into(),
                  state,
                  message: None,
-@@ -7729,6 +7731,7 @@ fn completion_guard_api_session_replacement_does_not_notify_finished() {
+@@ -8224,6 +8226,7 @@ fn completion_guard_api_session_replacement_does_not_notify_finished() {
                  }),
              );
              let mut report = PaneReportAgentParams {
@@ -1273,4 +1273,5 @@ index a7da046ea1897ef576042f2feb6643356c01c4ad..601bab9e9e6718fbd66dc2caa8ee9efe
          }
      };
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

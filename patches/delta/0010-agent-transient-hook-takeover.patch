@@ -1,26 +1,13 @@
-From 85f30da86d99b47558d7532086cf3c6d7107bd79 Mon Sep 17 00:00:00 2001
+From d06a5132bf1c7d454ec02800e4f292208271ad2c Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 23 Aug 2026 00:13:32 +0200
 Subject: [PATCH] fix(agent): restore authority after transient takeover
 
 Refs herdrdev/herdr#1033
 ---
- docs/next/CHANGELOG.md |  1 +
- src/terminal/state.rs  | 71 ++++++++++++++++++++++++++++++++++++++++--
- 2 files changed, 70 insertions(+), 2 deletions(-)
+ src/terminal/state.rs | 71 +++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 69 insertions(+), 2 deletions(-)
 
-diff --git a/docs/next/CHANGELOG.md b/docs/next/CHANGELOG.md
-index 4477ad6d33e6533793164d0aa63c203416e47c1e..8e99c7173299a69e4ecf1d447e17df29e3818e00 100644
---- a/docs/next/CHANGELOG.md
-+++ b/docs/next/CHANGELOG.md
-@@ -11,6 +11,7 @@
- ### Fixed
- - Removing a background worktree workspace no longer changes focus to its parent workspace. (#3098)
- - Windows `agent start` now launches npm-installed agents with arguments through the interactive shell instead of passing a bare shim name to `Start-Process`. (#2685)
-+- Full-lifecycle agent sessions now regain hook authority after a temporary foreground takeover ends instead of remaining permanently stale. (#1033)
- - Worktree commands now handle explicitly selected accessible repositories across ownership boundaries without persisting Git trust. (#3044)
- - Windows remote startup now detaches the background server from its transient console after crossing into the interactive desktop session, so SSH provisioning no longer leaves a terminal window open.
- 
 diff --git a/src/terminal/state.rs b/src/terminal/state.rs
 index 81c5884bdec71f7b29253a9fd4b4e970aacbea97..40796bb3dff93d1042f1a6689b34819261f4cd2f 100644
 --- a/src/terminal/state.rs
@@ -132,4 +119,5 @@ index 81c5884bdec71f7b29253a9fd4b4e970aacbea97..40796bb3dff93d1042f1a6689b348192
      fn queued_fresh_process_evidence_uses_process_exit_observation_time() {
          let mut terminal = test_terminal();
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+

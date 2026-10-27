@@ -1,4 +1,4 @@
-From a90edfc8de064cbd9a4a841397d48d9973d356e6 Mon Sep 17 00:00:00 2001
+From 800617242cd8663bb899fa66f2e924ac9a679e29 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 10 Sep 2026 16:13:05 +0200
 Subject: [PATCH] feat(client): surface machine setup in menu
@@ -42,7 +42,7 @@ index e5bd6f78b43a4ef305b590f2d7c53a4ad97970a8..e27df8419c18b5facf74c8557cad1029
          }
          outcome.repaint = true;
 diff --git a/src/client/shell/tests/chrome_context.rs b/src/client/shell/tests/chrome_context.rs
-index ed21bc8a7456325a808b56f1654776b5fbd89e40..9772cd3d0c4a057925bd833db58102b9c84e7142 100644
+index 1ef98798ec8613b20f8b6ebea89773baeb414816..50392c45d089c2f75da67e38ce6f6794af1a4c29 100644
 --- a/src/client/shell/tests/chrome_context.rs
 +++ b/src/client/shell/tests/chrome_context.rs
 @@ -407,6 +407,7 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
@@ -71,10 +71,10 @@ index ed21bc8a7456325a808b56f1654776b5fbd89e40..9772cd3d0c4a057925bd833db58102b9
      assert!(detach.detach);
      assert!(state.overlay.is_none());
 diff --git a/src/client/shell/tests/startup_overlays.rs b/src/client/shell/tests/startup_overlays.rs
-index 7107aa713db59876189d6b3195477ce5bdfdf235..9fc3008a51a374ced117701ec941d009ec6ebdfe 100644
+index bddcde10c8a53adbccea133d7248b0e0e86cb9c4..5b99a6567acbe3af5fb7b0a18dc443797448c327 100644
 --- a/src/client/shell/tests/startup_overlays.rs
 +++ b/src/client/shell/tests/startup_overlays.rs
-@@ -710,7 +710,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
+@@ -730,7 +730,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
          .collect::<Vec<_>>()
          .join("\n");
      assert!(text.contains("● update ready"));
@@ -83,7 +83,7 @@ index 7107aa713db59876189d6b3195477ce5bdfdf235..9fc3008a51a374ced117701ec941d009
      assert_eq!(update_row.width, 16);
      let menu_buffer = menu.to_ratatui_buffer().expect("menu buffer");
      assert_eq!(
-@@ -721,7 +721,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
+@@ -741,7 +741,7 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
          menu_buffer[(update_row.x + 3, update_row.y)].fg,
          state.config.palette.text
      );
@@ -93,4 +93,5 @@ index 7107aa713db59876189d6b3195477ce5bdfdf235..9fc3008a51a374ced117701ec941d009
      let bottom_row_start = usize::from(notes.width) * usize::from(notes.height - 1);
      let bottom_row = notes.cells[bottom_row_start..]
 -- 
-2.55.0.windows.5
+2.56.0.windows.3
+
