@@ -1,4 +1,4 @@
-From 5a09c704bd8a746faf65ca5df5eb4edbcae14765 Mon Sep 17 00:00:00 2001
+From 9a8b165ff3475b850c10727a0807c157829f31d4 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:50:01 +0200
 Subject: [PATCH] fix(client): preserve Local startup errors during saved
@@ -20,8 +20,8 @@ Refs herdrdev/herdr#3759.
  src/client/shell/tests/endpoints.rs           | 55 ++++++++++++
  src/client/startup.rs                         | 56 +++++++++++-
  src/main.rs                                   |  2 +-
- src/server/autodetect.rs                      | 86 +++++++++++++++----
- 13 files changed, 277 insertions(+), 42 deletions(-)
+ src/server/autodetect.rs                      | 88 +++++++++++++++----
+ 13 files changed, 278 insertions(+), 43 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/connecting-machines.mdx b/docs/next/website/src/content/docs/connecting-machines.mdx
 index 824f78573456e44322daef1a6cfe3fc124c1e9c2..8161e545347651fc6d3471b6bebad4187f3a13b0 100644
@@ -446,7 +446,7 @@ index 72cfd2b82647960eca0628d1c1d323d7c916f916..e73d36ea82d8bd2a2f44a7704e2921e5
  
      if args.get(1).map(|s| s.as_str()) == Some("update") {
 diff --git a/src/server/autodetect.rs b/src/server/autodetect.rs
-index 481ca7679ee986b8273024fbe4071425a6ac9665..a4a6a32cb7b85b14cf0004bac9170f4a2a16be77 100644
+index 481ca7679ee986b8273024fbe4071425a6ac9665..a579839178adf0ca3bdfac18ae631efaecb547fc 100644
 --- a/src/server/autodetect.rs
 +++ b/src/server/autodetect.rs
 @@ -23,6 +23,7 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -471,11 +471,13 @@ index 481ca7679ee986b8273024fbe4071425a6ac9665..a4a6a32cb7b85b14cf0004bac9170f4a
          return Err(io::Error::other(format!(
              "a herdr server is listening, but its status API is unavailable.\n\n{}\nIf that fails, stop the old server process manually.",
              crate::session::active_restart_after_update_guidance()
-@@ -279,7 +283,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
+@@ -278,8 +282,8 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
+ 
  pub fn start_server_daemon_with_exe(exe: PathBuf) -> io::Result<()> {
      let socket_path = client_socket_path();
-     if is_server_listening_at(&socket_path) {
+-    if is_server_listening_at(&socket_path) {
 -        validate_running_server_compatibility(false)?;
++    if is_server_listening_at(&socket_path)? {
 +        validate_running_server_compatibility(read_server_status()?, false)?;
          return Ok(());
      }
