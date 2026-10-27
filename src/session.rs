@@ -374,15 +374,24 @@ fn delete_session_in(sessions_dir: &Path, name: &str) -> Result<SessionInfo, Str
     }
     let dir = matched.ok_or_else(|| format!("no session with the exact name {name:?}; use `herdr session list` to check its spelling"))?;
     let socket_path = dir.join("herdr.sock");
-    if is_running_at(&socket_path) {
-        return Err(format!(
-            "session {name} is running; stop it before deleting"
-        ));
+    match crate::ipc::connect_local_stream(&socket_path) {
+        Ok(_) => {
+            return Err(format!(
+                "session {name} is running; stop it before deleting"
+            ))
+        }
+        Err(error) if !crate::cli::server_not_running_error(&error) => {
+            return Err(format!(
+                "could not confirm session {name} is stopped: {error}"
+            ));
+        }
+        Err(_) => {}
     }
     let info = SessionInfo {
         name: name.to_owned(),
         default: false,
         running: false,
+        connection_error: None,
         socket_path: socket_path.display().to_string(),
         session_dir: dir.display().to_string(),
     };
@@ -594,6 +603,10 @@ mod tests {
             .unwrap();
         assert!(!denied.running);
         assert_eq!(denied.connection_error, Some(error.to_string()));
+        assert!(delete_session("denied")
+            .unwrap_err()
+            .contains("could not confirm session denied is stopped"));
+        assert!(denied_path.parent().unwrap().is_dir());
         let running = sessions
             .iter()
             .find(|session| session.name == "running")
