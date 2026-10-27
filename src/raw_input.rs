@@ -3492,7 +3492,7 @@ mod tests {
 
     #[test]
     fn unanswered_host_query_stops_holding_alt_bracket() {
-        // Many hosts answer only part of the 256-entry palette query, or no
+        // Some hosts answer only part of the default-color query, or no
         // cell size query at all. Once nothing arrives for a while, ESC[ is a
         // key again: a short wait, released alone, next key not swallowed.
         let mut framer = RawInputByteFramer::default();
@@ -3516,9 +3516,9 @@ mod tests {
         framer.age_host_reply_activity(HOST_REPLY_QUIET_WINDOW);
         // A reply arriving late still refreshes the window for the next one.
         assert_eq!(
-            framer.push(b"\x1b]4;1;rgb:cd/00/00\x1b\\").len(),
+            framer.push(b"\x1b]12;rgb:cd/00/00\x1b\\").len(),
             1,
-            "palette reply"
+            "cursor-color reply"
         );
         assert!(framer.push(b"\x1b]").is_empty());
         assert_eq!(
@@ -3760,6 +3760,7 @@ mod tests {
         assert!(framer.push(b"user-input").is_empty());
         assert!(framer.flush_timeout().is_empty());
 
+        framer.age_partial_host_color_reply(HOST_COLOR_REPLY_IDLE_LIMIT);
         assert_eq!(framer.push(b"x"), vec![b"x".to_vec()]);
     }
 
