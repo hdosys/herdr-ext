@@ -1,4 +1,4 @@
-From b5d408c98f2c028b7cd21ae15b02d88502c508f8 Mon Sep 17 00:00:00 2001
+From 98e099646e3e62ac02db741a7d82fa843f75946d Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 20 Aug 2026 17:49:01 +0200
 Subject: [PATCH] fix(worktree): scope Git trust to selected paths
@@ -10,10 +10,10 @@ Refs herdrdev/herdr#3044
  src/app/runtime.rs                |  8 ++++++--
  src/app/worktrees.rs              |  7 ++++---
  src/pane.rs                       | 24 ++++++++++++++++++++++--
- src/pty/actor.rs                  | 30 +++++++++++++++++++++++++++++-
+ src/pty/actor.rs                  | 31 ++++++++++++++++++++++++++++++-
  src/terminal/runtime.rs           |  4 ++--
  src/worktree.rs                   | 16 ++++++++++------
- 8 files changed, 92 insertions(+), 26 deletions(-)
+ 8 files changed, 93 insertions(+), 26 deletions(-)
 
 diff --git a/src/app/api/worktrees.rs b/src/app/api/worktrees.rs
 index be282c1c7b9b1cbbd7c5aedd4ef5c55eb220d727..dc11425f5f2a6030cdd58f2f023dc4074a7b4681 100644
@@ -174,7 +174,7 @@ index dc95ad456cc3c7306f873b91dabfdf29d887fef8..1807a63a034e4ea6147dd83198c0a080
  
      #[cfg(unix)]
 diff --git a/src/pty/actor.rs b/src/pty/actor.rs
-index 36cbaedd3d260ad8a0d258956903217c8431863e..af95c58c7b0860c941f4dcb7b70e1220fd026fe9 100644
+index 36cbaedd3d260ad8a0d258956903217c8431863e..1ab88b1863b6ca2019b0cd774c0ef7f05942e8fa 100644
 --- a/src/pty/actor.rs
 +++ b/src/pty/actor.rs
 @@ -7,7 +7,7 @@ pub(crate) use unix::*;
@@ -256,6 +256,14 @@ index 36cbaedd3d260ad8a0d258956903217c8431863e..af95c58c7b0860c941f4dcb7b70e1220
              })
          }
      }
+@@ -738,6 +766,7 @@ mod windows {
+                     write_tx: write_tx.clone(),
+                     response_order: Arc::new(Mutex::new(())),
+                     accepting: Arc::clone(&accepting),
++                    shutdown_complete: Arc::new((Mutex::new(false), Condvar::new())),
+                 };
+                 let input_accepting = Arc::clone(&accepting);
+                 let input_task = runtime.spawn(async move {
 diff --git a/src/terminal/runtime.rs b/src/terminal/runtime.rs
 index 23b61da26a7ade005ac6263e87b2becdebd225d2..c606095465cc069280289bef0500a473791d9dbc 100644
 --- a/src/terminal/runtime.rs
