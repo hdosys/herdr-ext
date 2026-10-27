@@ -37,8 +37,8 @@ from scripts.local_windows_installer import (
     _prune_completed_candidate_outputs,
     _require_integrated_development_source,
     _require_candidate_cache_budget,
-    _require_one_focused_test,
-    _require_one_nextest_test,
+    _require_focused_tests,
+    _require_focused_nextest_tests,
     _run_normal_focused_test,
     _run_portable_pty_focused_test,
     _source_fingerprint,
@@ -355,6 +355,7 @@ class LocalWindowsInstallerTests(unittest.TestCase):
                     return_value=DEVELOPMENT_BRANCH,
                 ),
                 patch("scripts.local_windows_installer._require_integrated_development_source"),
+                patch("scripts.local_windows_installer._validate_installer_sources"),
                 patch(
                     "scripts.local_windows_installer.validate_changed_integration_asset_versions",
                     return_value=(),
@@ -414,6 +415,7 @@ class LocalWindowsInstallerTests(unittest.TestCase):
                     return_value=DEVELOPMENT_BRANCH,
                 ),
                 patch("scripts.local_windows_installer._require_integrated_development_source"),
+                patch("scripts.local_windows_installer._validate_installer_sources"),
                 patch(
                     "scripts.local_windows_installer.validate_changed_integration_asset_versions",
                     side_effect=DeltaWorkflowError("stale marker"),
@@ -631,23 +633,28 @@ class LocalWindowsInstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(LocalInstallerError, "non-option test filter"):
             _cargo_test_arguments(cargo_target, 16, "--all")
 
-    def test_candidate_focused_test_requires_exactly_one_result(self) -> None:
-        _require_one_focused_test(
+    def test_candidate_focused_test_requires_a_nonempty_passing_selection(self) -> None:
+        _require_focused_tests(
             "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured\n"
         )
 
-        with self.assertRaisesRegex(LocalInstallerError, "exactly one passing test"):
-            _require_one_focused_test(
+        with self.assertRaisesRegex(LocalInstallerError, "nonempty passing test selection"):
+            _require_focused_tests(
                 "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured\n"
             )
 
-        _require_one_nextest_test(
+        _require_focused_nextest_tests(
             "Summary [   0.038s] 1 test run: 1 passed, 2693 skipped\n"
         )
-        with self.assertRaisesRegex(LocalInstallerError, "exactly one passing test"):
-            _require_one_nextest_test(
-                "Summary [   0.038s] 2 tests run: 2 passed, 2692 skipped\n"
-            )
+        _require_focused_tests("test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured\n")
+        _require_focused_nextest_tests("Summary [   0.245s] 123 tests run: 123 passed, 3381 skipped\n")
+        for summary in [
+            "Summary [   0.038s] 0 tests run: 0 passed, 2692 skipped\n",
+            "Summary [   0.038s] 2 tests run: 1 passed, 1 failed\n",
+            "no terminal summary",
+        ]:
+            with self.assertRaisesRegex(LocalInstallerError, "nonempty passing test selection"):
+                _require_focused_nextest_tests(summary)
 
     def test_dynamic_msvc_runtime_imports_are_rejected_case_insensitively(
         self,

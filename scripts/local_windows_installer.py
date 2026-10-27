@@ -606,19 +606,19 @@ def _just_test_arguments(test_filter: str) -> list[str]:
     return ["test-one", test_filter]
 
 
-def _require_one_focused_test(output: str) -> None:
+def _require_focused_tests(output: str) -> None:
     passed = [int(match.group("passed")) for match in FOCUSED_TEST_RESULT_RE.finditer(output)]
-    if passed != [1]:
-        raise LocalInstallerError("--test-filter must run exactly one passing test")
+    if len(passed) != 1 or passed[0] < 1:
+        raise LocalInstallerError("--test-filter must run a nonempty passing test selection")
 
 
-def _require_one_nextest_test(output: str) -> None:
+def _require_focused_nextest_tests(output: str) -> None:
     matches = [
         (int(match.group("run")), int(match.group("passed")))
         for match in NEXTEST_SUMMARY_RE.finditer(output)
     ]
-    if matches != [(1, 1)]:
-        raise LocalInstallerError("--test-filter must run exactly one passing test")
+    if len(matches) != 1 or matches[0][0] < 1 or matches[0][0] != matches[0][1]:
+        raise LocalInstallerError("--test-filter must run a nonempty passing test selection")
 
 
 def _dynamic_msvc_runtime_imports(dependencies: str) -> list[str]:
@@ -736,7 +736,7 @@ def _run_normal_focused_test(
         ),
     )
     _print_process_output(test_result)
-    _require_one_nextest_test(f"{test_result.stdout}\n{test_result.stderr}")
+    _require_focused_nextest_tests(f"{test_result.stdout}\n{test_result.stderr}")
     print(f"focused_test_elapsed_seconds={time.monotonic() - test_started:.3f}")
 
 
@@ -789,7 +789,7 @@ def _run_portable_pty_focused_test(
             ),
         )
         _print_process_output(test_result)
-        _require_one_focused_test(test_result.stdout)
+        _require_focused_tests(test_result.stdout)
     finally:
         if lock_created:
             owned_lock = _safe_path(
@@ -916,6 +916,20 @@ def _validate_stage(source: Path, stage: Path) -> None:
         cwd=source,
         timeout=60,
     )
+
+
+def _validate_installer_sources(source: Path) -> None:
+    result = _run(
+        _windows_powershell(),
+        [
+            "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", str(source / "scripts" / "package_windows_installer.ps1"),
+            "-ValidateSourcesOnly",
+        ],
+        cwd=source,
+        timeout=30,
+    )
+    _print_process_output(result)
 
 
 def _bundle_manifest(bundle: Path) -> tuple[InstallerIdentity, dict[str, str]]:
@@ -1188,6 +1202,7 @@ def candidate(options: argparse.Namespace) -> None:
     _require_integrated_development_source(
         source, source_branch, isolated=options.isolated
     )
+    _validate_installer_sources(source)
     try:
         changed_integrations = validate_changed_integration_asset_versions(source)
     except DeltaWorkflowError as error:
@@ -1280,7 +1295,7 @@ def candidate(options: argparse.Namespace) -> None:
             removed_environment=("HERDR_RELEASE_VERSION",),
         )
         _print_process_output(test_result)
-        _require_one_focused_test(test_result.stdout)
+        _require_focused_tests(test_result.stdout)
         print(f"focused_test_elapsed_seconds={time.monotonic() - test_started:.3f}")
 
     _require_candidate_cache_budget(cargo_target)

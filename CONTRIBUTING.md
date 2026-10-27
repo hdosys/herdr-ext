@@ -238,6 +238,9 @@ the replayed `vendor/libghostty-vt/build.zig.zon` requirement. Do not silently f
 back to a different PATH compiler or move a cache owned by another process.
 The local builder passes its own Python interpreter to the source packager and
 resolves the installed MSVC import inspector through `vswhere`.
+Before Cargo, it calls the same packager's read-only `-ValidateSourcesOnly` path.
+Missing source assets or a new upstream skill hash absent from the managed ownership
+manifest therefore fail before compilation, without duplicating package validation.
 
 When concurrent builders mutate the same canonical Candidate output or shared
 build resources, the existing resource-lock invocation uses exactly
@@ -265,6 +268,10 @@ python scripts/local_windows_installer.py test-one `
   --source-worktree <development-worktree> `
   --test-filter "<one exact test filter>"
 ```
+
+One filter may select a focused module or related test group during a stable refresh.
+The runner requires a nonempty fully passing selection, not exactly one test case;
+do not split a parser's existing regressions into separate compiler invocations.
 
 For a regression owned by the vendored `portable-pty` library, select that owner
 instead of routing it through the `herdr` binary:

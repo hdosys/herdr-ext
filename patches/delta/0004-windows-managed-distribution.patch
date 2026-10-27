@@ -1,4 +1,4 @@
-From 3ec2f32c26beb90d8f2d71f0d739a61a828a7bc1 Mon Sep 17 00:00:00 2001
+From b1aca136bf7cf78e71a3d29bbc17bb1508ecb901 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH] feat(windows): manage fork distribution
@@ -34,7 +34,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  packaging/windows/installer/project.nsi       |  601 ++++
  .../windows/installer/validate-build.ps1      |  223 ++
  packaging/windows/managed-skill-hashes.txt    |    7 +
- scripts/package_windows_installer.ps1         |  706 +++++
+ scripts/package_windows_installer.ps1         |  717 +++++
  scripts/preview.py                            |  202 +-
  scripts/test_preview.py                       |  298 +-
  scripts/windows_check.ps1                     |   21 +-
@@ -75,7 +75,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 71 files changed, 12441 insertions(+), 3361 deletions(-)
+ 71 files changed, 12452 insertions(+), 3361 deletions(-)
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
  create mode 100644 packaging/windows/installer/artwork/README.md
@@ -57442,34 +57442,37 @@ index 0000000000000000000000000000000000000000..b3bf67601e3f9cd12406cca15cc6dff0
 +fbd9d502767f7dff29c211505a0bd9ba34e980ed4cc456247e2adc1642883984
 diff --git a/scripts/package_windows_installer.ps1 b/scripts/package_windows_installer.ps1
 new file mode 100644
-index 0000000000000000000000000000000000000000..a41dbec784e977f4df9906ba4a02f2cabd2785fe
+index 0000000000000000000000000000000000000000..97f42fccbd3a24cfcfa14be4e07fe141602f5d16
 --- /dev/null
 +++ b/scripts/package_windows_installer.ps1
-@@ -0,0 +1,706 @@
-+[CmdletBinding()]
+@@ -0,0 +1,717 @@
++[CmdletBinding(DefaultParameterSetName = "Package")]
 +param(
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$StageDir,
 +
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$LauncherExe,
 +
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$InstallerHelperExe,
 +
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$BuildId,
 +
 +    [string]$BuildFreshness,
 +
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$ReleaseVersion,
 +
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$BaseVersion,
 +
-+    [Parameter(Mandatory = $true)]
++    [Parameter(Mandatory = $true, ParameterSetName = "Package")]
 +    [string]$OutputPath,
++
++    [Parameter(Mandatory = $true, ParameterSetName = "ValidateSources")]
++    [switch]$ValidateSourcesOnly,
 +
 +    [string]$ProductName = "Herdr",
 +
@@ -57860,26 +57863,28 @@ index 0000000000000000000000000000000000000000..a41dbec784e977f4df9906ba4a02f2ca
 +    return $archivePath
 +}
 +
-+if ($BuildId -cnotmatch $BuildIdPattern) {
-+    throw "Invalid build ID '$BuildId'. Expected 12 lowercase hex characters, a dot, and 12 lowercase hex characters."
-+}
-+if ($ProductName -cnotmatch $ProductNamePattern) {
-+    throw "Invalid product name '$ProductName'."
-+}
-+if (-not [string]::IsNullOrWhiteSpace($TestUserProfileRoot)) {
-+    $TestUserProfileRoot = (Resolve-Path -LiteralPath $TestUserProfileRoot).Path
-+    if (-not (Test-Path -LiteralPath $TestUserProfileRoot -PathType Container) -or
-+        (Get-Item -LiteralPath $TestUserProfileRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint -or
-+        $TestUserProfileRoot -match '[\r\n"$]') {
-+        throw "TestUserProfileRoot must be a regular NSIS-safe directory: $TestUserProfileRoot"
++if (-not $ValidateSourcesOnly) {
++    if ($BuildId -cnotmatch $BuildIdPattern) {
++        throw "Invalid build ID '$BuildId'. Expected 12 lowercase hex characters, a dot, and 12 lowercase hex characters."
 +    }
++    if ($ProductName -cnotmatch $ProductNamePattern) {
++        throw "Invalid product name '$ProductName'."
++    }
++    if (-not [string]::IsNullOrWhiteSpace($TestUserProfileRoot)) {
++        $TestUserProfileRoot = (Resolve-Path -LiteralPath $TestUserProfileRoot).Path
++        if (-not (Test-Path -LiteralPath $TestUserProfileRoot -PathType Container) -or
++            (Get-Item -LiteralPath $TestUserProfileRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint -or
++            $TestUserProfileRoot -match '[\r\n"$]') {
++            throw "TestUserProfileRoot must be a regular NSIS-safe directory: $TestUserProfileRoot"
++        }
++    }
++    $versionIdentity = Get-VersionIdentity
++    $BuildFreshness = [string]$versionIdentity.Freshness
++    $DisplayVersion = [string]$versionIdentity.Display
++    $NumericVersion = [string]$versionIdentity.Numeric
++    $UiVersion = [string]$versionIdentity.Ui
++    $ExpectedCliVersion = [string]$versionIdentity.ExpectedCli
 +}
-+$versionIdentity = Get-VersionIdentity
-+$BuildFreshness = [string]$versionIdentity.Freshness
-+$DisplayVersion = [string]$versionIdentity.Display
-+$NumericVersion = [string]$versionIdentity.Numeric
-+$UiVersion = [string]$versionIdentity.Ui
-+$ExpectedCliVersion = [string]$versionIdentity.ExpectedCli
 +
 +$projectRoot = Split-Path -Parent $PSScriptRoot
 +$packager = Join-Path $PSScriptRoot "package_windows_conpty.py"
@@ -57895,21 +57900,23 @@ index 0000000000000000000000000000000000000000..a41dbec784e977f4df9906ba4a02f2ca
 +    "installer-welcome-finish-287x550.bmp",
 +    "installer-welcome-finish-328x628.bmp"
 +)
-+$StageDir = (Resolve-Path -LiteralPath $StageDir).Path
-+$LauncherExe = (Resolve-Path -LiteralPath $LauncherExe).Path
-+$InstallerHelperExe = (Resolve-Path -LiteralPath $InstallerHelperExe).Path
-+$OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
-+$InstallerOriginalFilename = [System.IO.Path]::GetFileName($OutputPath)
++if (-not $ValidateSourcesOnly) {
++    $StageDir = (Resolve-Path -LiteralPath $StageDir).Path
++    $LauncherExe = (Resolve-Path -LiteralPath $LauncherExe).Path
++    $InstallerHelperExe = (Resolve-Path -LiteralPath $InstallerHelperExe).Path
++    $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
++    $InstallerOriginalFilename = [System.IO.Path]::GetFileName($OutputPath)
 +
-+if (-not (Test-Path -LiteralPath $StageDir -PathType Container) -or
-+    (Get-Item -LiteralPath $StageDir -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-+    throw "Stage must be a regular directory: $StageDir"
-+}
-+if (Test-Path -LiteralPath $OutputPath) {
-+    $existingOutput = Get-Item -LiteralPath $OutputPath -Force
-+    if ($existingOutput.PSIsContainer -or
-+        ($existingOutput.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-+        throw "Installer output is not a replaceable regular file: $OutputPath"
++    if (-not (Test-Path -LiteralPath $StageDir -PathType Container) -or
++        (Get-Item -LiteralPath $StageDir -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
++        throw "Stage must be a regular directory: $StageDir"
++    }
++    if (Test-Path -LiteralPath $OutputPath) {
++        $existingOutput = Get-Item -LiteralPath $OutputPath -Force
++        if ($existingOutput.PSIsContainer -or
++            ($existingOutput.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
++            throw "Installer output is not a replaceable regular file: $OutputPath"
++        }
 +    }
 +}
 +$requiredSources = @(
@@ -57967,6 +57974,10 @@ index 0000000000000000000000000000000000000000..a41dbec784e977f4df9906ba4a02f2ca
 +}
 +if ($managedSkillHashes -cnotcontains $canonicalSkillHash) {
 +    throw "Canonical skills/herdr/SKILL.md hash is absent from the managed skill hash manifest."
++}
++if ($ValidateSourcesOnly) {
++    Write-Output "Herdr Extended installer sources validated successfully."
++    return
 +}
 +Assert-X64Pe -Path $LauncherExe
 +Assert-X64Pe -Path $InstallerHelperExe
