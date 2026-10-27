@@ -1006,7 +1006,7 @@ fn pane_text_commits(outcome: &ClientShellInput) -> Vec<String> {
 /// A Kitty host that Herdr switched to report-all for prefix or navigate
 /// mode. Plain text can still arrive: Tern ignores report-all, IMEs commit
 /// text, and Ghostty `text:` binds type their bytes (#5255).
-fn report_all_kitty_host_state(snapshot: crate::protocol::ClientShellSnapshot) -> ClientShellState {
+fn report_all_kitty_host_state(snapshot: crate::protocol::endpoint::ShellSnapshot) -> ClientShellState {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_host_reports_key_releases(true);
     state.set_host_reports_all_keys(true);
