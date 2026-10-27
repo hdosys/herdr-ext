@@ -1,4 +1,4 @@
-From f9ddc7bb279a4b712c7a7af3ce401bd702fb373d Mon Sep 17 00:00:00 2001
+From 9b3c782cc57455d4013e94d3245222732b127070 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Fri, 18 Sep 2026 23:39:09 +0200
 Subject: [PATCH] feat(status): open script status links on the client
@@ -20,6 +20,7 @@ Subject: [PATCH] feat(status): open script status links on the client
  src/client/shell/tabs.rs                      |  22 +-
  src/client/shell/tests/chrome_context.rs      |  90 +++++
  src/client/shell/tests/endpoints.rs           |   3 +-
+ src/client/shell/tests/input.rs               |   2 +-
  src/client/shell/tests/mod.rs                 |   3 +-
  src/client/shell_runtime.rs                   |   2 +-
  src/events.rs                                 |   2 +-
@@ -29,7 +30,7 @@ Subject: [PATCH] feat(status): open script status links on the client
  src/server/clients.rs                         |   2 +-
  src/server/headless/tests/mod.rs              |   9 +-
  src/server/headless/tests/surface_interest.rs |   3 +-
- 25 files changed, 636 insertions(+), 120 deletions(-)
+ 26 files changed, 637 insertions(+), 121 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
 index 813fc18c55053018484c77712597b5d7a3fc01a4..0bab04a5947538887177ae80222782db6327680d 100644
@@ -888,6 +889,19 @@ index 3049a134a5f85eef77df673571748db0bd7128d9..3395727ce5b67a42de9b3e9301bbd4c2
      });
      state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
  
+diff --git a/src/client/shell/tests/input.rs b/src/client/shell/tests/input.rs
+index 81400a632195ca457085a3100e096214616a00ab..b82f65d2d5e523533d684726add3d20d07032041 100644
+--- a/src/client/shell/tests/input.rs
++++ b/src/client/shell/tests/input.rs
+@@ -1006,7 +1006,7 @@ fn pane_text_commits(outcome: &ClientShellInput) -> Vec<String> {
+ /// A Kitty host that Herdr switched to report-all for prefix or navigate
+ /// mode. Plain text can still arrive: Tern ignores report-all, IMEs commit
+ /// text, and Ghostty `text:` binds type their bytes (#5255).
+-fn report_all_kitty_host_state(snapshot: crate::protocol::ClientShellSnapshot) -> ClientShellState {
++fn report_all_kitty_host_state(snapshot: crate::protocol::endpoint::ShellSnapshot) -> ClientShellState {
+     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+     state.set_host_reports_key_releases(true);
+     state.set_host_reports_all_keys(true);
 diff --git a/src/client/shell/tests/mod.rs b/src/client/shell/tests/mod.rs
 index 05bfc263abb0545dc8a1080cff6ffebbe15a156f..2bdc3ea0ab4ff47f0e947ed691d2472b4be4cf68 100644
 --- a/src/client/shell/tests/mod.rs
