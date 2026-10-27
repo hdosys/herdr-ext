@@ -1,4 +1,4 @@
-From e2f07a463a796cf9b26e3a195636f84979484b52 Mon Sep 17 00:00:00 2001
+From 3ec2f32c26beb90d8f2d71f0d739a61a828a7bc1 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH] feat(windows): manage fork distribution
@@ -33,7 +33,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  .../installer-welcome-finish-source.png       |  Bin 0 -> 1841146 bytes
  packaging/windows/installer/project.nsi       |  601 ++++
  .../windows/installer/validate-build.ps1      |  223 ++
- packaging/windows/managed-skill-hashes.txt    |    6 +
+ packaging/windows/managed-skill-hashes.txt    |    7 +
  scripts/package_windows_installer.ps1         |  706 +++++
  scripts/preview.py                            |  202 +-
  scripts/test_preview.py                       |  298 +-
@@ -75,7 +75,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 71 files changed, 12440 insertions(+), 3361 deletions(-)
+ 71 files changed, 12441 insertions(+), 3361 deletions(-)
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
  create mode 100644 packaging/windows/installer/artwork/README.md
@@ -57429,16 +57429,17 @@ index 0000000000000000000000000000000000000000..402f4450fc339658a39e182e63f14117
 +[Console]::Out.WriteLine('Herdr Extended installer build inputs validated successfully.')
 diff --git a/packaging/windows/managed-skill-hashes.txt b/packaging/windows/managed-skill-hashes.txt
 new file mode 100644
-index 0000000000000000000000000000000000000000..29472821e836358fda3ccc1efd93963ceb99f66a
+index 0000000000000000000000000000000000000000..b3bf67601e3f9cd12406cca15cc6dff0e641bbf0
 --- /dev/null
 +++ b/packaging/windows/managed-skill-hashes.txt
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,7 @@
 +herdr-managed-skill-hashes-v1
 +0786182f02ebf92708e09d82d79e4614d1a9c30bfc337643cc2af1d0fb9db29f
 +237ad2ab2d8123e2bb37956d3a41eed141f2d22a7c36e415b7876c0397679099
 +25a68bc36d9309048db89e7d168f2e04d1689d734c5d72cc3688bf4ff9db1e9f
 +2752439d23fcc16235e1292599e7f7b31635166d6b01221d7bf759da5d571072
 +b16ba0d9a22adbaf259d2022cd323801f8e51d530c94cb0cd23a69069292506b
++fbd9d502767f7dff29c211505a0bd9ba34e980ed4cc456247e2adc1642883984
 diff --git a/scripts/package_windows_installer.ps1 b/scripts/package_windows_installer.ps1
 new file mode 100644
 index 0000000000000000000000000000000000000000..a41dbec784e977f4df9906ba4a02f2cabd2785fe
