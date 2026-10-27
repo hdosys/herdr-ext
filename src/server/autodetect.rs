@@ -282,7 +282,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 
 pub fn start_server_daemon_with_exe(exe: PathBuf) -> io::Result<()> {
     let socket_path = client_socket_path();
-    if is_server_listening_at(&socket_path) {
+    if is_server_listening_at(&socket_path)? {
         validate_running_server_compatibility(read_server_status()?, false)?;
         return Ok(());
     }
