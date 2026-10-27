@@ -20,6 +20,38 @@ configuration repository.
 
 ## Proposals
 
+- **Status: done. Make stable refreshes one native replay and a final-product gate.**
+  The v0.9.5 refresh reduced the queue from 25 to 20 mailboxes and from 12,548,325 to
+  5,593,321 bytes by consolidating distribution evolution and retiring upstream
+  onboarding. The consolidated source tree was identical before and after grouping.
+  Native `git am` now owns continuation; unnumbered subjects avoid whole-queue
+  renumbering. Redundant source changelog hunks were removed. Final exact replay took
+  5.288 seconds; the full prefix sweep is now an explicit decomposition audit rather
+  than a normal update prerequisite. Source adaptation remains real work when
+  upstream changes input, IPC or startup contracts. Owners: `scripts/delta_workflow.py`,
+  `CONTRIBUTING.md` and `ARCHITECTURE.md`.
+
+- **Status: done. Reject package-source omissions before compiling and accept
+  focused test groups.** The refresh completed a 111.920-second compile before setup
+  rejected the new upstream skill's missing ownership hash. Candidate and release
+  preparation now call the existing packager's read-only `-ValidateSourcesOnly`
+  path before platform compilation. Native positive and missing-hash checks passed;
+  no duplicate validator was added. A 123-test parser selection also passed but the
+  wrapper wrongly rejected anything except one case. The same runner now requires
+  one nonempty, fully passing selection and still rejects zero or partial success.
+  Its 29 checks and 308 selected source tests passed. The final warm Candidate took
+  111.499 seconds with 16 jobs. Owners: `scripts/local_windows_installer.py`, the
+  source packager and `CONTRIBUTING.md`.
+
+- **Status: done. Fan out release platforms after immutable source preparation.**
+  The portable matrix previously waited for the complete Windows installer job.
+  One preparation job now selects control/upstream identities, replay tree, package
+  source inputs and compatible Zig; Windows and portable builds depend on that job
+  independently. Full-run success and per-platform tree equality still gate promotion.
+  `actionlint` and source/data-flow review passed. Hosted runtime savings are not yet
+  measured; no release workflow was dispatched for this local refresh.
+  Owner: `.github/workflows/release.yml`.
+
 - **Status: proposed. Preserve unrelated mailbox context during tiny source
   formatting.** A one-field remote-result change triggered whole-file formatter
   churn and then two reverse-replay conflicts during release finalization. Removing

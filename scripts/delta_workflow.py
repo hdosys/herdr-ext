@@ -1678,6 +1678,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(arguments: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     options = parser.parse_args(arguments)
+    started = time.monotonic()
     try:
         if options.command == "select-commit":
             print(latest_publishable_commit(options.ref))
@@ -1705,6 +1706,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             print(f"head: {result.head}")
             print(f"tree: {result.tree}")
             print(f"mailboxes: {result.mailbox_count}")
+            print(f"replay_elapsed_seconds={time.monotonic() - started:.3f}")
             return 0
 
         if options.command == "finalize":
@@ -1719,6 +1721,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             print(f"source-tree: {result.source_tree}")
             print(f"replay-tree: {result.replay_tree}")
             print("mailbox-updated: yes")
+            print(f"finalize_elapsed_seconds={time.monotonic() - started:.3f}")
             return 0
 
         if options.command == "integrate-development":
@@ -1755,6 +1758,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             print(f"tree: {result.tree}")
             print(f"mailboxes: {len(result.mailboxes)}")
             print("refresh-finalized: yes")
+            print(f"refresh_elapsed_seconds={time.monotonic() - started:.3f}")
             return 0
 
         result = verify_replay_tree(options.expected_tree)
@@ -1763,6 +1767,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         print(f"mailboxes: {len(result.mailboxes)}")
         if options.expected_tree is not None:
             print("tested-tree-match: yes")
+        print(f"replay_elapsed_seconds={time.monotonic() - started:.3f}")
         return 0
     except DeltaWorkflowError as error:
         print(f"error: {error}", file=sys.stderr)

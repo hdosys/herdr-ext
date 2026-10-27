@@ -56,8 +56,11 @@ jobs:
         run: |
           set -euo pipefail
           base="$(git -C source rev-parse HEAD)"
+          patches=()
           while IFS= read -r patch; do
+            patch="${patch%$'\r'}"
             [[ -z "$patch" || "$patch" == \#* ]] && continue
-            git -C source am --3way "$GITHUB_WORKSPACE/control/patches/delta/$patch"
+            patches+=("$GITHUB_WORKSPACE/control/patches/delta/$patch")
           done < control/patches/delta/series
+          git -C source am --3way "${patches[@]}"
           git -C source diff --check "$base..HEAD"

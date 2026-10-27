@@ -38,11 +38,11 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  build:
-    name: Replay, test, and package Windows
+  prepare:
+    name: Select immutable candidate source
     if: inputs.operation == 'build'
     runs-on: windows-2022
-    timeout-minutes: 40
+    timeout-minutes: 10
     outputs:
       upstream_sha: ${{ steps.source.outputs.upstream_sha }}
       control_sha: ${{ steps.source.outputs.control_sha }}
@@ -50,6 +50,7 @@ jobs:
       replay_tree: ${{ steps.replay.outputs.replay_tree }}
       base_version: ${{ steps.replay.outputs.base_version }}
       protocol: ${{ steps.replay.outputs.protocol }}
+      endpoint_generation: ${{ steps.replay.outputs.endpoint_generation }}
       release_version: ${{ steps.release_identity.outputs.release_version }}
       asset_names_json: ${{ steps.release_identity.outputs.asset_names_json }}
       artifact_name: ${{ steps.release_identity.outputs.artifact_name }}
@@ -175,13 +176,12 @@ jobs:
               ForEach-Object { $_.Trim() } |
               Where-Object { $_ -and -not $_.StartsWith("#") }
           )
-          foreach ($entry in $entries) {
-            $patch = (Resolve-Path -LiteralPath (Join-Path "patches\delta" $entry)).Path
-            & git -C ..\source am --3way $patch
-            if ($LASTEXITCODE -ne 0) {
-              & git -C ..\source am --abort 2>$null
-              throw "failed to replay $entry on selected upstream source $base"
-            }
+          $patches = @($entries | ForEach-Object {
+            (Resolve-Path -LiteralPath (Join-Path "patches\delta" $_)).Path
+          })
+          & git -C ..\source am --3way @patches
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to replay the maintained series on selected upstream source $base"
           }
           & git -C ..\source diff --check "$base..HEAD"
           if ($LASTEXITCODE -ne 0) {
@@ -236,11 +236,11 @@ jobs:
           "replay_tree=$replayTree" >> $env:GITHUB_OUTPUT
         working-directory: control
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          targets: ${{ env.WINDOWS_TARGET }}
+      - name: Validate installer sources before platform builds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & source\scripts\package_windows_installer.ps1 -ValidateSourcesOnly
 
       - name: Resolve latest compatible stable Zig for the replayed source
         id: zig_version
@@ -251,10 +251,68 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Zig source compatibility validation failed" }
           "version=$version" >> $env:GITHUB_OUTPUT
 
+  build:
+    name: Test and package Windows
+    needs: prepare
+    if: inputs.operation == 'build'
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      HERDR_BUILD_ID: ${{ needs.prepare.outputs.build_id }}
+      HERDR_BUILD_COMMIT: ${{ needs.prepare.outputs.upstream_sha }}
+      HERDR_BASE_VERSION: ${{ needs.prepare.outputs.base_version }}
+      HERDR_UPSTREAM_RELEASE: v${{ needs.prepare.outputs.base_version }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+      ARTIFACT_NAME: ${{ needs.prepare.outputs.artifact_name }}
+      INSTALLER_ASSET_NAME: ${{ needs.prepare.outputs.installer_asset_name }}
+    steps:
+      - name: Checkout selected Herdr Extended control revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          path: control
+          ref: ${{ needs.prepare.outputs.control_sha }}
+          persist-credentials: false
+
+      - name: Checkout selected upstream source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: herdrdev/herdr
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Replay the selected maintained delta
+        shell: pwsh
+        env:
+          GIT_COMMITTER_NAME: Herdr Extended replay
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          EXPECTED_REPLAY_TREE: ${{ needs.prepare.outputs.replay_tree }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $patches = @(Get-Content -LiteralPath control\patches\delta\series |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -and -not $_.StartsWith("#") } |
+            ForEach-Object { (Resolve-Path -LiteralPath (Join-Path "control\patches\delta" $_)).Path })
+          & git -C source am --3way @patches
+          $replayTree = (& git -C source rev-parse 'HEAD^{tree}').Trim()
+          if ($replayTree -cne $env:EXPECTED_REPLAY_TREE) {
+            throw "Windows replay differs from selected candidate tree"
+          }
+          $replaySha = (& git -C source rev-parse HEAD).Trim()
+          "HERDR_REPLAY_SHA=$replaySha" >> $env:GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          targets: ${{ env.WINDOWS_TARGET }}
+
       - name: Install Zig
         uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # v1.0.2
         with:
-          version: ${{ steps.zig_version.outputs.version }}
+          version: ${{ needs.prepare.outputs.zig_version }}
 
       - name: Restore Cargo cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -306,7 +364,7 @@ jobs:
       - name: Build release executable
         working-directory: source
         env:
-          HERDR_RELEASE_VERSION: ${{ steps.release_identity.outputs.release_version }}
+          HERDR_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
         run: cargo build --release --locked --target ${{ env.WINDOWS_TARGET }} --bins
 
       - name: Verify self-contained Windows executables
@@ -559,15 +617,15 @@ jobs:
       - name: Record immutable release candidate metadata
         shell: pwsh
         env:
-          UPSTREAM_SHA: ${{ steps.source.outputs.upstream_sha }}
-          CONTROL_SHA: ${{ steps.source.outputs.control_sha }}
-          BUILD_ID: ${{ steps.source.outputs.build_id }}
-          REPLAY_TREE: ${{ steps.replay.outputs.replay_tree }}
-          BASE_VERSION: ${{ steps.replay.outputs.base_version }}
-          PROTOCOL: ${{ steps.replay.outputs.protocol }}
-          ENDPOINT_GENERATION: ${{ steps.replay.outputs.endpoint_generation }}
-          RELEASE_VERSION: ${{ steps.release_identity.outputs.release_version }}
-          ASSET_NAMES_JSON: ${{ steps.release_identity.outputs.asset_names_json }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          CONTROL_SHA: ${{ needs.prepare.outputs.control_sha }}
+          BUILD_ID: ${{ needs.prepare.outputs.build_id }}
+          REPLAY_TREE: ${{ needs.prepare.outputs.replay_tree }}
+          BASE_VERSION: ${{ needs.prepare.outputs.base_version }}
+          PROTOCOL: ${{ needs.prepare.outputs.protocol }}
+          ENDPOINT_GENERATION: ${{ needs.prepare.outputs.endpoint_generation }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          ASSET_NAMES_JSON: ${{ needs.prepare.outputs.asset_names_json }}
         run: |
           $ErrorActionPreference = "Stop"
           $metadata = [ordered]@{
@@ -610,10 +668,10 @@ jobs:
         with:
           name: herdr-win-candidate-windows-${{ github.run_id }}
           path: |
-            artifact/${{ steps.release_identity.outputs.archive_asset_name }}
-            artifact/${{ steps.release_identity.outputs.archive_asset_name }}.sha256
-            artifact/${{ steps.release_identity.outputs.installer_asset_name }}
-            artifact/${{ steps.release_identity.outputs.installer_asset_name }}.sha256
+            artifact/${{ needs.prepare.outputs.archive_asset_name }}
+            artifact/${{ needs.prepare.outputs.archive_asset_name }}.sha256
+            artifact/${{ needs.prepare.outputs.installer_asset_name }}
+            artifact/${{ needs.prepare.outputs.installer_asset_name }}.sha256
             artifact/PATCH_SERIES.txt
             artifact/RELEASE_CANDIDATE.json
           if-no-files-found: error
@@ -623,7 +681,7 @@ jobs:
 
   build-portable:
     name: Build ${{ matrix.asset_key }}
-    needs: build
+    needs: prepare
     if: inputs.operation == 'build'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -650,11 +708,11 @@ jobs:
             os: macos-latest
             file_arch: arm64
     env:
-      HERDR_BUILD_ID: ${{ needs.build.outputs.build_id }}
-      HERDR_BUILD_COMMIT: ${{ needs.build.outputs.upstream_sha }}
-      HERDR_REPLAY_TREE: ${{ needs.build.outputs.replay_tree }}
-      HERDR_RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
-      RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
+      HERDR_BUILD_ID: ${{ needs.prepare.outputs.build_id }}
+      HERDR_BUILD_COMMIT: ${{ needs.prepare.outputs.upstream_sha }}
+      HERDR_REPLAY_TREE: ${{ needs.prepare.outputs.replay_tree }}
+      HERDR_RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
       LIBGHOSTTY_VT_OPTIMIZE: ReleaseFast
       LIBGHOSTTY_VT_SIMD: "true"
     steps:
@@ -662,7 +720,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           path: control
-          ref: ${{ needs.build.outputs.control_sha }}
+          ref: ${{ needs.prepare.outputs.control_sha }}
           persist-credentials: false
 
       - name: Checkout tested upstream source
@@ -670,7 +728,7 @@ jobs:
         with:
           repository: herdrdev/herdr
           path: source
-          ref: ${{ needs.build.outputs.upstream_sha }}
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -703,19 +761,17 @@ jobs:
         run: |
           set -euo pipefail
           base="$(git -C ../source rev-parse HEAD)"
-          if [[ "$base" != '${{ needs.build.outputs.upstream_sha }}' ]]; then
+          if [[ "$base" != '${{ needs.prepare.outputs.upstream_sha }}' ]]; then
             echo "Portable build checked out unexpected upstream source ${base}." >&2
             exit 1
           fi
+          patches=()
           while IFS= read -r patch; do
             patch="${patch%$'\r'}"
             [[ -z "$patch" || "$patch" == \#* ]] && continue
-            if ! git -C ../source am --3way "$PWD/patches/delta/$patch"; then
-              git -C ../source am --abort 2>/dev/null || true
-              echo "Failed to replay ${patch} for ${{ matrix.asset_key }}." >&2
-              exit 1
-            fi
+            patches+=("$PWD/patches/delta/$patch")
           done < patches/delta/series
+          git -C ../source am --3way "${patches[@]}"
           git -C ../source diff --check "$base..HEAD"
           replay_tree="$(git -C ../source rev-parse 'HEAD^{tree}')"
           if [[ "$replay_tree" != "$HERDR_REPLAY_TREE" ]]; then
@@ -732,7 +788,7 @@ jobs:
       - name: Install Zig
         uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # v1.0.2
         with:
-          version: ${{ needs.build.outputs.zig_version }}
+          version: ${{ needs.prepare.outputs.zig_version }}
 
       - name: Install Linux build tools
         if: runner.os == 'Linux'

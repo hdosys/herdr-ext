@@ -600,6 +600,10 @@ separate dispatches:
    derives one candidate-scoped runtime build ID from the selected control commit,
    run ID, and attempt; never assign that identity to a separately built local
    artifact.
+   Preparation selects immutable control/upstream commits, replay tree, package
+   source inputs and compatible Zig once. Windows and all portable targets then run
+   in parallel against those same values. A failed platform still fails the complete
+   candidate; promotion never accepts a partially successful run.
 2. Review the successful candidate run, then choose `promote` and supply that run
    ID before its artifacts expire. Promotion accepts no replacement CalVer and
    does not replay source, compile, or package; it publishes only the candidate's

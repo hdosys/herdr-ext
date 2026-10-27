@@ -542,9 +542,12 @@ live-session restart, public release or implementation is implied by this decisi
   either operation automatically.
 - A build dispatch requires a Herdr Extended CalVer `YYYY.MM.DD.N`. It runs Windows
   native/package tests and the four upstream-supported Linux/macOS executable
-  builds. Every platform job independently replays recorded `BASE` and the queue;
-  each source tree must match the tree tested by the Windows owner job, while one
-  shared candidate-scoped build ID and protocol value identify all assets. The
+  builds. One preparation job selects immutable source, verifies the replay and
+  installer source inputs, and resolves the source-compatible compiler. Windows
+  and the portable matrix then build concurrently. Every platform independently
+  replays recorded `BASE` and must match the selected tree; the successful complete
+  run remains the promotion gate. One shared candidate-scoped build ID and protocol
+  value identify all assets. The
   build ID combines the upstream prefix with a hash of the selected control commit,
   workflow run ID, and attempt, preventing byte-distinct rebuilds of unchanged
   source from colliding in one immutable runtime directory.
