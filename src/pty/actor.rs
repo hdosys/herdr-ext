@@ -766,6 +766,7 @@ mod windows {
                     write_tx: write_tx.clone(),
                     response_order: Arc::new(Mutex::new(())),
                     accepting: Arc::clone(&accepting),
+                    shutdown_complete: Arc::new((Mutex::new(false), Condvar::new())),
                 };
                 let input_accepting = Arc::clone(&accepting);
                 let input_task = runtime.spawn(async move {
