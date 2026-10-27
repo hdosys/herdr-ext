@@ -25,12 +25,12 @@ test-windows-input *args:
 [script("powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")]
 [windows]
 test-one filter:
-    cargo nextest run --locked --lib --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
+    cargo nextest run --locked --profile focused --lib --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
     exit $LASTEXITCODE
 
 [unix]
 test-one filter:
-    cargo nextest run --locked "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
+    cargo nextest run --locked --profile focused "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
 
 # Enforce deterministic UI hot-path architecture boundaries
 ui-hot-path-architecture-test:

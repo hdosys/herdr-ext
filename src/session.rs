@@ -612,9 +612,6 @@ mod tests {
         assert!(sessions
             .iter()
             .all(|session| Path::new(&session.socket_path).starts_with(&config_home)));
-        assert!(stop_all_sessions_for_uninstall()
-            .unwrap_err()
-            .contains("could not inspect session denied before uninstall"));
         let denied = sessions
             .iter()
             .find(|session| session.name == "denied")
@@ -642,8 +639,13 @@ mod tests {
         }
         assert!(serde_json::to_value(denied).unwrap()["connection_error"].is_string());
 
-        drop(denied_listener);
+        // The selected regression is an inaccessible session without any
+        // reachable server left to stop. Do not reuse an unaccepted probe.
         drop(running_listener);
+        assert!(stop_all_sessions_for_uninstall()
+            .unwrap_err()
+            .contains("could not inspect session denied before uninstall"));
+        drop(denied_listener);
         match previous_config_home {
             Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
