@@ -1,4 +1,4 @@
-From 449b7ac9d9db3b2c67d0d9bd698485bc45c1166f Mon Sep 17 00:00:00 2001
+From 7b52a478be3be4d85b14815e15404ab376563572 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 27 Aug 2026 01:46:36 +0200
 Subject: [PATCH] feat(agent): add completion alert controls
@@ -10,6 +10,7 @@ Subject: [PATCH] feat(agent): add completion alert controls
  .../website/src/data/config-reference.json    |  6 ++++
  src/api/schema/panes.rs                       |  3 ++
  src/app/actions.rs                            | 35 +++++++++++++------
+ src/app/agent_suspend_tests.rs                |  1 +
  src/app/api/panes.rs                          |  1 +
  src/app/api/plugins/mod.rs                    |  1 +
  src/cli/pane.rs                               |  1 +
@@ -22,7 +23,7 @@ Subject: [PATCH] feat(agent): add completion alert controls
  src/config/write.rs                           |  5 +++
  src/events.rs                                 |  1 +
  src/server/headless/tests/mod.rs              |  2 ++
- 18 files changed, 125 insertions(+), 17 deletions(-)
+ 19 files changed, 126 insertions(+), 17 deletions(-)
 
 diff --git a/docs/next/api/herdr-api.schema.json b/docs/next/api/herdr-api.schema.json
 index 510e093032ab82f1938740d48130aba3521f4e60..01be9ada3dc0e30d2feabe1085248da257fd782b 100644
@@ -244,6 +245,18 @@ index f01dd05b9d59ae1fea3173d02a0f8ca7a4a64af6..a66f15101280f12135a0c2684083122f
              pane_id,
              source: "custom:pi".into(),
              agent_label: "pi".into(),
+diff --git a/src/app/agent_suspend_tests.rs b/src/app/agent_suspend_tests.rs
+index 50546d25a2e578fab3b5bea875a8f8633bd9abb4..211ee4dfc0c164789358759dd432d13c38a4eec7 100644
+--- a/src/app/agent_suspend_tests.rs
++++ b/src/app/agent_suspend_tests.rs
+@@ -73,6 +73,7 @@ fn pi_report(app: &mut AppState, pane_id: PaneId, state: AgentState, seq: u64) {
+         agent_label: "pi".into(),
+         state,
+         message: None,
++        suppress_completion: false,
+         seq: Some(seq),
+         session_ref: Some(pi_session()),
+     });
 diff --git a/src/app/api/panes.rs b/src/app/api/panes.rs
 index 319ef00b1a80adc7dba7b734597705c1b7029b52..3131c10bc21e8bd738c6b9d019f79258363935dd 100644
 --- a/src/app/api/panes.rs
