@@ -1,9 +1,10 @@
-From 256af58a511b6cc90837636aea67e8753d1e1715 Mon Sep 17 00:00:00 2001
+From ad25711d0c7466e8ba48739c00cd4510ff3abeac Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH] feat(windows): manage fork distribution
 
 ---
+ .config/nextest.toml                          |    3 +
  .gitattributes                                |    4 +
  Cargo.toml                                    |   10 +-
  README.zh-CN.md                               |    2 +-
@@ -69,13 +70,14 @@ Subject: [PATCH] feat(windows): manage fork distribution
  src/remote/attach.rs                          |    4 +-
  src/server/autodetect.rs                      |    6 +-
  src/server/handoff.rs                         |    2 +-
- src/session.rs                                |   75 +
+ src/session.rs                                |   79 +-
  src/update.rs                                 | 1922 ++++++------
  tests/api_ping.rs                             |    5 +-
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 71 files changed, 12480 insertions(+), 3361 deletions(-)
+ 72 files changed, 12486 insertions(+), 3362 deletions(-)
+ create mode 100644 .config/nextest.toml
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
  create mode 100644 packaging/windows/installer/artwork/README.md
@@ -101,6 +103,15 @@ Subject: [PATCH] feat(windows): manage fork distribution
  create mode 100644 src/platform/windows/launcher.rs
  create mode 100644 src/platform/windows/managed_install.rs
 
+diff --git a/.config/nextest.toml b/.config/nextest.toml
+new file mode 100644
+index 0000000000000000000000000000000000000000..c1d4f62348c8ab445c6d5ecf70a7aa565bc9f3d8
+--- /dev/null
++++ b/.config/nextest.toml
+@@ -0,0 +1,3 @@
++# Focused checks get a runtime deadline without shortening compilation.
++[profile.focused]
++slow-timeout = { period = "30s", terminate-after = 2 }
 diff --git a/.gitattributes b/.gitattributes
 index 4158df58b6c743cab622deee75278385cc279176..dc16c2b158514790afe70a457b30d63924ccde17 100644
 --- a/.gitattributes
@@ -1693,7 +1704,7 @@ index f85fa0cd0a34852b9fb0d70b7f4f2c27542f9f96..b2bda7b5c32cf49f89344dd3c006b266
          {
            "key": "update.manifest_check",
 diff --git a/justfile b/justfile
-index f39839938b63818bc3b711071fb3cae3099600aa..9659a189c6a171ed7234793ff50b614d9b082e9f 100644
+index f39839938b63818bc3b711071fb3cae3099600aa..75b8d3ddb8192b8f020c30b44490eef413f5aca1 100644
 --- a/justfile
 +++ b/justfile
 @@ -22,8 +22,15 @@ test-windows-input *args:
@@ -1703,13 +1714,13 @@ index f39839938b63818bc3b711071fb3cae3099600aa..9659a189c6a171ed7234793ff50b614d
 +[script("powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File")]
 +[windows]
 +test-one filter:
-+    cargo nextest run --locked --lib --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
++    cargo nextest run --locked --profile focused --lib --bin herdr "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
 +    exit $LASTEXITCODE
 +
 +[unix]
  test-one filter:
 -    cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
-+    cargo nextest run --locked "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
++    cargo nextest run --locked --profile focused "{{ filter }}" --status-level fail --final-status-level fail --failure-output final --success-output never
  
  # Enforce deterministic UI hot-path architecture boundaries
  ui-hot-path-architecture-test:
@@ -69846,7 +69857,7 @@ index efe554e641c69a55fb9f36f8b289d1a9b1542b38..9d624b516983c1db6bb4c2962fb838b9
                  err.kind(),
                  format!("failed to determine herdr executable path: {err}"),
 diff --git a/src/session.rs b/src/session.rs
-index 017c20dd28a49da963672ffb9338440c7abc3fb0..2154c849cf024f98fcb1b826e655caa9467351b0 100644
+index 017c20dd28a49da963672ffb9338440c7abc3fb0..2889e43577f4d3b858c466528f9d9ef9928fead3 100644
 --- a/src/session.rs
 +++ b/src/session.rs
 @@ -14,6 +14,8 @@ const MAX_SESSION_NAME_LEN: usize = 64;
@@ -69914,20 +69925,32 @@ index 017c20dd28a49da963672ffb9338440c7abc3fb0..2154c849cf024f98fcb1b826e655caa9
  pub(crate) fn stop_active_server() -> Result<(), String> {
      let socket_path = active_api_socket_path();
      let client_socket_path = crate::server::socket_paths::client_socket_path();
-@@ -546,6 +597,12 @@ mod tests {
+@@ -546,6 +597,9 @@ mod tests {
          assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
  
          let sessions = list_sessions().unwrap();
 +        assert!(sessions
 +            .iter()
 +            .all(|session| Path::new(&session.socket_path).starts_with(&config_home)));
-+        assert!(stop_all_sessions_for_uninstall()
-+            .unwrap_err()
-+            .contains("could not inspect session denied before uninstall"));
          let denied = sessions
              .iter()
              .find(|session| session.name == "denied")
-@@ -601,6 +658,24 @@ mod tests {
+@@ -569,8 +623,13 @@ mod tests {
+         }
+         assert!(serde_json::to_value(denied).unwrap()["connection_error"].is_string());
+ 
+-        drop(denied_listener);
++        // The selected regression is an inaccessible session without any
++        // reachable server left to stop. Do not reuse an unaccepted probe.
+         drop(running_listener);
++        assert!(stop_all_sessions_for_uninstall()
++            .unwrap_err()
++            .contains("could not inspect session denied before uninstall"));
++        drop(denied_listener);
+         match previous_config_home {
+             Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+             None => std::env::remove_var("XDG_CONFIG_HOME"),
+@@ -601,6 +660,24 @@ mod tests {
          assert_eq!(STOP_WAIT_TIMEOUT, Duration::from_secs(15));
      }
  

@@ -301,7 +301,7 @@ def _tree_after_patches(
             ["read-tree", initial_tree],
             environment=index_environment,
         )
-        for patch_path in patch_paths:
+        if patch_paths:
             arguments = [
                 "apply",
                 "--cached",
@@ -310,7 +310,7 @@ def _tree_after_patches(
             ]
             if reverse:
                 arguments.append("--reverse")
-            arguments.append(str(patch_path))
+            arguments.extend(str(patch_path) for patch_path in patch_paths)
             _run_git(project_root, arguments, environment=index_environment)
         tree = _run_git(
             project_root, ["write-tree"], environment=index_environment

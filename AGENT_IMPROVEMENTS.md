@@ -52,7 +52,7 @@ configuration repository.
   measured; no release workflow was dispatched for this local refresh.
   Owner: `.github/workflows/release.yml`.
 
-- **Status: proposed. Preserve unrelated mailbox context during tiny source
+- **Status: done. Preserve unrelated mailbox context during tiny source
   formatting.** A one-field remote-result change triggered whole-file formatter
   churn and then two reverse-replay conflicts during release finalization. Removing
   unrelated formatting and moving the unchanged test outside another mailbox's
@@ -65,7 +65,10 @@ configuration repository.
   context instead of another discovery cycle. Owners: `CONTRIBUTING.md` and the
   existing source/queue workflow. No additional pre-artifact replay gate proposed.
 
-- **Status: proposed. Report exact residuals when an installer terminal assertion
+  Resolution: `CONTRIBUTING.md` now requires scoped source formatting and source-level
+  review instead of carrying unrelated formatting into maintained mailboxes.
+
+- **Status: done. Report exact residuals when an installer terminal assertion
   fails.** A hosted release stopped after17m31s with only a combined settings/root/ARP
   timeout. A Windows PowerShell5.1 probe demonstrated that inherited AppData differed
   from a fresh process's shell-folder result after the fixture changed USERPROFILE.
@@ -73,6 +76,10 @@ configuration repository.
   residual boolean, without adding retries or a second state owner. Expected benefit:
   distinguish incorrect fixture targeting from uninstall-worker failure before another
   release dispatch. Owner: `scripts/windows_installer_fault_test.ps1`.
+
+  Resolution: the existing modified-tree uninstall assertion now retains its error
+  and reports resolved install, registration, settings and roaming roots plus each
+  residual boolean. No retry, fallback or separate status owner was introduced.
 
 - **Status: done. Carry native compiler and cache context across build
   assignments and source handoffs.** After a successful 0.9.2 build, the next session
@@ -102,7 +109,7 @@ configuration repository.
   compiler and effective cache context explicitly. Cross-Sandbox cache retention
   remains outside this repository; no persistent context or fallback was added.
 
-  **Follow-up status: proposed. Use the existing source-compatible resolver before
+  **Follow-up status: done. Use the existing source-compatible resolver before
   provisioning a missing compiler.** The status-sync correction missed the two-minute
   request-to-artifact goal: the first native build exhausted a 600-second process
   deadline after selecting newest Zig 0.17 without first using `resolve-zig`.
@@ -113,6 +120,29 @@ configuration repository.
   resolver during compiler discovery instead of choosing a compiler directly from
   the generic release index. Expected benefit: avoid an unnecessary compiler
   download and failed cold-build attempt without adding another gate or fallback.
+
+  Resolution: the current Candidate procedure uses `resolve-zig` before compiler
+  provisioning; release preparation resolves that same compatible compiler once
+  before platform fan-out. The v0.9.5 build used the resolved 0.16 compiler directly.
+
+- **Status: done. Bound focused test execution independently of compilation.**
+  A new uninstall assertion re-inspected a single-instance pipe fixture without a
+  server acceptor. A 1200-second mixed command and a 450-second focused attempt
+  timed out before the fixture lifecycle was correctly isolated. Nextest's existing
+  profile mechanism now gives `just test-one` a 60-second per-test execution limit;
+  the compiler retains its separate budget and broad-suite settings are unchanged.
+  The corrected real denied-session case passed in 0.116 seconds. The wrapper flushes
+  its selected test/profile before waiting. Owners: source `.config/nextest.toml`,
+  `justfile`, `scripts/local_windows_installer.py` and `CONTRIBUTING.md`.
+
+- **Status: done. Batch temporary-index patch application through Git.**
+  The same 20-mailbox finalization took 115.247 seconds under the current load.
+  Its validation helper still spawned Git separately for every mailbox in every
+  pass. One native `git apply` invocation now receives each complete ordered pass,
+  including reverse application, without removing staged or final-tree checks.
+  Real forward/reverse replay and focused ownership tests passed; the subsequent
+  finalization took 68.232 seconds. These are observed runs, not a machine-independent
+  speed guarantee. Owner: `scripts/delta_workflow.py`.
 
 - **Status: declined. Parallelize independent immutable-payload checks and
   packaging when resources permit.** A menu-only deletion still took151.573 seconds

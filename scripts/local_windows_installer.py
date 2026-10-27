@@ -716,8 +716,8 @@ def _run_normal_focused_test(
     source: Path, cargo_target: Path, jobs: int, test_filter: str
 ) -> None:
     _require_cargo_commit_headroom()
-    print(f"focused_test={test_filter}")
-    print("focused_test_profile=normal")
+    print(f"focused_test={test_filter}", flush=True)
+    print("focused_test_profile=normal; nextest runtime profile=focused (60s per test)", flush=True)
     test_started = time.monotonic()
     test_result = _run(
         "just",

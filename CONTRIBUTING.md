@@ -115,6 +115,8 @@ selects an authorized refresh without changing `BASE`. Git owns the remaining
 sequence after a conflict: resolve and stage the current patch, then run
 `git am --continue` in that same checkout. Skip a patch only after reviewing full
 upstream equivalence. Its Git trust is checkout-scoped and it never queries upstream.
+Temporary-index validation likewise passes each complete ordered forward or reverse
+series to one native `git apply` invocation. Exact staged and final-tree checks remain.
 
 Create a topic worktree only for a concrete parallel collision or risky isolation
 boundary. Base it on the exact current development commit, not `BASE`. The creating
@@ -272,6 +274,9 @@ python scripts/local_windows_installer.py test-one `
 One filter may select a focused module or related test group during a stable refresh.
 The runner requires a nonempty fully passing selection, not exactly one test case;
 do not split a parser's existing regressions into separate compiler invocations.
+`just test-one` selects Nextest's `focused` profile: each test has a 60-second
+execution deadline, independent of the compilation budget. A timeout fails rather
+than reporting success. The ordinary broad-suite profile remains unchanged.
 
 For a regression owned by the vendored `portable-pty` library, select that owner
 instead of routing it through the `herdr` binary:
