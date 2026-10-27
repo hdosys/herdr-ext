@@ -1,4 +1,4 @@
-From 116b03161cdae71cc06eb42c965e6ec0682bdd76 Mon Sep 17 00:00:00 2001
+From 1edd7cc5c87b9ee75063f12bb93f143e2df9ff7c Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sun, 26 Jul 2026 07:35:54 +0200
 Subject: [PATCH] feat(windows): preserve terminal appearance
@@ -37,7 +37,7 @@ Refs herdrdev/herdr#2786
  src/platform/windows.rs                       |  40 +-
  src/protocol/endpoint.rs                      |  15 +
  src/protocol/render_ansi.rs                   | 461 ++++++++++++++++--
- src/raw_input.rs                              | 176 ++++---
+ src/raw_input.rs                              | 183 ++++---
  src/server/client_shell.rs                    |  31 +-
  src/server/client_transport.rs                |   8 +
  src/server/clients.rs                         |   7 +-
@@ -47,7 +47,7 @@ Refs herdrdev/herdr#2786
  src/server/pane_input.rs                      |   1 -
  src/server/render_stream.rs                   | 132 ++++-
  src/terminal_theme.rs                         |  90 ++--
- 40 files changed, 1639 insertions(+), 661 deletions(-)
+ 40 files changed, 1643 insertions(+), 664 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
 index 874fe56ce57ba61723cbf7ac591a5e38929ce404..4b5a15b6771e1099f64a9c3e42fa66a91a528671 100644
@@ -3035,7 +3035,7 @@ index 62aed7a33fb09b58cbf1d4f2c0de274697dabbbc..fbca3f4d5a82d730bbd6b0bc647f5237
  
      #[test]
 diff --git a/src/raw_input.rs b/src/raw_input.rs
-index aff36e98ffdb1da09c2033d03a6721b9db8dab2d..3f4d87ff2a3a4e3d94dd405c43c1eceb6198102a 100644
+index aff36e98ffdb1da09c2033d03a6721b9db8dab2d..250ae8157ce8a9f16c09aa1cef783cc1de87dd2a 100644
 --- a/src/raw_input.rs
 +++ b/src/raw_input.rs
 @@ -33,8 +33,7 @@ pub(crate) fn parse_framed_input(data: &[u8]) -> Vec<RawInputEvent> {
@@ -3293,7 +3293,28 @@ index aff36e98ffdb1da09c2033d03a6721b9db8dab2d..3f4d87ff2a3a4e3d94dd405c43c1eceb
          );
      }
  
-@@ -3726,9 +3731,38 @@ mod tests {
+@@ -3487,7 +3492,7 @@ mod tests {
+ 
+     #[test]
+     fn unanswered_host_query_stops_holding_alt_bracket() {
+-        // Many hosts answer only part of the 256-entry palette query, or no
++        // Some hosts answer only part of the default-color query, or no
+         // cell size query at all. Once nothing arrives for a while, ESC[ is a
+         // key again: a short wait, released alone, next key not swallowed.
+         let mut framer = RawInputByteFramer::default();
+@@ -3511,9 +3516,9 @@ mod tests {
+         framer.age_host_reply_activity(HOST_REPLY_QUIET_WINDOW);
+         // A reply arriving late still refreshes the window for the next one.
+         assert_eq!(
+-            framer.push(b"\x1b]4;1;rgb:cd/00/00\x1b\\").len(),
++            framer.push(b"\x1b]12;rgb:cd/00/00\x1b\\").len(),
+             1,
+-            "palette reply"
++            "cursor-color reply"
+         );
+         assert!(framer.push(b"\x1b]").is_empty());
+         assert_eq!(
+@@ -3726,9 +3731,39 @@ mod tests {
  
          assert!(framer.push(b"\x1b").is_empty());
          assert!(framer.flush_timeout().is_empty());
@@ -3326,13 +3347,14 @@ index aff36e98ffdb1da09c2033d03a6721b9db8dab2d..3f4d87ff2a3a4e3d94dd405c43c1eceb
 +        assert!(framer.push(b"user-input").is_empty());
 +        assert!(framer.flush_timeout().is_empty());
 +
++        framer.age_partial_host_color_reply(HOST_COLOR_REPLY_IDLE_LIMIT);
 +        assert_eq!(framer.push(b"x"), vec![b"x".to_vec()]);
 +    }
 +
      #[test]
      fn flushes_lone_escape_when_not_awaiting_host_color_reply() {
          let mut framer = RawInputByteFramer::default();
-@@ -3751,18 +3785,12 @@ mod tests {
+@@ -3751,18 +3786,12 @@ mod tests {
  
      #[test]
      fn stops_holding_lone_escape_after_host_color_reply_completes() {
@@ -3353,7 +3375,7 @@ index aff36e98ffdb1da09c2033d03a6721b9db8dab2d..3f4d87ff2a3a4e3d94dd405c43c1eceb
  
          // Window closed: a later lone Escape flushes immediately.
          assert!(framer.push(b"\x1b").is_empty());
-@@ -3771,17 +3799,11 @@ mod tests {
+@@ -3771,17 +3800,11 @@ mod tests {
  
      #[test]
      fn overlapping_host_color_queries_keep_holding_split_reply_escape() {
