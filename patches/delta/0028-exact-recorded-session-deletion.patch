@@ -1,4 +1,4 @@
-From a349f383a471becd3df8ace94f57ed051d660ab1 Mon Sep 17 00:00:00 2001
+From bedf5651ca2f56f58e57ea55f96ff886af27477c Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Wed, 9 Sep 2026 13:26:02 +0200
 Subject: [PATCH] fix(session): require exact recorded names before deletion
@@ -7,14 +7,14 @@ Resolve deletion through immediate directory entries, keep the existing exact-ta
 
 Refs herdrdev/herdr#3819.
 ---
- src/session.rs | 129 +++++++++++++++++++++++++++++++++++++------------
- 1 file changed, 99 insertions(+), 30 deletions(-)
+ src/session.rs | 150 ++++++++++++++++++++++++++++++++++++++-----------
+ 1 file changed, 116 insertions(+), 34 deletions(-)
 
 diff --git a/src/session.rs b/src/session.rs
-index c530e085392a6fe0f76231a37a130a5438a9d223..3738d9aff1a4372983b630c96d8f2517a202e4e4 100644
+index c530e085392a6fe0f76231a37a130a5438a9d223..50f9ef092db7ea35d7fa0f0292048347aaaa5d5c 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -345,20 +345,47 @@ fn stop_socket_with_timeout(
+@@ -345,20 +345,56 @@ fn stop_socket_with_timeout(
  }
  
  pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
@@ -50,23 +50,36 @@ index c530e085392a6fe0f76231a37a130a5438a9d223..3738d9aff1a4372983b630c96d8f2517
 +    }
 +    let dir = matched.ok_or_else(|| format!("no session with the exact name {name:?}; use `herdr session list` to check its spelling"))?;
      let socket_path = dir.join("herdr.sock");
-     if is_running_at(&socket_path) {
-         return Err(format!(
-             "session {name} is running; stop it before deleting"
-         ));
+-    if is_running_at(&socket_path) {
+-        return Err(format!(
+-            "session {name} is running; stop it before deleting"
+-        ));
++    match crate::ipc::connect_local_stream(&socket_path) {
++        Ok(_) => {
++            return Err(format!(
++                "session {name} is running; stop it before deleting"
++            ))
++        }
++        Err(error) if !crate::cli::server_not_running_error(&error) => {
++            return Err(format!(
++                "could not confirm session {name} is stopped: {error}"
++            ));
++        }
++        Err(_) => {}
      }
 -    let info = session_info(Some(name));
 +    let info = SessionInfo {
 +        name: name.to_owned(),
 +        default: false,
 +        running: false,
++        connection_error: None,
 +        socket_path: socket_path.display().to_string(),
 +        session_dir: dir.display().to_string(),
 +    };
      match std::fs::remove_dir_all(&dir) {
          Ok(()) => Ok(info),
          Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(info),
-@@ -366,31 +393,6 @@ pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
+@@ -366,31 +402,6 @@ pub fn delete_session(name: &str) -> Result<SessionInfo, String> {
      }
  }
  
@@ -98,7 +111,18 @@ index c530e085392a6fe0f76231a37a130a5438a9d223..3738d9aff1a4372983b630c96d8f2517
  fn send_stop_request(
      mut stream: LocalStream,
      request: &serde_json::Value,
-@@ -618,7 +620,6 @@ mod tests {
+@@ -592,6 +603,10 @@ mod tests {
+             .unwrap();
+         assert!(!denied.running);
+         assert_eq!(denied.connection_error, Some(error.to_string()));
++        assert!(delete_session("denied")
++            .unwrap_err()
++            .contains("could not confirm session denied is stopped"));
++        assert!(denied_path.parent().unwrap().is_dir());
+         let running = sessions
+             .iter()
+             .find(|session| session.name == "running")
+@@ -618,7 +633,6 @@ mod tests {
          std::fs::remove_dir_all(config_home).unwrap();
      }
  
@@ -106,7 +130,7 @@ index c530e085392a6fe0f76231a37a130a5438a9d223..3738d9aff1a4372983b630c96d8f2517
      fn unique_test_path(name: &str) -> std::path::PathBuf {
          let nanos = std::time::SystemTime::now()
              .duration_since(std::time::UNIX_EPOCH)
-@@ -1193,6 +1194,74 @@ mod tests {
+@@ -1193,6 +1207,74 @@ mod tests {
          assert!(delete_session(DEFAULT_SESSION_NAME).is_err());
      }
  
