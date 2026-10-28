@@ -592,8 +592,9 @@ publication. Do not hand-edit it or include its manifest-only commit in release
 source identity. Repository release immutability is a required external setting
 mirrored by the `HERDR_RELEASE_IMMUTABILITY_ENABLED=true` repository variable. The
 workflow must still verify the actual release is immutable, generate the manifest
-with the candidate's tested replay generator, commit only `website/preview.json`,
-and fail closed if `master` advances beyond the candidate's control revision.
+with the candidate's tested replay generator and commit only `website/preview.json`.
+Later release documentation is allowed only after the promotion policy proves that
+the candidate's build inputs are unchanged.
 
 Use the single manual **Build and promote Herdr Extended release** workflow in two
 separate dispatches:
@@ -613,7 +614,27 @@ separate dispatches:
    ID before its artifacts expire. Promotion accepts no replacement CalVer and
    does not replay source, compile, or package; it publishes only the candidate's
    validated files as one normal, non-prerelease GitHub release and marks it Latest.
-   If `master` has advanced or the candidate expired, dispatch a new build instead.
+   Rebuild only when protected build inputs changed or the candidate expired.
+   Release-note and README updates alone do not require compilation or repackaging.
+
+`scripts/release_promotion.py` owns that distinction. Candidate control/workflow
+IDs, build ID, replay tree and artifact digests remain immutable. A new release tag
+uses the validated master documentation snapshot; a pre-existing compatible tag is
+preserved on retry. The helper allows only its explicit control-document paths,
+generated feed state and promotion-only helper/test. In the workflow it permits
+only the three existing publication shell bodies to differ, not build steps,
+toolchains, scheduling, permissions or other configuration. Unsupported layouts or
+file types fail closed. The same check runs before tag publication and again before
+manifest generation, followed by the existing exact-parent/non-force push guard.
+
+The eligibility check is read-only and neither builds nor publishes:
+
+```powershell
+python scripts/release_promotion.py `
+  --candidate-control <metadata-control-sha> `
+  --candidate-workflow <metadata-workflow-sha> `
+  --promotion-ref HEAD --ref origin/master
+```
 
 Do not reuse one CalVer for different source. Linux and macOS publish raw
 `herdr-ext_v<CalVer>_{linux,macos}_{amd64,arm64}` executables. Windows publishes

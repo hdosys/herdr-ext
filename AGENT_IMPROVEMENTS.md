@@ -20,6 +20,17 @@ configuration repository.
 
 ## Proposals
 
+- **Status: done. Keep release documentation out of candidate rebuild decisions.**
+  Candidate40515129555 had passed every platform, but preparing its changelog would
+  have invalidated it solely because the control commit moved. Promotion now retains
+  the tested build identity and separately validates the documentation/tag snapshot.
+  Only explicit control docs, generated feed state and isolated publication policy
+  may differ; all build inputs and workflow structure stay protected. The new guard
+  itself is publication-only, so introducing it does not invalidate the existing
+  candidate. No rebuild, artifact rewrite or new provenance registry is required.
+  Owners: `scripts/release_promotion.py`, `.github/workflows/release.yml`,
+  `ARCHITECTURE.md` and `CONTRIBUTING.md`.
+
 - **Status: done. Make stable refreshes one native replay and a final-product gate.**
   The v0.9.5 refresh reduced the queue from 25 to 20 mailboxes and from 12,548,325 to
   5,593,321 bytes by consolidating distribution evolution and retiring upstream

@@ -558,12 +558,27 @@ live-session restart, public release or implementation is implied by this decisi
   not create a tag, release, manifest commit, or other published channel state.
 - A promotion dispatch requires only the candidate build run ID. It fails closed
   unless that run completed successfully in this repository and workflow on the
-  still-current `master` control commit, its metadata identifies that run and a
+  recorded control commit, its metadata identifies that run and a
   valid attempt, all source identities and filenames are coherent, and the complete
   candidate file set matches every sidecar digest. Promotion downloads those
   retained artifacts and publishes the exact bytes; it contains no source replay,
   compile, or package path. Only the promotion job receives Actions read and
   repository write permissions.
+- Candidate build identity and release documentation identity are distinct.
+  `scripts/release_promotion.py` accepts a descendant master snapshot only when
+  all build inputs remain unchanged. Its explicit exceptions are control release
+  documentation, generated channel state and the promotion-only helper/test.
+  Within `release.yml`, only the literal shell bodies of candidate validation,
+  release publication and manifest generation may differ. Every other workflow
+  byte, including build jobs, tools, conditions and permissions, remains protected.
+  Unknown layouts, paths and nonregular files fail closed. The executing policy is
+  pinned to the promotion workflow revision, not a moving checkout.
+- A new release tag captures the validated documentation snapshot while candidate
+  metadata, build ID and retained bytes keep their original tested identities.
+  A retry preserves an existing compatible tag on master; it never retargets it to
+  newer notes. Manifest generation may include newer compatible documentation but
+  retains its one-file commit, exact-parent check and non-force push. No candidate
+  rebuild is triggered by release notes alone.
 - The promoted release tag is `v<CalVer>`. Linux and macOS publish raw executables
   named `herdr-ext_v<CalVer>_{linux,macos}_{amd64,arm64}` for direct remote installation,
   and Windows publishes `herdr-ext_v<CalVer>_windows_amd64.zip` plus the corresponding

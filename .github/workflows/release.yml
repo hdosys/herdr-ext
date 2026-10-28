@@ -1002,6 +1002,8 @@ jobs:
           BUILD_HEAD_SHA: ${{ steps.build_run.outputs.head_sha }}
         run: |
           set -euo pipefail
+          # Execute the promotion policy from this workflow's immutable revision.
+          git -C control checkout --detach "$GITHUB_SHA"
           metadata="release-assets/RELEASE_CANDIDATE.json"
           if [[ ! -f "$metadata" ]]; then
             echo "Selected build has no release candidate metadata." >&2
@@ -1108,21 +1110,11 @@ jobs:
           )
 
           git -C control fetch --no-tags origin master
-          if ! git -C control merge-base --is-ancestor "$control_sha" origin/master; then
-            echo "Candidate control revision ${control_sha} is no longer on master." >&2
-            exit 1
-          fi
-          selected="$(python3 control/scripts/delta_workflow.py select-commit --ref origin/master)"
-          if [[ "$selected" != "$control_sha" ]]; then
-            echo "master advanced to untested control revision ${selected}; refusing stale candidate promotion." >&2
-            exit 1
-          fi
-          unexpected_paths="$(git -C control diff --name-only "$control_sha..origin/master" | grep -vxF 'website/preview.json' || true)"
-          if [[ -n "$unexpected_paths" ]]; then
-            echo "Skipped manifest commits changed release inputs:" >&2
-            echo "$unexpected_paths" >&2
-            exit 1
-          fi
+          revision="$(python3 control/scripts/release_promotion.py \
+            --candidate-control "$control_sha" \
+            --candidate-workflow "$BUILD_HEAD_SHA" \
+            --promotion-ref "$GITHUB_SHA" --ref origin/master)"
+          release_sha="$(jq -er .release_sha <<<"$revision")"
           expected_build_id="$(python3 control/scripts/preview.py candidate-build-id \
             --upstream-sha "$upstream_sha" \
             --control-sha "$control_sha" \
@@ -1136,6 +1128,8 @@ jobs:
           {
             echo "UPSTREAM_SHA=$upstream_sha"
             echo "CONTROL_SHA=$control_sha"
+            echo "CANDIDATE_WORKFLOW_SHA=$BUILD_HEAD_SHA"
+            echo "RELEASE_SHA=$release_sha"
             echo "BUILD_ID=$build_id"
             echo "REPLAY_TREE=$replay_tree"
             echo "BASE_VERSION=$base_version"
@@ -1197,11 +1191,28 @@ jobs:
 
           tag="v${RELEASE_VERSION}"
 
+          # An existing compatible tag keeps its documentation snapshot on retry.
+          tag_refs="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${tag}")"
+          tag_refs="$(jq -ce --arg ref "refs/tags/${tag}" '[.[] | select(.ref == $ref)]' <<<"$tag_refs")"
+          tag_count="$(jq 'length' <<<"$tag_refs")"
+          if [[ "$tag_count" -gt 1 ]]; then
+            echo "Multiple tag references unexpectedly match ${tag}." >&2
+            exit 1
+          fi
+          if [[ "$tag_count" == "1" ]]; then
+            tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tag}" --jq .sha)"
+            revision="$(python3 ../control/scripts/release_promotion.py \
+              --candidate-control "$CONTROL_SHA" \
+              --candidate-workflow "$CANDIDATE_WORKFLOW_SHA" \
+              --promotion-ref "$GITHUB_SHA" --ref origin/master --release-ref "$tag_sha")"
+            RELEASE_SHA="$(jq -er .release_sha <<<"$revision")"
+          fi
+
           verify_tag_target() {
             local tag_sha
             tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tag}" --jq .sha)"
-            if [[ "$tag_sha" != "$CONTROL_SHA" ]]; then
-              echo "Tag ${tag} points to ${tag_sha}, expected ${CONTROL_SHA}." >&2
+            if [[ "$tag_sha" != "$RELEASE_SHA" ]]; then
+              echo "Tag ${tag} points to ${tag_sha}, expected ${RELEASE_SHA}." >&2
               exit 1
             fi
           }
@@ -1211,7 +1222,7 @@ jobs:
             # its target. A pre-existing tag returns an error and is verified below.
             if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
               --field ref="refs/tags/${tag}" \
-              --field sha="$CONTROL_SHA" >/dev/null 2>&1; then
+              --field sha="$RELEASE_SHA" >/dev/null 2>&1; then
               :
             fi
             verify_tag_target
@@ -1378,6 +1389,7 @@ jobs:
           echo "built_at=${built_at}" >> "$GITHUB_OUTPUT"
           echo "zip_sha=${published_zip_digest#sha256:}" >> "$GITHUB_OUTPUT"
           echo "installer_sha=${published_installer_digest#sha256:}" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_SHA=${RELEASE_SHA}" >> "$GITHUB_ENV"
 
       - name: Generate preview update manifest
         id: manifest
@@ -1391,23 +1403,15 @@ jobs:
           shas="$GITHUB_WORKSPACE/release-assets/published-sha256.json"
           cd "$GITHUB_WORKSPACE/control"
           git fetch --no-tags origin master
-          git checkout --force -B manifest-publish origin/master
+          # Validate with the policy still pinned to the executing workflow, then
+          # move only this disposable checkout to the exact compatible master.
+          revision="$(python3 scripts/release_promotion.py \
+            --candidate-control "$CONTROL_SHA" \
+            --candidate-workflow "$CANDIDATE_WORKFLOW_SHA" \
+            --promotion-ref "$GITHUB_SHA" --ref origin/master --release-ref "$RELEASE_SHA")"
+          manifest_parent="$(jq -er .master_sha <<<"$revision")"
+          git checkout --detach "$manifest_parent"
           generator="$GITHUB_WORKSPACE/control/scripts/preview.py"
-          if ! git merge-base --is-ancestor "$CONTROL_SHA" HEAD; then
-            echo "Selected control revision ${CONTROL_SHA} is no longer on master." >&2
-            exit 1
-          fi
-          selected="$(python3 scripts/delta_workflow.py select-commit --ref HEAD)"
-          if [[ "$selected" != "$CONTROL_SHA" ]]; then
-            echo "master advanced to untested control revision ${selected}; refusing stale manifest publication." >&2
-            exit 1
-          fi
-          unexpected_paths="$(git diff --name-only "$CONTROL_SHA..HEAD" | grep -vxF 'website/preview.json' || true)"
-          if [[ -n "$unexpected_paths" ]]; then
-            echo "Skipped manifest commits changed release inputs:" >&2
-            echo "$unexpected_paths" >&2
-            exit 1
-          fi
 
           python3 "$generator" manifest \
             --output website/preview.json \
