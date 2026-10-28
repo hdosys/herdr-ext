@@ -13,11 +13,13 @@ if __package__:
         BASE_RE, GIT_TIMEOUT_SECONDS, PROJECT_ROOT, DeltaWorkflowError,
         _git_command, _git_environment, _run_git,
     )
+    from .preview import require_newer_herdr_win_release
 else:
     from delta_workflow import (
         BASE_RE, GIT_TIMEOUT_SECONDS, PROJECT_ROOT, DeltaWorkflowError,
         _git_command, _git_environment, _run_git,
     )
+    from preview import require_newer_herdr_win_release
 
 
 WORKFLOW = ".github/workflows/release.yml"
@@ -95,18 +97,18 @@ def _ancestor(project_root: Path, ancestor: str, descendant: str) -> None:
         raise DeltaWorkflowError(f"revision {ancestor} is not on the selected history {descendant}")
 
 
-def _workflow(project_root: Path, revision: str) -> str:
+def _text_blob(project_root: Path, revision: str, path: str) -> str:
     # Policy inputs need exact UTF-8, not the general Git runner's lossy decoding
     # and universal-newline conversion used for command diagnostics.
     try:
         data = subprocess.check_output(
-            _git_command(project_root, ["show", f"{revision}:{WORKFLOW}"]),
+            _git_command(project_root, ["show", f"{revision}:{path}"]),
             cwd=project_root, env=_git_environment(), stderr=subprocess.PIPE,
             timeout=GIT_TIMEOUT_SECONDS,
         )
         return data.decode("utf-8")
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError) as error:
-        raise DeltaWorkflowError(f"could not read UTF-8 release workflow at {revision}: {error}") from error
+        raise DeltaWorkflowError(f"could not read UTF-8 {path} at {revision}: {error}") from error
 
 
 def _validate_snapshot(project_root: Path, candidate: str, revision: str, contract: str) -> None:
@@ -121,7 +123,7 @@ def _validate_snapshot(project_root: Path, candidate: str, revision: str, contra
         fields = header.removeprefix(":").split()
         if len(fields) != 5 or fields[0] not in {"000000", "100644", "100755"} or fields[1] not in {"100644", "100755"}:
             raise DeltaWorkflowError(f"release-only path must remain a regular file: {path!r}")
-    if workflow_contract(_workflow(project_root, revision)) != contract:
+    if workflow_contract(_text_blob(project_root, revision, WORKFLOW)) != contract:
         raise DeltaWorkflowError("candidate build or workflow scheduling contract changed")
 
 
@@ -131,6 +133,7 @@ def select_release_revision(
     promotion_ref: str,
     master_ref: str,
     *,
+    release_version: str,
     release_ref: str | None = None,
     project_root: Path = PROJECT_ROOT,
 ) -> tuple[str, str]:
@@ -146,11 +149,20 @@ def select_release_revision(
     for revision in dict.fromkeys((workflow, promotion, release)):
         _ancestor(project_root, candidate, revision)
         _ancestor(project_root, revision, master)
-    contract = workflow_contract(_workflow(project_root, workflow))
+    contract = workflow_contract(_text_blob(project_root, workflow, WORKFLOW))
     for revision in dict.fromkeys((workflow, promotion, master, release)):
         if revision == candidate == workflow:
             continue
         _validate_snapshot(project_root, candidate, revision, contract)
+    # Policy code stays pinned to P; release ordering must use validated live M,
+    # not P's older feed when a promotion was queued behind a newer release.
+    try:
+        manifest = json.loads(_text_blob(project_root, master, "website/preview.json"))
+        if not isinstance(manifest, dict):
+            raise ValueError("published manifest must be a JSON object")
+        require_newer_herdr_win_release(release_version, manifest)
+    except ValueError as error:
+        raise DeltaWorkflowError(str(error)) from error
     return master, release
 
 
@@ -159,13 +171,15 @@ def main() -> int:
     parser.add_argument("--candidate-control", required=True)
     parser.add_argument("--candidate-workflow", required=True)
     parser.add_argument("--promotion-ref", required=True)
+    parser.add_argument("--release-version", required=True)
     parser.add_argument("--ref", default="origin/master")
     parser.add_argument("--release-ref")
     options = parser.parse_args()
     try:
         master, release = select_release_revision(
             options.candidate_control, options.candidate_workflow,
-            options.promotion_ref, options.ref, release_ref=options.release_ref,
+            options.promotion_ref, options.ref, release_version=options.release_version,
+            release_ref=options.release_ref,
         )
     except DeltaWorkflowError as error:
         print(f"error: {error}", file=sys.stderr)

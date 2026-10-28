@@ -27,6 +27,7 @@ class ReleasePromotionTests(unittest.TestCase):
             "README.md": "Current release\n",
             "scripts/preview.py": "# Tested build input\n",
             "Cargo.lock": "# Tested dependencies\n",
+            "website/preview.json": '{"release_version":"2026.10.03.3"}\n',
         })
 
     def commit(self, files: dict[str, str]) -> str:
@@ -38,10 +39,10 @@ class ReleasePromotionTests(unittest.TestCase):
         run_git(self.root, ["commit", "-m", "fixture snapshot"])
         return run_git(self.root, ["rev-parse", "HEAD"])
 
-    def select(self, master: str, *, promotion: str | None = None, release: str | None = None) -> tuple[str, str]:
+    def select(self, master: str, *, promotion: str | None = None, release: str | None = None, version: str = "2026.10.27.1") -> tuple[str, str]:
         return select_release_revision(
             self.candidate, self.candidate, promotion or self.candidate, master,
-            release_ref=release, project_root=self.root,
+            release_version=version, release_ref=release, project_root=self.root,
         )
 
     def test_bootstrap_and_later_notes_preserve_the_candidate_and_existing_tag(self) -> None:
@@ -55,7 +56,7 @@ class ReleasePromotionTests(unittest.TestCase):
         })
         release = self.commit({"CHANGELOG.md": "## [2026.10.27.1]\n\nVerified changes.\n"})
         self.assertEqual(self.select(release, promotion=promotion), (release, release))
-        master = self.commit({"README.md": "Updated documentation\n", "website/preview.json": "{}\n"})
+        master = self.commit({"README.md": "Updated documentation\n", "website/preview.json": '{"release_version":"2026.10.03.4"}\n'})
         self.assertEqual(self.select(master, promotion=promotion, release=release), (master, release))
 
     def test_build_inputs_and_nonregular_documents_are_rejected(self) -> None:
@@ -84,7 +85,8 @@ class ReleasePromotionTests(unittest.TestCase):
             self.select(master, release=bad_tag)
         with self.assertRaisesRegex(DeltaWorkflowError, "build input changed"):
             select_release_revision(
-                self.candidate, bad_tag, self.candidate, master, project_root=self.root,
+                self.candidate, bad_tag, self.candidate, master,
+                release_version="2026.10.27.1", project_root=self.root,
             )
         run_git(self.root, ["switch", "--detach", self.candidate])
         off_master = self.commit({"CHANGELOG.md": "Unmerged notes\n"})
@@ -92,6 +94,14 @@ class ReleasePromotionTests(unittest.TestCase):
             self.select(master, release=off_master)
         with self.assertRaisesRegex(DeltaWorkflowError, "not on the selected history"):
             self.select(master, promotion=off_master)
+
+    def test_queued_promotion_checks_live_feed_not_pinned_policy_feed(self) -> None:
+        master = self.commit({"website/preview.json": '{"release_version":"2026.10.28.3"}\n'})
+        for version in ("2026.10.28.2", "2026.10.28.3"):
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(DeltaWorkflowError, "must be newer than published 2026.10.28.3"):
+                    self.select(master, promotion=self.candidate, version=version)
+        self.assertEqual(self.select(master, version="2026.10.28.4"), (master, master))
 
 
 class PublicationWorkflowContractTests(unittest.TestCase):

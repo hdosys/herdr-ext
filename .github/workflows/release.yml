@@ -1045,9 +1045,6 @@ jobs:
             "$metadata" >/dev/null
 
           release_version="$(jq -er .release_version "$metadata")"
-          python3 control/scripts/preview.py require-newer-herdr-win-release \
-            --release-version "$release_version" \
-            --manifest control/website/preview.json
           asset_names_json="$(jq -cS .asset_names "$metadata")"
           expected_names="$(python3 control/scripts/preview.py herdr-ext-asset-names \
             --release-version "$release_version" | jq -cS .)"
@@ -1113,7 +1110,7 @@ jobs:
           revision="$(python3 control/scripts/release_promotion.py \
             --candidate-control "$control_sha" \
             --candidate-workflow "$BUILD_HEAD_SHA" \
-            --promotion-ref "$GITHUB_SHA" --ref origin/master)"
+            --promotion-ref "$GITHUB_SHA" --release-version "$release_version" --ref origin/master)"
           release_sha="$(jq -er .release_sha <<<"$revision")"
           expected_build_id="$(python3 control/scripts/preview.py candidate-build-id \
             --upstream-sha "$upstream_sha" \
@@ -1204,7 +1201,8 @@ jobs:
             revision="$(python3 ../control/scripts/release_promotion.py \
               --candidate-control "$CONTROL_SHA" \
               --candidate-workflow "$CANDIDATE_WORKFLOW_SHA" \
-              --promotion-ref "$GITHUB_SHA" --ref origin/master --release-ref "$tag_sha")"
+              --promotion-ref "$GITHUB_SHA" --release-version "$RELEASE_VERSION" \
+              --ref origin/master --release-ref "$tag_sha")"
             RELEASE_SHA="$(jq -er .release_sha <<<"$revision")"
           fi
 
@@ -1408,7 +1406,8 @@ jobs:
           revision="$(python3 scripts/release_promotion.py \
             --candidate-control "$CONTROL_SHA" \
             --candidate-workflow "$CANDIDATE_WORKFLOW_SHA" \
-            --promotion-ref "$GITHUB_SHA" --ref origin/master --release-ref "$RELEASE_SHA")"
+            --promotion-ref "$GITHUB_SHA" --release-version "$RELEASE_VERSION" \
+            --ref origin/master --release-ref "$RELEASE_SHA")"
           manifest_parent="$(jq -er .master_sha <<<"$revision")"
           git checkout --detach "$manifest_parent"
           generator="$GITHUB_WORKSPACE/control/scripts/preview.py"

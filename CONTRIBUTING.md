@@ -626,6 +626,8 @@ only the three existing publication shell bodies to differ, not build steps,
 toolchains, scheduling, permissions or other configuration. Unsupported layouts or
 file types fail closed. The same check runs before tag publication and again before
 manifest generation, followed by the existing exact-parent/non-force push guard.
+The policy stays pinned to its executing workflow revision, while CalVer freshness
+is checked against the validated current master manifest, including queued promotions.
 
 The eligibility check is read-only and neither builds nor publishes:
 
@@ -633,7 +635,7 @@ The eligibility check is read-only and neither builds nor publishes:
 python scripts/release_promotion.py `
   --candidate-control <metadata-control-sha> `
   --candidate-workflow <metadata-workflow-sha> `
-  --promotion-ref HEAD --ref origin/master
+  --promotion-ref HEAD --release-version <candidate-CalVer> --ref origin/master
 ```
 
 Do not reuse one CalVer for different source. Linux and macOS publish raw
