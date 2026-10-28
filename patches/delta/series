@@ -19,3 +19,4 @@
 0036-clickable-script-status.patch
 0037-windows-process-boundaries.patch
 0039-terminal-hyperlink-safety.patch
+0040-shutdown-session-preservation.patch
