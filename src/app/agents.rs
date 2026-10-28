@@ -356,7 +356,16 @@ impl App {
                 timeout_ms: None,
             };
 
-            match start(self, params) {
+            let preserve_checkpoint =
+                self.pane_exit_checkpoint_pending && !self.state.session_dirty;
+            let started = start(self, params);
+            if preserve_checkpoint {
+                // Delayed automatic launch is still part of the replacement,
+                // not a new user mutation that may discard the saved layout.
+                self.pane_exit_checkpoint_pending = true;
+                self.finish_checkpointed_pane_exit();
+            }
+            match started {
                 Ok((agent, _)) => {
                     tracing::info!(agent = label, pane_id = %agent.pane_id, "started configured agent in new tab");
                     changed = true;
@@ -757,6 +766,103 @@ mod tests {
             ),
             ["opencode", "attach", "http://127.0.0.1:4096"]
         );
+    }
+
+    #[tokio::test]
+    async fn delayed_auto_start_preserves_checkpoint_until_explicit_launch() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "herdr-auto-start-checkpoint-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::env::set_var("XDG_CONFIG_HOME", &home);
+        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            rx,
+            crate::api::EventHub::default(),
+        );
+        app.policy.persist_session = true;
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("preserved")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.checkpoint_session_before_pane_exit();
+
+        // Model ensure_default_workspace's automatic replacement, but leave its
+        // shell initially unreadable so launch happens on a later scheduler tick.
+        let mut replacement = crate::workspace::Workspace::test_new("replacement");
+        let manual_tab = replacement.test_add_tab(None);
+        let automatic_root = replacement.tabs[0].root_pane;
+        let manual_root = replacement.tabs[manual_tab].root_pane;
+        app.state.workspaces = vec![replacement];
+        app.state.ensure_test_terminals();
+        app.finish_checkpointed_pane_exit();
+        app.tab_auto_start_agent = Some(crate::detect::Agent::OpenCode);
+        let automatic_terminal = app.state.workspaces[0].tabs[0].panes[&automatic_root]
+            .attached_terminal_id
+            .clone();
+        let manual_terminal = app.state.workspaces[0].tabs[manual_tab].panes[&manual_root]
+            .attached_terminal_id
+            .clone();
+        let (automatic, mut automatic_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        let (manual, mut manual_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        manual.test_process_pty_bytes(b"$ ");
+        app.terminal_runtimes
+            .insert(automatic_terminal.clone(), automatic);
+        app.terminal_runtimes.insert(manual_terminal, manual);
+        app.queue_tab_auto_start_agent(0, 0);
+        assert_eq!(app.pending_tab_auto_start_agents.len(), 1);
+        assert!(automatic_rx.try_recv().is_err());
+        app.terminal_runtimes
+            .get(&automatic_terminal)
+            .unwrap()
+            .test_process_pty_bytes(b"$ ");
+        assert!(app.try_start_tab_auto_start_agents(Instant::now()));
+        automatic_rx
+            .try_recv()
+            .expect("automatic launch reached the shared submission path");
+        app.start_background_session_save();
+        if let Some(thread) = app.session_save_thread.take() {
+            thread.join().unwrap();
+        }
+        app.save_session_on_shutdown();
+        assert_eq!(
+            crate::persist::load().unwrap().workspaces[0]
+                .custom_name
+                .as_deref(),
+            Some("preserved")
+        );
+
+        assert!(app
+            .start_agent(crate::api::schema::AgentStartParams {
+                name: "explicit-launch".into(),
+                kind: "opencode".into(),
+                pane_id: app.public_pane_id(0, manual_root).unwrap(),
+                args: Vec::new(),
+                timeout_ms: None,
+            })
+            .is_ok());
+        manual_rx
+            .try_recv()
+            .expect("explicit launch reached the shared submission path");
+        app.save_session_on_shutdown();
+        assert_eq!(
+            crate::persist::load().unwrap().workspaces[0]
+                .custom_name
+                .as_deref(),
+            Some("replacement")
+        );
+        drop(app);
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[tokio::test]
