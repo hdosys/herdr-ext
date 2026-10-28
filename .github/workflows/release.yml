@@ -674,7 +674,7 @@ jobs:
       - name: Upload tested package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: herdr-win-candidate-windows-${{ github.run_id }}
+          name: herdr-ext-candidate-windows-${{ github.run_id }}
           path: |
             artifact/${{ needs.prepare.outputs.archive_asset_name }}
             artifact/${{ needs.prepare.outputs.archive_asset_name }}.sha256
@@ -906,7 +906,7 @@ jobs:
       - name: Upload tested executable
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: herdr-win-portable-${{ matrix.asset_key }}-${{ github.run_id }}
+          name: herdr-ext-portable-${{ matrix.asset_key }}-${{ github.run_id }}
           path: |
             artifact/${{ steps.asset.outputs.name }}
             artifact/${{ steps.asset.outputs.name }}.sha256
@@ -995,7 +995,7 @@ jobs:
       - name: Download selected Windows candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: herdr-win-candidate-windows-${{ steps.build_run.outputs.run_id }}
+          name: herdr-ext-candidate-windows-${{ steps.build_run.outputs.run_id }}
           path: release-assets
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -1004,7 +1004,7 @@ jobs:
       - name: Download selected portable candidates
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: herdr-win-portable-*-${{ steps.build_run.outputs.run_id }}
+          pattern: herdr-ext-portable-*-${{ steps.build_run.outputs.run_id }}
           path: release-assets
           merge-multiple: true
           github-token: ${{ github.token }}
