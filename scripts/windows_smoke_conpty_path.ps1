@@ -61,8 +61,12 @@ $oldPath = $env:PATH
 $oldSession = $env:HERDR_SESSION
 $oldSocket = $env:HERDR_SOCKET_PATH
 $oldClientSocket = $env:HERDR_CLIENT_SOCKET_PATH
+$oldConfigHome = $env:XDG_CONFIG_HOME
+$oldStateHome = $env:XDG_STATE_HOME
 $env:PATH = "$fakeDir;$oldPath"
 $env:HERDR_SESSION = $Session
+$env:XDG_CONFIG_HOME = $fakeDir
+$env:XDG_STATE_HOME = $fakeDir
 Remove-Item Env:HERDR_SOCKET_PATH, Env:HERDR_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
 
 $server = $null
@@ -157,6 +161,16 @@ try {
         Remove-Item Env:HERDR_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
     } else {
         $env:HERDR_CLIENT_SOCKET_PATH = $oldClientSocket
+    }
+    if ($null -eq $oldConfigHome) {
+        Remove-Item Env:XDG_CONFIG_HOME -ErrorAction SilentlyContinue
+    } else {
+        $env:XDG_CONFIG_HOME = $oldConfigHome
+    }
+    if ($null -eq $oldStateHome) {
+        Remove-Item Env:XDG_STATE_HOME -ErrorAction SilentlyContinue
+    } else {
+        $env:XDG_STATE_HOME = $oldStateHome
     }
     Remove-Item -Recurse -Force $fakeDir -ErrorAction SilentlyContinue
 }
