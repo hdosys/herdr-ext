@@ -4,6 +4,29 @@ This changelog records only user-visible changes released by Herdr Extended. For
 
 ## Unreleased
 
+## [2026.10.28.1] - 2026-10-28
+
+Herdr Extended snapshot based on Herdr v0.9.5 with three reviewed upstream fixes.
+
+### Changed
+- Update the upstream foundation to Herdr v0.9.5 while retaining Herdr Extended's
+  managed Windows distribution, remote provisioning, Agent controls and status links.
+- Update the Windows ConPTY runtime to Microsoft's stable package 1.25.260930003.
+
+### Fixed
+- Prevent a server crash when styled terminal hyperlinks cross a page boundary
+  whose style storage must grow or split. ([herdrdev/herdr#5303](https://github.com/herdrdev/herdr/pull/5303))
+- Preserve the saved workspace, tab and pane layout when pane processes exit during
+  host shutdown, including Unix hangup cases without logind. Explicitly closing the
+  final pane still clears its saved session; automatic Agent startup does not
+  overwrite the protected layout. ([herdrdev/herdr#5510](https://github.com/herdrdev/herdr/pull/5510))
+- Keep a live Unix server's sockets when a connection probe times out, rather than
+  treating the timeout as proof of a stale socket. ([herdrdev/herdr#5511](https://github.com/herdrdev/herdr/pull/5511))
+- Remote provisioning transfers status-bar settings and requires explicit consent
+  before overwriting existing configuration.
+- Windows uninstall refuses an unknown session connection state instead of
+  reporting that every session has stopped.
+
 ## [2026.10.03.3] - 2026-10-03
 
 Herdr Extended snapshot based on Herdr v0.9.3 plus the maintained delta.

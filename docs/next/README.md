@@ -10,7 +10,7 @@ Every published release contains matching Windows, Linux, and macOS binaries bui
 
 **Current release:** [2026.10.03.3](https://github.com/hdosys/herdr-ext/releases/tag/v2026.10.03.3), based on Herdr v0.9.3. See the [changelog](https://github.com/hdosys/herdr-ext/blob/master/CHANGELOG.md) for shipped changes.
 
-**Development source:** the maintained queue now targets Herdr v0.9.5. This upstream refresh is not yet a published Herdr Extended release.
+**Development source:** Herdr v0.9.5 plus three reviewed critical upstream fixes. Candidate **2026.10.28.1** is being prepared; it is not yet a published Herdr Extended release.
 
 [What differs from upstream](#what-differs-from-upstream) · [Install](#install) · [First use](#first-use) · [Everyday use](#everyday-use) · [Troubleshooting](#troubleshooting) · [Project reference](#project-reference)
 
@@ -78,6 +78,7 @@ When equivalent behavior reaches the reviewed upstream base, its fork implementa
 | --- | --- | --- |
 | Native ConPTY foundation | ✅ **Provided upstream** | Reuses upstream's modern app-local ConPTY packaging rather than maintaining a duplicate foundation. |
 | Configured onboarding prefix | ✅ **Provided by Herdr v0.9.5** · [#4747](https://github.com/herdrdev/herdr/pull/4747) | Upstream renders the configured prefix, sizes longer hints, and owns the regression test. The duplicate fork mailbox is retired. |
+| Post-stable crash and session protection | **Reviewed upstream backports** · [Inventory](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/README.md#reviewed-post-v095-critical-fixes) | Prevents the cursor/hyperlink page-migration crash, preserves shutdown session checkpoints, and avoids deleting slow live Unix server sockets. |
 | Windows bridge downloads | ✅ **Upstream runtime, additional regression coverage** · [`0019`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0019-windows-bridge-blocking-download.patch) | Exercises the upstream bridge through native Windows polling/download and peer-disconnect checks. |
 | Associated control-key text | ✅ **Upstream runtime, additional regression coverage** · [`0021`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0021-associated-control-key-text.patch) | Extends captured Tab/Escape parser cases without replacing the upstream parser implementation. |
 | Public agent focus | ✅ **Upstream runtime, additional regression coverage** · [`0026`](https://github.com/hdosys/herdr-ext/blob/master/patches/delta/0026-public-agent-focus-projection.patch) | Checks that failed focus requests preserve the client view and bounds test response waits. |

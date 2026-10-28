@@ -1,15 +1,15 @@
-From 77d611bf5902cacf22b22330d5d47866bda8db19 Mon Sep 17 00:00:00 2001
+From 5bd70eff26d97dd280913fe824cf260c2a224712 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Sat, 22 Aug 2026 18:22:00 +0200
 Subject: [PATCH] feat(session): auto-start configured agent
 
 Refs herdrdev/herdr#321
 ---
- .../src/content/docs/configuration.mdx        |  51 +++
+ .../src/content/docs/configuration.mdx        |  51 ++
  .../website/src/data/config-reference.json    |  32 +-
- src/app/agent_resume.rs                       |  56 +--
- src/app/agents.rs                             | 412 +++++++++++++++++-
- src/app/api/panes.rs                          |  30 ++
+ src/app/agent_resume.rs                       |  56 +-
+ src/app/agents.rs                             | 518 +++++++++++++++++-
+ src/app/api/panes.rs                          |  30 +
  src/app/api/tabs.rs                           |  10 +-
  src/app/creation.rs                           |   2 +
  src/app/mod.rs                                |  31 +-
@@ -20,9 +20,9 @@ Refs herdrdev/herdr#321
  .../tests/agents_worktrees_notifications.rs   |   7 +-
  .../shell/tests/keybindings_settings.rs       |  93 ++++
  src/config.rs                                 |  23 +-
- src/config/io.rs                              |  28 ++
+ src/config/io.rs                              |  28 +
  src/config/keybinds.rs                        |   3 +
- src/config/model.rs                           |  87 +++-
+ src/config/model.rs                           |  87 ++-
  src/input/keybind_help.rs                     |   4 +
  src/input/keybindings.rs                      |   2 +
  src/main.rs                                   |  13 +-
@@ -30,13 +30,13 @@ Refs herdrdev/herdr#321
  src/platform/fallback.rs                      |   4 -
  src/platform/linux.rs                         |   4 -
  src/platform/macos.rs                         |   4 -
- src/platform/mod.rs                           | 224 ++++++++--
- src/platform/windows.rs                       | 205 +++++----
+ src/platform/mod.rs                           | 224 ++++++--
+ src/platform/windows.rs                       | 205 ++++---
  src/server/client_commands.rs                 |   1 +
  src/server/headless.rs                        |   2 +-
  src/terminal/runtime.rs                       |   4 +
  tests/fixtures/endpoint-method-shapes-v1.json |   1 +
- 31 files changed, 1209 insertions(+), 201 deletions(-)
+ 31 files changed, 1315 insertions(+), 201 deletions(-)
 
 diff --git a/docs/next/website/src/content/docs/configuration.mdx b/docs/next/website/src/content/docs/configuration.mdx
 index 8184144b49bfd953234503198b98394b68061a12..0c459dbf71c6a674532d812de6ddbab55e76b152 100644
@@ -259,7 +259,7 @@ index f088138c7a9f16d979f1aa2fc773c83c58f4c2d7..36361cb6f418af1a16a1758f7b40748c
 -    }
  }
 diff --git a/src/app/agents.rs b/src/app/agents.rs
-index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd05862e2abed 100644
+index 48c511d24cd30d3c2026e864e340a362d2613dab..1ca536d5c27011a2afd71eac67cc0fdcd8bbdf1c 100644
 --- a/src/app/agents.rs
 +++ b/src/app/agents.rs
 @@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
@@ -301,7 +301,7 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
  impl App {
      pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
          self.state
-@@ -152,6 +166,226 @@ impl App {
+@@ -152,6 +166,235 @@ impl App {
              })
      }
  
@@ -495,7 +495,16 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
 +                timeout_ms: None,
 +            };
 +
-+            match start(self, params) {
++            let preserve_checkpoint =
++                self.pane_exit_checkpoint_pending && !self.state.session_dirty;
++            let started = start(self, params);
++            if preserve_checkpoint {
++                // Delayed automatic launch is still part of the replacement,
++                // not a new user mutation that may discard the saved layout.
++                self.pane_exit_checkpoint_pending = true;
++                self.finish_checkpointed_pane_exit();
++            }
++            match started {
 +                Ok((agent, _)) => {
 +                    tracing::info!(agent = label, pane_id = %agent.pane_id, "started configured agent in new tab");
 +                    changed = true;
@@ -528,7 +537,7 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
      pub(super) fn start_agent(
          &mut self,
          params: AgentStartParams,
-@@ -202,7 +436,7 @@ impl App {
+@@ -202,7 +445,7 @@ impl App {
              .get(&terminal_id)
              .ok_or_else(|| AgentStartError::TargetUnavailable(params.pane_id.clone()))?;
          let shell_name = available_shell_name(runtime)
@@ -537,7 +546,7 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
  
          let argv = agent_launch_argv(kind, params.args);
          let command = crate::platform::interactive_shell_command(&argv, &shell_name)
-@@ -269,7 +503,7 @@ impl App {
+@@ -269,7 +512,7 @@ impl App {
                  code: "agent_pane_not_found".into(),
                  message: format!("agent target pane {target} not found"),
              },
@@ -546,7 +555,7 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
                  code: "agent_pane_busy".into(),
                  message: format!("agent target pane {target} is not an available shell"),
              },
-@@ -466,6 +700,7 @@ pub(super) enum AgentStartError {
+@@ -466,6 +709,7 @@ pub(super) enum AgentStartError {
      InvalidTimeout,
      TargetNotFound(String),
      TargetBusy(String),
@@ -554,7 +563,7 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
      TargetUnavailable(String),
      InputFailed(String),
      DuplicateName {
-@@ -487,7 +722,8 @@ pub(super) enum AgentRenameError {
+@@ -487,7 +731,8 @@ pub(super) enum AgentRenameError {
  
  #[cfg(test)]
  mod tests {
@@ -564,7 +573,7 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
  
      #[test]
      fn agent_names_use_a_small_cli_safe_grammar() {
-@@ -507,4 +743,170 @@ mod tests {
+@@ -507,4 +752,267 @@ mod tests {
              assert!(!valid_agent_name(name), "expected {name:?} to be invalid");
          }
      }
@@ -582,6 +591,103 @@ index 48c511d24cd30d3c2026e864e340a362d2613dab..ab09bf87fac7adb006e8946ac01dd058
 +            ),
 +            ["opencode", "attach", "http://127.0.0.1:4096"]
 +        );
++    }
++
++    #[tokio::test]
++    async fn delayed_auto_start_preserves_checkpoint_until_explicit_launch() {
++        let _guard = crate::config::test_config_env_lock().lock().unwrap();
++        let home = std::env::temp_dir().join(format!(
++            "herdr-auto-start-checkpoint-{}-{}",
++            std::process::id(),
++            std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .unwrap()
++                .as_nanos(),
++        ));
++        std::env::set_var("XDG_CONFIG_HOME", &home);
++        std::env::remove_var(crate::session::SESSION_ENV_VAR);
++        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
++        let mut app = super::super::App::new(
++            &crate::config::Config::default(),
++            crate::app::AppPolicy::TEST,
++            None,
++            rx,
++            crate::api::EventHub::default(),
++        );
++        app.policy.persist_session = true;
++        app.state.workspaces = vec![crate::workspace::Workspace::test_new("preserved")];
++        app.state.ensure_test_terminals();
++        app.state.active = Some(0);
++        app.checkpoint_session_before_pane_exit();
++
++        // Model ensure_default_workspace's automatic replacement, but leave its
++        // shell initially unreadable so launch happens on a later scheduler tick.
++        let mut replacement = crate::workspace::Workspace::test_new("replacement");
++        let manual_tab = replacement.test_add_tab(None);
++        let automatic_root = replacement.tabs[0].root_pane;
++        let manual_root = replacement.tabs[manual_tab].root_pane;
++        app.state.workspaces = vec![replacement];
++        app.state.ensure_test_terminals();
++        app.finish_checkpointed_pane_exit();
++        app.tab_auto_start_agent = Some(crate::detect::Agent::OpenCode);
++        let automatic_terminal = app.state.workspaces[0].tabs[0].panes[&automatic_root]
++            .attached_terminal_id
++            .clone();
++        let manual_terminal = app.state.workspaces[0].tabs[manual_tab].panes[&manual_root]
++            .attached_terminal_id
++            .clone();
++        let (automatic, mut automatic_rx) =
++            crate::terminal::TerminalRuntime::test_with_channel(80, 24);
++        let (manual, mut manual_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
++        manual.test_process_pty_bytes(b"$ ");
++        app.terminal_runtimes
++            .insert(automatic_terminal.clone(), automatic);
++        app.terminal_runtimes.insert(manual_terminal, manual);
++        app.queue_tab_auto_start_agent(0, 0);
++        assert_eq!(app.pending_tab_auto_start_agents.len(), 1);
++        assert!(automatic_rx.try_recv().is_err());
++        app.terminal_runtimes
++            .get(&automatic_terminal)
++            .unwrap()
++            .test_process_pty_bytes(b"$ ");
++        assert!(app.try_start_tab_auto_start_agents(Instant::now()));
++        automatic_rx
++            .try_recv()
++            .expect("automatic launch reached the shared submission path");
++        app.start_background_session_save();
++        if let Some(thread) = app.session_save_thread.take() {
++            thread.join().unwrap();
++        }
++        app.save_session_on_shutdown();
++        assert_eq!(
++            crate::persist::load().unwrap().workspaces[0]
++                .custom_name
++                .as_deref(),
++            Some("preserved")
++        );
++
++        assert!(app
++            .start_agent(crate::api::schema::AgentStartParams {
++                name: "explicit-launch".into(),
++                kind: "opencode".into(),
++                pane_id: app.public_pane_id(0, manual_root).unwrap(),
++                args: Vec::new(),
++                timeout_ms: None,
++            })
++            .is_ok());
++        manual_rx
++            .try_recv()
++            .expect("explicit launch reached the shared submission path");
++        app.save_session_on_shutdown();
++        assert_eq!(
++            crate::persist::load().unwrap().workspaces[0]
++                .custom_name
++                .as_deref(),
++            Some("replacement")
++        );
++        drop(app);
++        std::env::remove_var("XDG_CONFIG_HOME");
++        let _ = std::fs::remove_dir_all(home);
 +    }
 +
 +    #[tokio::test]

@@ -352,6 +352,11 @@ jobs:
           cargo test --locked --target $env:WINDOWS_TARGET --bin herdr windows_key_records_follow_text_and_command_contract
           cargo test --locked --target $env:WINDOWS_TARGET --bin herdr grouped_key_repeats_expand_at_the_destination
           cargo test --locked --target $env:WINDOWS_TARGET --bin herdr session_discovery_distinguishes_denied_running_and_stopped_servers
+          cargo test --locked --target $env:WINDOWS_TARGET --bin herdr normal_autosave_preserves_a_signaled_exit_checkpoint
+          cargo test --locked --target $env:WINDOWS_TARGET --bin herdr normal_last_pane_exit_clears_saved_session
+          cargo test --locked --target $env:WINDOWS_TARGET --bin herdr durable_mutation_after_pane_exit_checkpoint_wins_on_shutdown
+          cargo test --locked --target $env:WINDOWS_TARGET --bin herdr delayed_auto_start_preserves_checkpoint_until_explicit_launch
+          cargo test --locked --target $env:WINDOWS_TARGET --bin herdr stale_socket_connect_errors_keep_unix_would_block_strict
           cargo test --locked --target $env:WINDOWS_TARGET --bin herdr host_color
           cargo test --locked --target $env:WINDOWS_TARGET --bin herdr pane::cursor::tests
           cargo test --locked --target $env:WINDOWS_TARGET --bin herdr cursor_color
@@ -835,6 +840,19 @@ jobs:
           cargo test --locked --target ${{ matrix.target }} --bin herdr client::input::tests
           cargo test --locked --target ${{ matrix.target }} --bin herdr grouped_key_repeats_expand_at_the_destination
           cargo test --locked --target ${{ matrix.target }} --bin herdr new_tab_agent_auto_start_reuses_managed_launch_for_each_root
+          cargo test --locked --target ${{ matrix.target }} --bin herdr normal_autosave_preserves_a_signaled_exit_checkpoint
+          cargo test --locked --target ${{ matrix.target }} --bin herdr normal_last_pane_exit_clears_saved_session
+          cargo test --locked --target ${{ matrix.target }} --bin herdr durable_mutation_after_pane_exit_checkpoint_wins_on_shutdown
+          cargo test --locked --target ${{ matrix.target }} --bin herdr delayed_auto_start_preserves_checkpoint_until_explicit_launch
+          cargo test --locked --target ${{ matrix.target }} --bin herdr server_hangup_preserves_unsignaled_pane_exit_checkpoint
+          cargo test --locked --target ${{ matrix.target }} --bin herdr server_hangup_is_recorded_before_async_handling
+          cargo test --locked --target ${{ matrix.target }} --bin herdr stale_socket_connect_errors_keep_unix_would_block_strict
+
+      - name: Check terminal hyperlink page transitions
+        if: matrix.asset_key == 'linux-x86_64'
+        working-directory: source/vendor/libghostty-vt
+        run: |
+          zig build test-lib-vt -j$(getconf _NPROCESSORS_ONLN) -Dtest-filter='Screen: cursorAbsolute'
 
       - name: Package and validate executable
         shell: bash

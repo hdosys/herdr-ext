@@ -20,6 +20,15 @@ configuration repository.
 
 ## Proposals
 
+- **Status: done. Validate replay whitespace using the source tree's attributes.**
+  The reviewed hyperlink fix includes a native vendor patch whose blank context
+  lines intentionally contain a space. Temporary-index validation ran inside the
+  control checkout and incorrectly rejected those bytes despite the source tree's
+  existing attributes. The shared check now uses `git --attr-source=<tree>`; it does
+  not rewrite upstream patch bytes or disable whitespace checks globally. A focused
+  test accepts the native payload and still rejects trailing whitespace in code.
+  Owner: `scripts/delta_workflow.py`.
+
 - **Status: done. Keep release documentation out of candidate rebuild decisions.**
   Candidate40515129555 had passed every platform, but preparing its changelog would
   have invalidated it solely because the control commit moved. Promotion now retains

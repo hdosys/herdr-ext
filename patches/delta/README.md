@@ -15,13 +15,16 @@ The current queue targets Herdr v0.9.5 and retains these logical slots:
 - 0005: OpenCode V1 lifecycle, pane-local selection, task titles, prompt readiness, and direct-child layouts.
 - 0006: shared runtime `curl` policy.
 - 0008: selected-path Git trust and bounded Windows worktree terminal shutdown.
-- 0009: persistent-session Agent auto-start, client-preferred Agent shortcut, and shared shell-native launch.
+- 0009: persistent-session Agent auto-start, client-preferred Agent shortcut, shared shell-native launch, and checkpoint-safe delayed startup.
 - 0010: transient foreground takeover recovery.
 - 0011: 64-token metadata capacity.
 - 0012: client-local completion controls and cancellation suppression.
 - 0016: hide the inapplicable row-selection hint in integration settings.
 - 0036: bounded multi-link script status and optional client-local hyperlink projection.
 - 0037: Windows process termination rights and omission of environment values from PTY diagnostics.
+- 0039: terminal cursor/hyperlink safety across page growth and splitting.
+- 0040: preserve pane-exit checkpoints across autosave and Unix host hangup.
+- 0041: keep live Unix sockets after a connection-probe timeout.
 
 Slots 0007, 0014, 0017, and 0018 are absent because v0.9.0 already owns the
 equivalent native-path docs assertion, plugin-root resolution, Devin configuration,
@@ -62,6 +65,17 @@ authorized stable refresh when equivalent stable behavior includes those
 adaptations. Never retire a mailbox merely because its upstream PR was merged.
 Retired identifiers remain unused. `series` remains the only application order;
 no separate backport manifest or unreleased catch-all mailbox is maintained.
+
+## Reviewed post-v0.9.5 critical fixes
+
+These are the only selected post-stable runtime backports. `BASE` remains v0.9.5;
+the remaining upstream development changes are not included.
+
+| Slot | Responsibility | Reviewed immutable source |
+| --- | --- | --- |
+| [0039](0039-terminal-hyperlink-safety.patch) | Prevent the shared terminal engine from crashing during cursor hyperlink migration. Includes upstream's two regressions and native vendor patch. | [PR 5303](https://github.com/herdrdev/herdr/pull/5303), `e97c344ae016224e6bb255988ad417e8190da6e2` |
+| [0040](0040-shutdown-session-preservation.patch) | Preserve saved layout through autosave after shutdown-related pane exits; keep explicit-close behavior. | [PR 5510](https://github.com/herdrdev/herdr/pull/5510), `6b526626f66e22c08962a7f39a83fc9ac2ebda62` |
+| [0041](0041-unix-live-socket-safety.patch) | A Unix timeout is not sufficient evidence to remove an existing server socket. No new server-lock architecture. | [PR 5511](https://github.com/herdrdev/herdr/pull/5511), `ff5881ef45086ffef98a907f0009f37f36565681` |
 
 When a feature evolves, refresh its existing mailbox in place. Add a new patch
 only when the change has a genuinely independent owner, verification plan, and
