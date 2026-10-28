@@ -1,0 +1,44 @@
+From 31c09fe19403f1f16096352ebc1184e78c561682 Mon Sep 17 00:00:00 2001
+From: Can Celik <ogulcancelik@gmail.com>
+Date: Fri, 23 Oct 2026 17:03:42 +0300
+Subject: [PATCH] fix: keep a slow server's socket instead of treating a
+ connect timeout as stale (#5511)
+
+refs #5230
+
+Refs: herdrdev/herdr#5511, herdrdev/herdr#5230
+Upstream-Commit: ff5881ef45086ffef98a907f0009f37f36565681
+---
+ src/ipc.rs | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/ipc.rs b/src/ipc.rs
+index be58c0e90f866cd3bdd1c57d1ffe2588cbd053ca..900c5f0a7933ac6ec1851100784a4af68bc6b058 100644
+--- a/src/ipc.rs
++++ b/src/ipc.rs
+@@ -147,8 +147,8 @@ pub(crate) fn prepare_socket_path(
+ fn stale_socket_connect_error(kind: io::ErrorKind) -> bool {
+     matches!(
+         kind,
+-        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound | io::ErrorKind::TimedOut
+-    ) || (cfg!(windows) && kind == io::ErrorKind::WouldBlock)
++        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
++    ) || (cfg!(windows) && matches!(kind, io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock))
+ }
+ 
+ pub(crate) fn local_stream_peer_closed(stream: &mut LocalStream) -> io::Result<bool> {
+@@ -440,7 +440,10 @@ mod tests {
+     fn stale_socket_connect_errors_keep_unix_would_block_strict() {
+         assert!(stale_socket_connect_error(io::ErrorKind::ConnectionRefused));
+         assert!(stale_socket_connect_error(io::ErrorKind::NotFound));
+-        assert!(stale_socket_connect_error(io::ErrorKind::TimedOut));
++        assert_eq!(
++            stale_socket_connect_error(io::ErrorKind::TimedOut),
++            cfg!(windows)
++        );
+         assert_eq!(
+             stale_socket_connect_error(io::ErrorKind::WouldBlock),
+             cfg!(windows)
+-- 
+2.56.0.windows.3
+

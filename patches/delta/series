@@ -20,3 +20,4 @@
 0037-windows-process-boundaries.patch
 0039-terminal-hyperlink-safety.patch
 0040-shutdown-session-preservation.patch
+0041-unix-live-socket-safety.patch
