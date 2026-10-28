@@ -1,4 +1,4 @@
-From 50e3b1089e19e0d2995b99fa8545b7d9bc7d9f52 Mon Sep 17 00:00:00 2001
+From d9091bc5f421eb7d8ca1cc40f6dd448078aa8cec Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH] feat(windows): manage fork distribution
@@ -40,8 +40,10 @@ Subject: [PATCH] feat(windows): manage fork distribution
  scripts/preview.py                            |  202 +-
  scripts/test_preview.py                       |  298 +-
  scripts/windows_check.ps1                     |   21 +-
- .../windows_install_conpty_package_test.ps1   |  631 +---
+ .../windows_install_conpty_package_test.ps1   |  634 +---
  scripts/windows_installer_fault_test.ps1      | 1357 +++++++++
+ ...indows_interactive_server_launch_probe.ps1 |   11 +
+ scripts/windows_smoke_conpty_path.ps1         |   14 +
  src/app/custom_commands.rs                    |    2 +-
  src/app/mod.rs                                |   57 -
  src/bin/herdr-installer-helper.rs             |   47 +
@@ -77,7 +79,8 @@ Subject: [PATCH] feat(windows): manage fork distribution
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 73 files changed, 12493 insertions(+), 3369 deletions(-)
+ vendor/portable-pty/src/win/psuedocon.rs      |    6 +-
+ 76 files changed, 12529 insertions(+), 3367 deletions(-)
  create mode 100644 .config/nextest.toml
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
@@ -58947,10 +58950,10 @@ index 7b289efb36f7258be8710a5260a5c53c48250e75..4435450e1120d8511ea35689adfb7a91
 -Invoke-Checked cargo @("build", "--locked")
 +Invoke-Checked cargo @("build", "--locked", "--jobs", [string][Environment]::ProcessorCount)
 diff --git a/scripts/windows_install_conpty_package_test.ps1 b/scripts/windows_install_conpty_package_test.ps1
-index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c2729de67 100644
+index 6d818e477b7317dc198d787e8b40956111ee3957..05c0a8d443a9ba41b5cfeb08d02876e880b220c6 100644
 --- a/scripts/windows_install_conpty_package_test.ps1
 +++ b/scripts/windows_install_conpty_package_test.ps1
-@@ -6,634 +6,21 @@ param(
+@@ -6,634 +6,34 @@ param(
  Set-StrictMode -Version Latest
  $ErrorActionPreference = "Stop"
  
@@ -59113,17 +59116,17 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
 -$realUserPathExisted = $realUserEnvironmentKey.GetValueNames() -contains "Path"
 -$realUserPath = if ($realUserPathExisted) {
 -    $realUserEnvironmentKey.GetValue("Path", $null, $registryOptions)
+-} else {
+-    $null
+-}
+-$realUserPathKind = if ($realUserPathExisted) {
+-    $realUserEnvironmentKey.GetValueKind("Path")
 +$tempRoot = if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
 +    [System.IO.Path]::GetTempPath()
  } else {
 -    $null
 +    $env:RUNNER_TEMP
  }
--$realUserPathKind = if ($realUserPathExisted) {
--    $realUserEnvironmentKey.GetValueKind("Path")
--} else {
--    $null
--}
 -$realUserEnvironmentKey.Dispose()
 +$root = Join-Path $tempRoot ("herdr-conpty-archive-test-" + [Guid]::NewGuid().ToString("N"))
 +$stage = Join-Path $root "stage"
@@ -59156,7 +59159,8 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
 +    & python "$PSScriptRoot\package_windows_conpty.py" "validate" "--stage-dir" $stage
      if ($LASTEXITCODE -ne 0) {
 -        throw "CMD bootstrap failed with exit code $LASTEXITCODE"
--    }
++        throw "ConPTY archive validation failed with exit code $LASTEXITCODE"
+     }
 -    $env:HERDR_INSTALLER_URL = $oldInstallerUrl
 -    $freshStableRelease = Get-ChildItem -LiteralPath (Join-Path $freshStableHome "packages\standalone\releases") -Directory |
 -        Where-Object { $_.Name.StartsWith("0.0.1-") } |
@@ -59194,7 +59198,10 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
 -    }
 -
 -    $badLocalChecksumRejected = $false
--    try {
++    # Validate the executable's acceptance of the adjacent bundle, not only
++    # metadata versus payload bytes. The existing smoke creates and uses a PTY.
++    $savedConpty = $env:HERDR_WINDOWS_CONPTY
+     try {
 -        & $installerPath `
 -            -ManifestUrl "$previewManifestUrl/unused" `
 -            -InstallDir $localInstallDir `
@@ -59266,10 +59273,14 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
 -            -ManifestUrl "http://127.0.0.1:$port/candidate.json" `
 -            -InstallDir $installDir `
 -            -ExpectedBuildId "installer-test"
--    } finally {
++        Remove-Item Env:HERDR_WINDOWS_CONPTY -ErrorAction SilentlyContinue
++        & "$PSScriptRoot\windows_smoke_conpty_path.ps1" -ExePath (Join-Path $stage 'herdr.exe')
+     } finally {
 -        if ($null -eq $oldConfigPath) {
 -            Remove-Item Env:HERDR_CONFIG_PATH -ErrorAction SilentlyContinue
--        } else {
++        if ($null -eq $savedConpty) {
++            Remove-Item Env:HERDR_WINDOWS_CONPTY -ErrorAction SilentlyContinue
+         } else {
 -            $env:HERDR_CONFIG_PATH = $oldConfigPath
 -        }
 -    }
@@ -59492,7 +59503,8 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
 -        }
 -        if ($realUserEnvironmentKey.GetValueKind("Path") -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) {
 -            throw "installer changed the real PATH registry value kind"
--        }
++            $env:HERDR_WINDOWS_CONPTY = $savedConpty
+         }
 -    } finally {
 -        $realUserEnvironmentKey.Dispose()
 -    }
@@ -59573,7 +59585,6 @@ index 6d818e477b7317dc198d787e8b40956111ee3957..331dec1946e78838302c93b9325a825c
 -    }
 -    if (Test-Path -LiteralPath $fakeInvocationMarker) {
 -        throw "installer invoked an unrecognized command despite an explicit channel"
-+        throw "ConPTY archive validation failed with exit code $LASTEXITCODE"
      }
  } finally {
 -    $env:HERDR_HOME = $oldHerdrHome
@@ -60957,6 +60968,61 @@ index 0000000000000000000000000000000000000000..23a1c7dfdfa643101147de33dc402ab4
 +        Remove-TestOwnedUserProfile
 +    }
 +}
+diff --git a/scripts/windows_interactive_server_launch_probe.ps1 b/scripts/windows_interactive_server_launch_probe.ps1
+index f772ac8b851dae0e569f833dd4ab678ac4d62e25..567e999824bb9406688b9f202de77bc2e2bc90da 100644
+--- a/scripts/windows_interactive_server_launch_probe.ps1
++++ b/scripts/windows_interactive_server_launch_probe.ps1
+@@ -262,6 +262,17 @@ try {
+         throw 'interactive server did not consume its bootstrap state'
+     }
+ 
++    # A ready empty server never loads ConPTY. Exercise the packaged PTY before
++    # accepting startup, with HERDR_WINDOWS_CONPTY cleared by the isolation above.
++    $createdOutput = @(& $exe workspace create --cwd $temporary 2>&1)
++    if ($LASTEXITCODE -ne 0) {
++        throw "interactive server PTY creation failed: $($createdOutput -join [Environment]::NewLine)"
++    }
++    $created = ($createdOutput -join [Environment]::NewLine) | ConvertFrom-Json
++    if ([string]::IsNullOrWhiteSpace($created.result.root_pane.pane_id)) {
++        throw 'interactive server PTY creation did not return a root pane'
++    }
++
+     $stopOutput = @(& $exe server stop 2>&1)
+     $stopExitCode = $LASTEXITCODE
+     if ($stopExitCode -ne 0) {
+diff --git a/scripts/windows_smoke_conpty_path.ps1 b/scripts/windows_smoke_conpty_path.ps1
+index 484f2a1f419cfcb1176c62919feb68e7f820eee7..45eac6c76120ba0eb2e90c6422cb30dc50fe8381 100644
+--- a/scripts/windows_smoke_conpty_path.ps1
++++ b/scripts/windows_smoke_conpty_path.ps1
+@@ -61,8 +61,12 @@ $oldPath = $env:PATH
+ $oldSession = $env:HERDR_SESSION
+ $oldSocket = $env:HERDR_SOCKET_PATH
+ $oldClientSocket = $env:HERDR_CLIENT_SOCKET_PATH
++$oldConfigHome = $env:XDG_CONFIG_HOME
++$oldStateHome = $env:XDG_STATE_HOME
+ $env:PATH = "$fakeDir;$oldPath"
+ $env:HERDR_SESSION = $Session
++$env:XDG_CONFIG_HOME = $fakeDir
++$env:XDG_STATE_HOME = $fakeDir
+ Remove-Item Env:HERDR_SOCKET_PATH, Env:HERDR_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
+ 
+ $server = $null
+@@ -158,5 +162,15 @@ try {
+     } else {
+         $env:HERDR_CLIENT_SOCKET_PATH = $oldClientSocket
+     }
++    if ($null -eq $oldConfigHome) {
++        Remove-Item Env:XDG_CONFIG_HOME -ErrorAction SilentlyContinue
++    } else {
++        $env:XDG_CONFIG_HOME = $oldConfigHome
++    }
++    if ($null -eq $oldStateHome) {
++        Remove-Item Env:XDG_STATE_HOME -ErrorAction SilentlyContinue
++    } else {
++        $env:XDG_STATE_HOME = $oldStateHome
++    }
+     Remove-Item -Recurse -Force $fakeDir -ErrorAction SilentlyContinue
+ }
 diff --git a/src/app/custom_commands.rs b/src/app/custom_commands.rs
 index 6e8a6c0165f6d564ef165ce314bfbfaee0458222..0eb4b8880a541a0e87b9c5e3676471a7f85a8dce 100644
 --- a/src/app/custom_commands.rs
@@ -72526,6 +72592,29 @@ index 2b6cf53507d9c61084f2354d2fcc30cd08a4fc7a..192f10dfa175582dc322630f60d4b8dd
  pub const CURRENT_PROTOCOL: u32 = 22;
  pub const CURRENT_ENDPOINT_PROTOCOL_GENERATION: u32 = 1;
  pub const SERVER_MESSAGE_SERVER_SHUTDOWN: u32 = 3;
+diff --git a/vendor/portable-pty/src/win/psuedocon.rs b/vendor/portable-pty/src/win/psuedocon.rs
+index 21700f702bbc0cb54cb4a3100c0d85a4236f155d..98b09804d4baeeabb310678efa5cdb86f5476491 100644
+--- a/vendor/portable-pty/src/win/psuedocon.rs
++++ b/vendor/portable-pty/src/win/psuedocon.rs
+@@ -158,15 +158,15 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+ const CONPTY_FILES: &[(&str, &str)] = &[
+     (
+         "conpty.dll",
+-        "39fba2713e2495117b1591ae8c32a3b904bea7aa66069cf7815e2844c76d75d8",
++        "feeef341d891643c62d30b6b07800bc70f0bc148f44cb8c3bee84aa557ae805a",
+     ),
+     (
+         "x64/OpenConsole.exe",
+-        "b7fd936c2668b87b9ecf7b3366dc6568afc1c6f981874cba3e955a1c35cf8160",
++        "3d66b23d0a71bb8eed2b77edc8b9df9bf54ce6c8fb74c863a30e760997f80586",
+     ),
+     (
+         "arm64/OpenConsole.exe",
+-        "ed7622fd0d3bedc9ab9f122f5e58edf0def9e7999224f52dd395ba9f54edbe09",
++        "4313825a3ba634d113cc6ed3bc8ce735e3c19d360cecd985794787479469f91f",
+     ),
+ ];
+ 
 -- 
 2.56.0.windows.3
 
