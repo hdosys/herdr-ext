@@ -158,15 +158,15 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 const CONPTY_FILES: &[(&str, &str)] = &[
     (
         "conpty.dll",
-        "39fba2713e2495117b1591ae8c32a3b904bea7aa66069cf7815e2844c76d75d8",
+        "feeef341d891643c62d30b6b07800bc70f0bc148f44cb8c3bee84aa557ae805a",
     ),
     (
         "x64/OpenConsole.exe",
-        "b7fd936c2668b87b9ecf7b3366dc6568afc1c6f981874cba3e955a1c35cf8160",
+        "3d66b23d0a71bb8eed2b77edc8b9df9bf54ce6c8fb74c863a30e760997f80586",
     ),
     (
         "arm64/OpenConsole.exe",
-        "ed7622fd0d3bedc9ab9f122f5e58edf0def9e7999224f52dd395ba9f54edbe09",
+        "4313825a3ba634d113cc6ed3bc8ce735e3c19d360cecd985794787479469f91f",
     ),
 ];
 

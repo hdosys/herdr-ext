@@ -262,6 +262,17 @@ try {
         throw 'interactive server did not consume its bootstrap state'
     }
 
+    # A ready empty server never loads ConPTY. Exercise the packaged PTY before
+    # accepting startup, with HERDR_WINDOWS_CONPTY cleared by the isolation above.
+    $createdOutput = @(& $exe workspace create --cwd $temporary 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "interactive server PTY creation failed: $($createdOutput -join [Environment]::NewLine)"
+    }
+    $created = ($createdOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace($created.result.root_pane.pane_id)) {
+        throw 'interactive server PTY creation did not return a root pane'
+    }
+
     $stopOutput = @(& $exe server stop 2>&1)
     $stopExitCode = $LASTEXITCODE
     if ($stopExitCode -ne 0) {
