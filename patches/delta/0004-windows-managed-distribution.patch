@@ -1,4 +1,4 @@
-From ad25711d0c7466e8ba48739c00cd4510ff3abeac Mon Sep 17 00:00:00 2001
+From 50e3b1089e19e0d2995b99fa8545b7d9bc7d9f52 Mon Sep 17 00:00:00 2001
 From: User-3090 <71881005+User-3090@users.noreply.github.com>
 Date: Thu, 13 Aug 2026 14:49:59 +0200
 Subject: [PATCH] feat(windows): manage fork distribution
@@ -25,6 +25,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  .../src/content/docs/zh-cn/windows-beta.mdx   |   27 +-
  .../website/src/data/config-reference.json    |   12 +-
  justfile                                      |    9 +-
+ packaging/windows/conpty.json                 |   14 +-
  packaging/windows/installer/artwork/README.md |   28 +
  .../installer-welcome-finish-164x314.bmp      |  Bin 0 -> 154542 bytes
  .../installer-welcome-finish-205x393.bmp      |  Bin 0 -> 242142 bytes
@@ -76,7 +77,7 @@ Subject: [PATCH] feat(windows): manage fork distribution
  tests/cli/harness.rs                          |    2 +-
  tests/cli/sessions.rs                         |   24 +-
  tests/support/mod.rs                          |   14 +
- 72 files changed, 12486 insertions(+), 3362 deletions(-)
+ 73 files changed, 12493 insertions(+), 3369 deletions(-)
  create mode 100644 .config/nextest.toml
  delete mode 100644 distribution/install.cmd
  delete mode 100644 distribution/install.ps1
@@ -1724,6 +1725,48 @@ index f39839938b63818bc3b711071fb3cae3099600aa..75b8d3ddb8192b8f020c30b44490eef4
  
  # Enforce deterministic UI hot-path architecture boundaries
  ui-hot-path-architecture-test:
+diff --git a/packaging/windows/conpty.json b/packaging/windows/conpty.json
+index 9bb7747373f66b92060b19357602abebb4434bb6..be74f16af78caf2148d62d48b0f6504c60661280 100644
+--- a/packaging/windows/conpty.json
++++ b/packaging/windows/conpty.json
+@@ -2,10 +2,10 @@
+   "schema_version": 1,
+   "package": {
+     "id": "Microsoft.Windows.Console.ConPTY",
+-    "version": "1.24.260710001",
+-    "release_tag": "v1.24.11911.0",
+-    "url": "https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.Windows.Console.ConPTY.1.24.260710001.nupkg",
+-    "sha256": "9382ad7becb7e4d84e300578d8e4f4df28f43d979d9055d978c42913c47e0e9d",
++    "version": "1.25.260930003",
++    "release_tag": "v1.25.2733.0",
++    "url": "https://github.com/microsoft/terminal/releases/download/v1.25.2733.0/Microsoft.Windows.Console.ConPTY.1.25.260930003.nupkg",
++    "sha256": "6d6f8b008c655d814c498d8205d4012dcd4d0b6dfc1096461d0a185d1e3caf03",
+     "license": "MIT"
+   },
+   "bundles": {
+@@ -15,19 +15,19 @@
+         {
+           "source": "runtimes/win-x64/native/conpty.dll",
+           "destination": "conpty/conpty.dll",
+-          "sha256": "39fba2713e2495117b1591ae8c32a3b904bea7aa66069cf7815e2844c76d75d8",
++          "sha256": "feeef341d891643c62d30b6b07800bc70f0bc148f44cb8c3bee84aa557ae805a",
+           "pe_machine": "0x8664"
+         },
+         {
+           "source": "build/native/runtimes/x64/OpenConsole.exe",
+           "destination": "conpty/x64/OpenConsole.exe",
+-          "sha256": "b7fd936c2668b87b9ecf7b3366dc6568afc1c6f981874cba3e955a1c35cf8160",
++          "sha256": "3d66b23d0a71bb8eed2b77edc8b9df9bf54ce6c8fb74c863a30e760997f80586",
+           "pe_machine": "0x8664"
+         },
+         {
+           "source": "build/native/runtimes/arm64/OpenConsole.exe",
+           "destination": "conpty/arm64/OpenConsole.exe",
+-          "sha256": "ed7622fd0d3bedc9ab9f122f5e58edf0def9e7999224f52dd395ba9f54edbe09",
++          "sha256": "4313825a3ba634d113cc6ed3bc8ce735e3c19d360cecd985794787479469f91f",
+           "pe_machine": "0xaa64"
+         }
+       ]
 diff --git a/packaging/windows/installer/artwork/README.md b/packaging/windows/installer/artwork/README.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..1052d0d018d531382d3764d34fa3883936232043
