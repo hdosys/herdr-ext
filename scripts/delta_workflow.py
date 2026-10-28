@@ -333,7 +333,7 @@ def replay_delta_tree(project_root: Path = PROJECT_ROOT) -> ReplayResult:
         base,
         [delta_root / mailbox for mailbox in mailboxes],
     )
-    _run_git(project_root, ["diff", "--check", base, tree])
+    _check_source_tree_whitespace(project_root, base, tree)
     return ReplayResult(base=base, mailboxes=mailboxes, tree=tree)
 
 
@@ -778,7 +778,7 @@ def refresh_delta(
             raise DeltaWorkflowError(
                 f"staged refresh replay differs: expected {expected_tree}, found {tree}"
             )
-        _run_git(project_root, ["diff", "--check", base, tree])
+        _check_source_tree_whitespace(project_root, base, tree)
         result = ReplayResult(base, retained, tree)
         for path, content in originals.items():
             if path.read_bytes() != content:
@@ -802,6 +802,12 @@ def _require_tree_object(project_root: Path, tree: str, label: str) -> None:
     object_type = _run_git(project_root, ["cat-file", "-t", tree]).stdout.strip()
     if object_type != "tree":
         raise DeltaWorkflowError(f"{label} identifies a {object_type}, not a tree")
+
+
+def _check_source_tree_whitespace(project_root: Path, base: str, tree: str) -> None:
+    # Temporary-index validation runs in the control checkout. Use the actual
+    # source tree's attributes, including legitimate unified-patch whitespace.
+    _run_git(project_root, [f"--attr-source={tree}", "diff", "--check", base, tree])
 
 
 def verify_replay_tree(
@@ -1219,7 +1225,7 @@ def _finalize_new_delta_mailbox(
             "new mailbox does not reproduce the tested source tree: "
             f"expected {expected_tree}, found {candidate_tree}{detail}"
         )
-    _run_git(project_root, ["diff", "--check", replay.base, candidate_tree])
+    _check_source_tree_whitespace(project_root, replay.base, candidate_tree)
 
     for path, original in original_mailboxes.items():
         if path.read_bytes() != original:
@@ -1338,7 +1344,7 @@ def finalize_delta_mailbox(
             "finalized queue does not reproduce the tested source tree: "
             f"expected {expected_tree}, found {candidate_tree}{detail}"
         )
-    _run_git(project_root, ["diff", "--check", replay.base, candidate_tree])
+    _check_source_tree_whitespace(project_root, replay.base, candidate_tree)
 
     if mailbox_path.read_bytes() != original_mailbox:
         raise DeltaWorkflowError(f"mailbox changed concurrently: {mailbox}")

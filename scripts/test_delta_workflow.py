@@ -15,6 +15,7 @@ from scripts.delta_workflow import (
     DEVELOPMENT_BRANCH,
     DEVELOPMENT_REMOTE_REF,
     DeltaWorkflowError,
+    _check_source_tree_whitespace,
     _git_command,
     compile_delta_prefixes,
     finalize_delta_mailbox,
@@ -127,6 +128,32 @@ class DeltaFixture:
 
 
 class DeltaWorkflowTests(unittest.TestCase):
+    def test_source_whitespace_policy_does_not_exempt_actual_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = DeltaFixture(Path(directory))
+            source = Path(directory) / "source"
+            start_delta_worktree("source-attributes", source, fixture.control)
+            (source / ".gitattributes").write_bytes(
+                b"vendor/patches/*.patch whitespace=-blank-at-eol,-blank-at-eof\n"
+            )
+            patch = source / "vendor" / "patches" / "fix.patch"
+            patch.parent.mkdir(parents=True)
+            patch.write_bytes(
+                b"diff --git a/sample b/sample\n--- a/sample\n+++ b/sample\n"
+                b"@@ -1,2 +1,2 @@\n \n-old\n+new\n"
+            )
+            run_git(source, ["add", ".gitattributes", "vendor/patches/fix.patch"])
+            run_git(source, ["commit", "-m", "native patch format"])
+            _check_source_tree_whitespace(
+                fixture.control, fixture.base, run_git(source, ["rev-parse", "HEAD^{tree}"]),
+            )
+            (source / "value.txt").write_bytes(b"first \n")
+            run_git(source, ["commit", "-am", "invalid source whitespace"])
+            with self.assertRaisesRegex(DeltaWorkflowError, "trailing whitespace"):
+                _check_source_tree_whitespace(
+                    fixture.control, fixture.base, run_git(source, ["rev-parse", "HEAD^{tree}"]),
+                )
+
     def test_zig_selection_uses_latest_compatible_stable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)
