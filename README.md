@@ -8,9 +8,7 @@ Herdr Extended is an unofficial, upstream-first distribution that makes practica
 
 Every published release contains matching Windows, Linux, and macOS binaries built from one reviewed stable Herdr release and one ordered patch queue. Releases are normal stable GitHub releases, and the integrated update paths reject prerelease feeds.
 
-**Current release:** [2026.10.03.3](https://github.com/hdosys/herdr-ext/releases/tag/v2026.10.03.3), based on Herdr v0.9.3. See the [changelog](https://github.com/hdosys/herdr-ext/blob/master/CHANGELOG.md) for shipped changes.
-
-**Development source:** Herdr v0.9.5 plus three reviewed critical upstream fixes. Candidate **2026.10.28.1** is being prepared; it is not yet a published Herdr Extended release.
+**Current release:** [2026.10.29.1](https://github.com/hdosys/herdr-ext/releases/tag/v2026.10.29.1), based on Herdr v0.9.5 with three reviewed upstream fixes for terminal crashes, shutdown session preservation, and live Unix server sockets. See the [changelog](https://github.com/hdosys/herdr-ext/blob/master/CHANGELOG.md) for shipped changes.
 
 [What differs from upstream](#what-differs-from-upstream) · [Install](#install) · [First use](#first-use) · [Everyday use](#everyday-use) · [Troubleshooting](#troubleshooting) · [Project reference](#project-reference)
 
@@ -122,7 +120,7 @@ The managed install lives under `%LOCALAPPDATA%\Programs\Herdr`, registers **Her
 winget install --id hdosys.herdr-win --exact --source winget
 ```
 
-The package ID remains `hdosys.herdr-win`. WinGet receives new versions after Microsoft accepts the manifest into its catalog, so it can lag behind GitHub releases. Track the [2026.10.03.3 submission](https://github.com/microsoft/winget-pkgs/pull/446485), or use direct setup for the latest GitHub release.
+The package ID remains `hdosys.herdr-win`. WinGet receives new versions after Microsoft accepts the manifest into its catalog, so it can lag behind GitHub releases. The catalog currently offers **2026.10.03.3**. Use direct setup for **2026.10.29.1** until the new version is available through WinGet.
 
 ### Windows portable
 
@@ -170,11 +168,11 @@ herdr --remote workbox --provision --yes --json
 
 The Windows SSH user's OpenSSH default shell must be `cmd.exe` or PowerShell 7 (`pwsh.exe`), and persistent server launch requires exactly one active desktop session owned by that user. The first probe is reused for the complete decision, the portable payload transfers once, and visible progress reports every real preparation, validation, stop, activation, verification, and opening phase. Provisioning validates the complete payload before stopping or replacing a server and verifies the exact binary, version, and protocol afterward.
 
-Explicit provisioning also transfers your existing client configuration to Windows or Unix targets, without a separate per-host file. Machine-local shell and directory paths, agent arguments, custom command bindings, sound paths, and onboarding state stay on the target; other settings come from the client. The development build also synchronizes the status-bar entry list, including commands, and its separator. Referenced scripts, programs, and credentials must already be available on the target. The result is validated before writing. Ordinary attachment does not synchronize configuration. See the [configuration policy](https://github.com/hdosys/herdr-ext/blob/master/PRODUCT.md).
+Explicit provisioning also transfers your existing client configuration to Windows or Unix targets, without a separate per-host file. Machine-local shell and directory paths, agent arguments, custom command bindings, sound paths, and onboarding state stay on the target; other settings come from the client, including the status-bar entry list, its commands, and its separator. Referenced scripts, programs, and credentials must already be available on the target. The result is validated before writing. Ordinary attachment does not synchronize configuration. See the [configuration policy](https://github.com/hdosys/herdr-ext/blob/master/PRODUCT.md).
 
 ### Fork-specific options
 
-The **development installer** also protects existing remote configuration during provisioning: missing configuration is created automatically, unchanged settings are left alone, and differing settings require one confirmation (default No). Automation can explicitly allow replacement with `--provision --overwrite-config --yes`; `--yes` alone preserves differing settings. Ordinary connections never transfer settings or ask about them. This consent flow is not yet in release 2026.10.03.3.
+Remote provisioning protects existing configuration: missing configuration is created automatically, unchanged settings are left alone, and differing settings require one confirmation (default No). Automation can explicitly allow replacement with `--provision --overwrite-config --yes`; `--yes` alone preserves differing settings. Ordinary connections never transfer settings or ask about them.
 
 Automatic agent startup is **off by default**. To opt in to starting OpenCode in the root pane of each genuinely new persistent-session tab, add:
 
