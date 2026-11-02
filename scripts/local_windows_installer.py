@@ -989,19 +989,11 @@ def validate_bundle(
 
 def prepare(
     options: argparse.Namespace, *, paths: InstallerPaths | None = None
-) -> None:
+) -> InstallerIdentity:
     source = _source_root(options.source_worktree)
     stage = _safe_path(options.stage_dir, "--stage-dir", directory=True)
     launcher = _safe_path(options.launcher_exe, "--launcher-exe", directory=False)
     helper = _safe_path(options.installer_helper_exe, "--installer-helper-exe", directory=False)
-    _verify_self_contained_windows_executables(
-        (
-            _safe_path(stage / "herdr.exe", "staged runtime", directory=False),
-            launcher,
-            helper,
-        )
-    )
-    _validate_stage(source, stage)
     identity = _identity(stage, launcher)
     if paths is None:
         paths = _candidate_paths(
@@ -1017,7 +1009,7 @@ def prepare(
             raise LocalInstallerError("existing bundle uses another identity")
         print(f"bundle={destination}")
         print("reused=yes")
-        return
+        return identity
 
     temporary = paths.input_root / f".{identity.build_id}.prepare-{uuid.uuid4().hex}"
     temporary.mkdir()
@@ -1048,13 +1040,13 @@ def prepare(
             shutil.rmtree(temporary)
     print(f"bundle={destination}")
     print("reused=no")
+    return identity
 
 
 def build(
     options: argparse.Namespace,
     *,
     paths: InstallerPaths | None = None,
-    run_interactive_probe: bool = False,
 ) -> None:
     source = _source_root(options.source_worktree)
     bundle = _safe_path(options.input_bundle, "--input-bundle", directory=True)
@@ -1066,8 +1058,18 @@ def build(
             isolated=options.isolated,
         )
     identity = validate_bundle(source, bundle, input_root=paths.input_root)
-    if run_interactive_probe:
-        _run_interactive_server_launch_probe(source, bundle / "stage" / "herdr.exe")
+    _package(source, bundle, identity, paths, options.product_name)
+
+
+def _package(
+    source: Path,
+    bundle: Path,
+    identity: InstallerIdentity,
+    paths: InstallerPaths,
+    product_name: str | None,
+) -> None:
+    # Only freshly prepared or fully validated bundles enter this internal path.
+    # The source packager retains its own standalone input-boundary validation.
     paths.output_path.parent.mkdir(parents=True, exist_ok=True)
     powershell = _windows_powershell()
     packager_arguments = [
@@ -1095,8 +1097,8 @@ def build(
         "-BaseVersion",
         identity.base_version,
     ]
-    if options.product_name is not None:
-        packager_arguments.extend(["-ProductName", options.product_name])
+    if product_name is not None:
+        packager_arguments.extend(["-ProductName", product_name])
     packager_arguments.extend(
         [
             "-OutputPath",
@@ -1121,12 +1123,12 @@ def build(
             end="" if result.stderr.endswith("\n") else "\n",
         )
     selected_product_name = (
-        json.dumps(options.product_name)
-        if options.product_name is not None
+        json.dumps(product_name)
+        if product_name is not None
         else "packager-default"
     )
     print(f"product_name={selected_product_name}")
-    print(f"elapsed_seconds={time.monotonic() - started:.3f}")
+    print(f"elapsed_seconds={time.monotonic() - started:.3f}", flush=True)
 
 
 def release_precheck(options: argparse.Namespace) -> None:
@@ -1252,9 +1254,11 @@ def candidate(options: argparse.Namespace) -> None:
                 product_name=options.product_name,
             ),
             paths=paths,
-            run_interactive_probe=True,
         )
         print("reused=yes")
+        _run_interactive_server_launch_probe(
+            source, existing_bundle / "stage" / "herdr.exe"
+        )
         _prune_completed_candidate_outputs(paths, build_id, isolated=isolated)
         print(f"total_elapsed_seconds={time.monotonic() - total_started:.3f}")
         return
@@ -1345,7 +1349,7 @@ def candidate(options: argparse.Namespace) -> None:
             cwd=source,
             timeout=180,
         )
-        prepare(
+        identity = prepare(
             argparse.Namespace(
                 source_worktree=source,
                 stage_dir=stage,
@@ -1355,14 +1359,10 @@ def candidate(options: argparse.Namespace) -> None:
             paths=paths,
         )
 
-    build(
-        argparse.Namespace(
-            source_worktree=source,
-            input_bundle=paths.input_root / build_id,
-            product_name=options.product_name,
-        ),
-        paths=paths,
-        run_interactive_probe=True,
+    bundle = paths.input_root / build_id
+    _package(source, bundle, identity, paths, options.product_name)
+    _run_interactive_server_launch_probe(
+        source, bundle / "stage" / "herdr.exe"
     )
     _prune_completed_candidate_outputs(paths, build_id, isolated=isolated)
     print(f"total_elapsed_seconds={time.monotonic() - total_started:.3f}")

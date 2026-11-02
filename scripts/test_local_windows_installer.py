@@ -46,6 +46,7 @@ from scripts.local_windows_installer import (
     candidate,
     parse_identity,
     test_one,
+    validate_bundle,
 )
 
 
@@ -121,6 +122,8 @@ class LocalWindowsInstallerTests(unittest.TestCase):
 
             (stage / "herdr.exe").write_bytes(b"changed")
             self.assertNotEqual(_hashes(bundle), expected)
+            with self.assertRaisesRegex(LocalInstallerError, "files or hashes changed"):
+                validate_bundle(bundle, bundle, input_root=bundle)
             self.assertEqual(
                 expected["stage/herdr.exe"], hashlib.sha256(b"runtime").hexdigest()
             )
@@ -374,6 +377,7 @@ class LocalWindowsInstallerTests(unittest.TestCase):
                 ),
                 patch("scripts.local_windows_installer._directory") as directory,
                 patch("scripts.local_windows_installer.build") as package,
+                patch("scripts.local_windows_installer._run_interactive_server_launch_probe") as probe,
                 patch(
                     "scripts.local_windows_installer._prune_completed_candidate_outputs"
                 ) as prune,
@@ -388,7 +392,7 @@ class LocalWindowsInstallerTests(unittest.TestCase):
                 package.call_args.args[0].product_name, "Herdr Quality Test"
             )
             self.assertEqual(package.call_args.kwargs["paths"], paths)
-            self.assertTrue(package.call_args.kwargs["run_interactive_probe"])
+            probe.assert_called_once_with(source, bundle / "stage" / "herdr.exe")
             prune.assert_called_once_with(paths, BUILD_ID, isolated=False)
 
     def test_candidate_validates_integrations_before_bundle_reuse(self) -> None:

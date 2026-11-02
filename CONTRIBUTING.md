@@ -261,6 +261,43 @@ python scripts/local_windows_installer.py candidate `
   --source-worktree <development-worktree>
 ```
 
+The fresh path validates the completed input bundle once before publishing it,
+then passes that exact bundle directly to the source packager. Do not revalidate
+the original stage before copying it or reopen the just-prepared bundle through
+the standalone build entrypoint. The source packager retains its independent
+input, PE, version, ConPTY, compiler, and final-artifact checks. Separate or resumed
+builds still validate the bundle's exact file set, hashes, native imports, stage,
+and executable identities before packaging. No validation-skip option is exposed.
+
+The candidate command prints and flushes the packaged artifact and hash before
+its single native interactive server-launch probe. Report that artifact with
+probe acceptance pending if the command is still running. A later probe failure
+does not erase the installer or establish successful acceptance.
+
+For a packaging-only rerun with an unchanged, source-matched payload, use its
+existing immutable input bundle instead of creating a new candidate build ID and
+recompiling Rust:
+
+```powershell
+python scripts/local_windows_installer.py build `
+  --source-worktree <development-worktree> `
+  --input-bundle <exact-current-installer-input-bundle>
+```
+
+Keep the payload's build ID and freshness unchanged. Confirm its source provenance
+before selecting the bundle; a matching timestamp alone is not evidence. A repack
+does not rerun the native probe when the exact payload and relevant environment
+already have passing evidence. New runtime bytes still require the candidate's
+probe. If the canonical installer itself already matches all relevant inputs, use
+it rather than repacking. Do not retain candidate stamps or change nonce rules to
+invent an implicit cross-build cache.
+
+Treat the successful runner's validations as acceptance evidence for those exact
+inputs. Do not repeat `validate_bundle`, stage checks, or raw runtime version calls
+afterward. Add only distinct evidence, such as the finished setup's PE version
+fields or a changed installed effect. Runtime queries must use the existing
+clean-runtime-environment path, not inherit a remote sidecar lease context.
+
 After the handoff, run the selected Rust behavior check once through the shared
 Candidate target. Reuse passing evidence while source, inputs, and environment are
 unchanged; a Git commit or push alone does not require another run:
