@@ -22,7 +22,6 @@ pub(crate) const EXCLUDED_KEYS: &[&str] = &[
     "terminal.new_cwd",
     "worktrees.directory",
     "agent.args",
-    "keys.command",
     "ui.sound.path",
     "ui.sound.done_path",
     "ui.sound.request_path",
@@ -200,7 +199,10 @@ tab_bar_right_separator = " | "
 enabled = false
 path = 'C:\sound.wav'
 [keys]
-command = [{ key = "ctrl+y", command = "local-command" }]
+command = [
+    { key = "ctrl+y", command = 'nu --no-config-file "%USERPROFILE%\.config\opencode\commands\work-mode.nu" interactive', description = "OpenCode interactive" },
+    { key = "ctrl+j", command = 'nu --no-config-file "%USERPROFILE%\.config\opencode\commands\work-mode.nu" autonomous', description = "OpenCode autonomous" },
+]
 [theme]
 name = "dracula"
 [session]
@@ -208,7 +210,10 @@ auto_start_agent = "opencode"
 "#;
         let outgoing = validated_text(&filtered(local).unwrap()).unwrap();
         assert!(!outgoing.contains("pwsh.exe"));
-        assert!(!outgoing.contains("local-command"));
+        assert_eq!(
+            parse(&outgoing).unwrap()["keys"],
+            parse(local).unwrap()["keys"]
+        );
         let encoded = base64::engine::general_purpose::STANDARD.encode(outgoing);
         assert_eq!(
             import(encoded.as_bytes(), &path, false).unwrap(),
@@ -250,7 +255,7 @@ auto_start_agent = "opencode"
             Some(" | ")
         );
         assert_eq!(actual["ui"]["sound"]["path"].as_str(), sound.to_str());
-        assert!(saved.contains("remote-command"));
+        assert_eq!(actual["keys"]["command"], source["keys"]["command"]);
         assert_eq!(
             import(encoded.as_bytes(), &path, false).unwrap(),
             ConfigOutcome::Unchanged
@@ -271,6 +276,7 @@ auto_start_agent = "opencode"
         let fresh = parse(&std::fs::read_to_string(fresh).unwrap()).unwrap();
         assert_eq!(fresh["ui"]["tab_bar_right"], source["ui"]["tab_bar_right"]);
         assert_eq!(fresh["ui"]["tab_bar_right_separator"].as_str(), Some(" | "));
+        assert_eq!(fresh["keys"]["command"], source["keys"]["command"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 

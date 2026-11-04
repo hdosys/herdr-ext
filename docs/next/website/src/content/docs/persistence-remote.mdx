@@ -136,14 +136,17 @@ target; when absent there, the target defaults apply:
 | `terminal.default_shell`, `terminal.new_cwd` | Machine-specific executable and working directory |
 | `worktrees.directory` | Machine-specific checkout root |
 | `agent.args` | Free-form arguments can contain local paths or credentials |
-| `keys.command` | Commands are written for the originating machine |
 | `ui.sound.path`, `ui.sound.done_path`, `ui.sound.request_path` | Local sound files are not copied |
 
 All other configuration settings are transferred. New settings therefore transfer
 unless explicitly added to this exclusion list. Configuration is serialized as TOML;
 comments and formatting are preserved when settings are unchanged, but rewritten
-when a transfer applies. Status-bar entries (`ui.tab_bar_right`) transfer as values;
-their referenced programs and scripts must already exist on the target.
+when a transfer applies. Custom keyboard commands (`keys.command`) and status-bar
+entries (`ui.tab_bar_right`) transfer unchanged, including command strings and
+descriptions. Their referenced programs and scripts must already exist on the
+target. Paths are not rewritten and commands are not executed by the transfer.
+Do not embed credentials in transferable command strings. This provisioning policy
+is separate from the local keybinding profile used during an ordinary remote attach.
 Invalid input fails without
 replacing the existing configuration. A transfer larger than 1 MiB is rejected.
 This copies configuration values only, not credentials, agent configuration files,
