@@ -304,11 +304,15 @@ tests remain the detailed implementation truth.
   preserve differing settings unless `--overwrite-config` explicitly authorizes
   replacement; general `--yes` does not. JSON reports `applied`, `unchanged`,
   `preserved`, or `no_source`. There is no separate sync command or stored sync policy.
-  Shell and directory paths, free-form agent arguments, custom command bindings,
-  local sound paths and onboarding state remain local. The status-bar entry list
-  and separator synchronize, including command entries, so new targets do not need
-  a separate status setup. Commands transfer unchanged and execute on the target;
+  Shell and directory paths, free-form agent arguments (which can contain local paths
+  or credentials), local sound paths and onboarding state remain local. The
+  development implementation also transfers custom keyboard commands (`keys.command`),
+  alongside the status-bar entry list and separator, including command entries.
+  Commands transfer unchanged and execute only when invoked on the target;
   referenced programs, scripts and credentials must already be available there.
+  The transfer neither rewrites paths nor copies referenced files or credential
+  stores. Do not embed credentials in transferable commands. This policy does not
+  change the local keybinding profile used by ordinary remote attachment.
 - An expected missing Windows probe command on a Unix target is platform-detection
   data, not a user-visible error. Actual SSH authentication/connection diagnostics
   and failed Windows probes remain visible.

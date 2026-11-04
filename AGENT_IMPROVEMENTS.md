@@ -129,6 +129,16 @@ configuration repository.
   compiler and effective cache context explicitly. Cross-Sandbox cache retention
   remains outside this repository; no persistent context or fallback was added.
 
+  Recurrence on 2026-11-04: the host-config transfer correction again started with
+  only Zig 0.15.2 and no reusable Candidate cache. Providing verified compatible
+  0.16.0 took a roughly 24-second download plus extraction; the subsequent native
+  build failed at MSVC resource conversion, and the separate focused-test compile
+  could not execute a generated build script (Windows error 1392). No first
+  installer was produced, so the tiny artifact goal was not met. Exact total wait
+  was not retained. The existing proposal to preserve a validated source-compatible
+  compiler context remains useful; do not turn these unproven native failures into
+  automatic retries, cache deletion or alternate-linker selection.
+
   **Follow-up status: done. Use the existing source-compatible resolver before
   provisioning a missing compiler.** The status-sync correction missed the two-minute
   request-to-artifact goal: the first native build exhausted a 600-second process
