@@ -131,13 +131,26 @@ configuration repository.
 
   Recurrence on 2026-11-04: the host-config transfer correction again started with
   only Zig 0.15.2 and no reusable Candidate cache. Providing verified compatible
-  0.16.0 took a roughly 24-second download plus extraction; the subsequent native
-  build failed at MSVC resource conversion, and the separate focused-test compile
-  could not execute a generated build script (Windows error 1392). No first
-  installer was produced, so the tiny artifact goal was not met. Exact total wait
-  was not retained. The existing proposal to preserve a validated source-compatible
-  compiler context remains useful; do not turn these unproven native failures into
-  automatic retries, cache deletion or alternate-linker selection.
+  0.16.0 took a roughly 24-second download plus extraction. A task override then
+  replaced Candidate's guest-local Cargo target with a worktree-local target. The
+  generated serde_core executable contained only zero bytes and could not execute
+  (Windows error 1392). A bounded comparison compiled the same build-script source
+  with the same compiler to both locations: the worktree output was entirely zero,
+  while the guest temporary output had a valid PE header. Both compiler calls
+  returned success. NTFS names and absence of reparse points did not distinguish
+  the surfaces; file-handle queries reported different volume serials.
+
+  Resolution: removed the task override and reused Candidate's existing guest-local
+  default, with Zig outputs/caches on that surface. The unchanged source produced
+  the canonical installer in 310.424 seconds and passed its native launch probe;
+  focused transfer checks passed after a 136.928-second test invocation. The
+  earlier indoc resource-conversion error did not recur, but its exact internal
+  cause was not independently established. No cache deletion, toolchain fallback,
+  filesystem repair or new build mechanism was introduced. CONTRIBUTING now makes
+  the existing output-boundary requirement explicit. The tiny artifact goal was
+  missed; exact request-to-artifact time was not retained. Preserve the existing
+  validated compiler context and local output owner instead of rediscovering or
+  overriding them during each small change.
 
   **Follow-up status: done. Use the existing source-compatible resolver before
   provisioning a missing compiler.** The status-sync correction missed the two-minute

@@ -338,7 +338,12 @@ ordinary iterations instead of rebuilding dependencies in a new directory.
 
 These commands keep one Sandbox-local Cargo target, remove local build-identity
 variables from the normal test profile, and pass the detected logical processor
-count to Cargo. The ordinary filter uses `just test-one`; the vendored filter runs
+count to Cargo. In Windows Sandbox, retain the runner's default target below the
+guest temporary directory; do not replace it with a target inside a shared
+worktree merely to isolate outputs. A path reporting NTFS and no reparse points
+does not establish that it supports native compiler output correctly. Keep the
+selected Zig output and caches on the same guest-local build surface.
+The ordinary filter uses `just test-one`; the vendored filter runs
 the library manifest with a task-owned temporary lock beside it and removes that
 lock after success or failure. No second target or unrelated PTY lifecycle harness
 is required. Before every
